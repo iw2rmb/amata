@@ -13,6 +13,11 @@ Select the template that matches the type of task spec you are drafting. Each st
 - Document what the task unblocks next and whether it should land as dedicated enabling work before other stories proceed.
 - Update dependency metadata whenever the task changes state so the task index reflects parallel-ready capacity accurately.
 
+## Complexity Planning (COSMIC)
+- Size every new task with the COSMIC method described in `../../COSMIC.md` as you draft the spec, keeping the assumptions alongside the estimate.
+- When the planned COSMIC function points (CFP) exceed 4, split the work into smaller, testable tasks whenever feasible so each slice has its own verification path.
+- Populate the **Planned Complexity (COSMIC)** table during drafting and add a **Factual Complexity** update after implementation lands so estimates and actuals stay paired in the task history.
+
 ## Available Templates
 
 1. `implementation-task.md`

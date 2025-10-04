@@ -9,9 +9,9 @@
 
 ## Workflow and Parallelisation Guardrails
 - The high-level workflow remains: Design Docs → Task Specs → Tests; use this flow to stage work so parallel development never outruns design intent.
-- Draft design docs with the templates catalogued in `~/@iw2rmb/docs/templates/design/README.md`; the templates define required metadata, dependency mirroring, and the parallelisation snapshot.
-- Break designs into task specs using the structures in `~/@iw2rmb/docs/templates/tasks/README.md` so blockers, definition of done, tests, and parallelisation notes stay consistent.
-- After every task update, re-open and regenerate `docs/tasks/README.md` using template in `~/@iw2rmb/docs/templates/tasks/INDEX.md` so it lists all open tasks ordered by blocking dependencies (unblocked work first, most constrained items last). Never rely on a cached editor buffer when refreshing this queue.
+- Draft design docs with the templates catalogued in `/Users/vk/@iw2rmb/docs/templates/design/README.md`; the templates define required metadata, dependency mirroring, and the parallelisation snapshot.
+- Break designs into task specs using the structures in `/Users/vk/@iw2rmb/docs/templates/tasks/README.md` so blockers, definition of done, tests, and parallelisation notes stay consistent.
+- After every task update, re-open and regenerate `docs/tasks/README.md` using template in `/Users/vk/@iw2rmb/docs/templates/tasks/INDEX.md` so it lists all open tasks ordered by blocking dependencies (unblocked work first, most constrained items last). Never rely on a cached editor buffer when refreshing this queue.
 - Lean on the template parallelisation checklist to spot shared fixtures or enabling work before implementation begins.
 - Implementation only begins after the corresponding failing tests or snapshots are committed. Keep PRs scoped to a single task wherever possible so reviewers can validate dependency fields quickly.
 - Maintain `docs/design/README.md` as an index of all design documents with one-line summaries, status checkboxes, and dependency highlights; update it every time any design doc changes.
@@ -21,6 +21,11 @@
 - Any new behaviour must appear in `CHANGELOG.md` with concrete dates (YYYY-MM-DD).
 - Every new or updated design document must list the exact upstream docs, specs, or code packages it depends on—use explicit relative links so the dependency chain remains traceable end-to-end.
 - Before landing any documentation change, verify the current implementation or tests reflect the described behaviour (or note the gap as a follow-up), then record the verification date, evidence, and files reviewed in CHANGELOG.md.
+
+## Complexity Estimation (COSMIC)
+- While decomposing design docs into tasks, size every prospective task using the COSMIC checklist in `/Users/vk/@iw2rmb/docs/COSMIC.md` before the task spec is finalised.
+- If the planned COSMIC function points (CFP) for a task exceed 4, split the work into smaller, testable tasks wherever feasible so each slice remains independently verifiable.
+- Capture the planned COSMIC sizing inside the task spec when drafting it, and record the factual (post-implementation) sizing once the code lands so the task documents both the estimate and actual complexity.
 
 ## Parallel Work Coordination
 - Use `docs/tasks/README.md` as the single dependency-ordered reservation surface.
@@ -33,5 +38,5 @@
 # How to code
 - Every function must start with a one-liner comment what/why this function performs
 - If source code file edited exceeds 500 lines split it in logical modules in different files
-- For golang source code follow `~/@iw2rmb/docs/GOLANG.md` instructions
+- For golang source code follow `/Users/vk/@iw2rmb/docs/GOLANG.md` instructions
 - Run and update the tests referenced in tasks before declaring work complete, and document results in `CHANGELOG.md`.

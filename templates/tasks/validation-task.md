@@ -6,7 +6,24 @@
   - Environment readiness, fixtures, or upstream tasks (relative links)
 - **Unblocks**:
   - Downstream validations, release gates, or launch tasks (relative links)
-- **Owners / Operators**: TODO
+- **Planned Complexity (COSMIC)**
+  - Sized on: YYYY-MM-DD · Planned CFP: _
+
+| Functional process | E | X | R | W | CFP |
+|--------------------|---|---|---|---|-----|
+| <name>             |   |   |   |   |     |
+| TOTAL              |   |   |   |   |     |
+
+  - Assumptions / notes: TODO
+- **Factual Complexity (COSMIC)**
+  - Measured on: YYYY-MM-DD · Actual CFP: _ (fill after execution)
+
+| Functional process | E | X | R | W | CFP |
+|--------------------|---|---|---|---|-----|
+| <name>             |   |   |   |   |     |
+| TOTAL              |   |   |   |   |     |
+
+  - Variance / follow-ups: TODO
 
 - **Why**
   - Outline the risk or regression this validation addresses. Link to design doc / incident / SLA.

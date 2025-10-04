@@ -7,6 +7,7 @@
 - docs/templates/design/*: Removed plan dependencies, retargeted task links to `docs/tasks`, and cross-checked component, integration, program, and resiliency templates (reviewed 2025-10-04).
 - docs/templates/tasks/*: Stripped parent plan metadata, updated sample paths to `docs/tasks`, and refreshed references after moving the queue template (reviewed 2025-10-04).
 - templates/plans/*: Deleted superseded plan templates after confirming no remaining references in guidance (reviewed 2025-10-04).
+- docs/AGENTS.md, docs/templates/tasks/*: Added COSMIC sizing requirements (planned and factual) plus the CFP split guardrail; verified alignment with `COSMIC.md` and ensured tables exist in each task template (reviewed 2025-10-04).
 
 ## 2025-10-01
 - docs/AGENTS.md: Replaced the `.inprogress.md` workflow with the dependency-ordered queue in `docs/plans/README.md`; ran `rm .inprogress.md`, `mkdir -p plans`, and `cat > plans/README.md` to establish the new ledger, then refreshed the coordination rules to enforce reading the latest file state before every edit.
