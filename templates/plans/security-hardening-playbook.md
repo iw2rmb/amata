@@ -56,7 +56,3 @@ Describe how detection, prevention, and response tracks run concurrently, includ
 
 ## Notes on Template Deviations
 - Document any structural changes to this template and the reason.
-
-## Verification Log
-- 2025-09-30: Added feature scoreboard, dependency map, unblocking backlog, and parallelisation strategy sections per updated plan guidance.
-- 2025-09-29: Template structure established — aligned with plan guidance in `AGENTS.md`; verify against implementation/docs before marking complete.

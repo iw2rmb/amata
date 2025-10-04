@@ -30,8 +30,7 @@
 - **Tests / Automation**
   - Automated suites triggered (e.g., `go test ./tests/lab`)
   - CI jobs that must stay red until work lands
-- **Verification Log**
-  | Date | Operator | Summary | Artefacts |
-  | --- | --- | --- | --- |
+- **CHANGELOG Update**
+  - Add a dated summary to `docs/CHANGELOG.md` with command transcripts, artefacts, and follow-up owners.
 - **Follow-Ups**
   - Issues or roadmap tasks spawned from findings.

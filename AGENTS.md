@@ -13,6 +13,7 @@
 - Major work begins with a design document under `docs/design/<feature>/README.md` describing intent, architecture, risks, test strategy, deliverables, and the dependency map covering upstream plans/features/tasks. Start from the best-fit template in `templates/design/README.md`.
 - Translate the design into executable roadmap entries inside `roadmap/<feature>/<n>-<stage>.md`, one file per code file or behavioural slice. Each roadmap entry must document how it reduces blocking risk, the unblocking work it depends on, and the tasks it unlocks next.
 - Plans under `docs/plans/<initiative>/README.md` orchestrate multiple features. Maintain a feature scoreboard with status, blocked-by items, and slack/ready-to-start signals so teams can launch work in parallel without re-reading the entire plan.
+- After every roadmap task update, re-open and regenerate `docs/plans/README.md` so it lists all open tasks ordered by blocking dependencies (unblocked work first, most constrained items last). Never rely on a cached editor buffer when refreshing this queue.
 - Keep design docs, plans, and roadmap tasks decomposed into small, testable slices. If scope grows, split follow-on work into additional docs so the backlog surfaces the next ready-to-run items.
 - With every doc update, run a **parallelisation review**: inspect dependent artefacts, extract shared components/functions/fixtures that multiple tasks need, and schedule them as enabling tasks or dedicated "unblocking" plans before other work starts.
 - Each roadmap task file must cover why the task is required, how it works, what changes are needed and where, definition of done, tests to perform, status with a checkbox, dependency metadata, and a short "Parallelisation Notes" section identifying co-ordination touchpoints.
@@ -26,12 +27,17 @@
 - Every new or updated design document must list the exact upstream docs, specs, or code packages it depends on—use explicit relative links so the dependency chain remains traceable end-to-end.
 - Before landing any documentation change, confirm the described behaviour matches the current implementation (or capture the delta as a follow-up) and record the verification details—date plus files inspected—inside the doc or roadmap entry.
 
+## Parallel Work Coordination
+- Use `docs/plans/README.md` as the single dependency-ordered reservation surface.
+- Step 0: Immediately before editing, re-open `docs/plans/README.md` so you are working from the latest state—never depend on a cached copy.
+- Step 1: Review the queue top-down; entries written as `- [ ] path` are planned and unclaimed, while lines starts with `- [x]` are already reserved.
+- Step 2.1: If the task you want already starts with `- [x]`, leave the file unchanged and choose another unblocked task.
+- Step 2.2: If the task is ready and unclaimed, update its line by changing to `- [x]` so other agents see it is reserved.
+- Step 3: Once the task hands off or completes, remove its line entirely so downstream work can proceed.
+
 # How to code
 - Every function must start with a one-liner comment what/why this function performs
 - If source code file edited exceeds 500 lines split it in logical modules in different files
 - For golang source code follow `/Users/vk/.codex/GOLANG.md` instructions
-- Run and update the tests referenced in roadmap tasks before declaring work complete, and document results in the verification logs.
+- Run and update the tests referenced in roadmap tasks before declaring work complete, and document results in `docs/CHANGELOG.md`.
 
-## Verification Log
-- 2025-09-30: Reviewed `AGENTS.md`, `templates/design/README.md`, `templates/tasks/README.md`, and `templates/plans/README.md` to align dependency, naming, and parallelisation guidance; cross-checked launch, deprecation, and security plan templates for the new sections.
-- 2025-09-29: Reviewed `AGENTS.md`, `templates/design/README.md`, `templates/tasks/README.md`, and `templates/plans/README.md` to confirm workflow, decomposition, and template guidance remain consistent.

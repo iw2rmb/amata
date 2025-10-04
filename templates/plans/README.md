@@ -34,8 +34,4 @@ Use these plan templates to coordinate execution workflows that accompany design
 - Populate the Feature Scoreboard, Dependency Map, and Unblocking Backlog before circulating the plan so contributors can queue parallel work safely.
 - Record who owns each stage, the decision gates, and the evidence required before advancing to the next phase.
 - If none of the plan templates match the work, pause and propose a new template inside `templates/plans/` before drafting.
-- Update verification logs inside the plan and any related design/task docs once you confirm the plan aligns with reality.
-
-## Verification Log
-- 2025-09-30: Enhanced plan guidance with feature scoreboards, dependency maps, and unblocking backlogs; verified launch, deprecation, and security plan templates include the new structures.
-- 2025-09-29: Created `templates/plans/README.md` and initial plan templates aligned with `AGENTS.md` workflow and decomposition guidance.
+- Add dated entries to `docs/CHANGELOG.md` for the plan and any related design/task docs once you confirm the plan aligns with reality.

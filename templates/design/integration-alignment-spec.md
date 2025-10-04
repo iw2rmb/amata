@@ -61,10 +61,6 @@ List cross-repo risks and how to address them (e.g., version skew, auth failures
 | --- | --- | --- |
 | YYYY-MM-DD | Example decision | Refer to issue/PR |
 
-## Verification Log
-| Date | Reviewer | Evidence (tests/docs inspected) |
-| --- | --- | --- |
-
 ## Follow-Up Tasks (YYYY-MM-DD)
 Enumerate roadmap entries created or updated because of this alignment. Use the same checklist structure as the Workspace HTTP API design, without the redundant trailing status:
 - [x] Completed (YYYY-MM-DD) – [<N> <Task name>](<path-to-task.md>)

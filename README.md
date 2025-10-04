@@ -6,7 +6,7 @@ This repository curates the documentation system for a spec-driven software deli
 - `docs/plans/<initiative>/README.md` — programme-level plans that coordinate multiple features, track readiness signals, and surface dependencies.
 - `docs/design/<feature>/README.md` — feature design dossiers covering intent, architecture, risks, tests, and dependency maps derived from the plans.
 - `roadmap/<feature>/<n>-<stage>.md` — roadmap tasks that translate designs into executable, verifiable work packages with status, definition of done, and parallelisation notes.
-- `templates/` — scaffolding for plans, designs, and tasks to keep metadata, dependency mirroring, and verification logs consistent.
+- `templates/` — scaffolding for plans, designs, and tasks to keep metadata, dependency mirroring, and entries in `docs/CHANGELOG.md` consistent.
 
 ## Workflow Highlights
 1. Author or update design documentation before implementation, explicitly linking upstream plans and downstream tasks.

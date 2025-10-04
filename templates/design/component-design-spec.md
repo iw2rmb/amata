@@ -72,11 +72,6 @@ Call out new suites, fixtures, or automation required and who owns them.
 ## Rollout Plan
 Phases (flag, shadow, GA), handoff steps, operator documentation updates.
 
-## Verification Log
-| Date | Reviewer | Evidence (files/commands/tests) |
-| --- | --- | --- |
-| YYYY-MM-DD | name | `go test ./...`, inspected `internal/...`
-
 ## Open Questions
 Track unresolved decisions. Update/close as they resolve.
 

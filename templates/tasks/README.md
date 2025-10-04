@@ -17,11 +17,11 @@ Select the template that matches the type of roadmap entry you are drafting. Eac
 
 1. `implementation-task.md`
    - **When to use**: Code-focused slices like `@iw2rmb/grid/roadmap/membership/01-protocol-foundation.md` or `@iw2rmb/ploy/roadmap/mods/01-planner-skeleton.md`.
-   - **Highlights**: Explicit change list, test coverage requirements, dependency matrices, parallelisation notes, verification evidence, and space to flag changelog or docs impact.
+   - **Highlights**: Explicit change list, test coverage requirements, dependency matrices, parallelisation notes, and cues to record verification evidence plus downstream docs impact in `docs/CHANGELOG.md`.
 
 2. `validation-task.md`
    - **When to use**: Operational drills and lab validations similar to `@iw2rmb/grid/roadmap/deploy/06-vps-lab-validation.md`.
-   - **Highlights**: Environment prerequisites, execution steps, artefacts to collect, dependencies, parallel execution considerations (e.g., lab slot contention), and verification log for repeatable runs.
+   - **Highlights**: Environment prerequisites, execution steps, artefacts to collect, dependencies, parallel execution considerations (e.g., lab slot contention), and an entry in `docs/CHANGELOG.md` for repeatable runs.
 
 3. `documentation-task.md`
    - **When to use**: Communication deliverables such as `@iw2rmb/grid/roadmap/rolling-upgrade/06-changelog.md`.
@@ -33,9 +33,5 @@ Select the template that matches the type of roadmap entry you are drafting. Eac
 - Enumerate the change list and tests you will add; if implementation work is required, ensure the prerequisite failing test exists before starting execution.
 - Populate the Blocked by/Unblocks lists and **Parallelisation Notes** before marking a task "Ready" so other contributors can pick it up confidently.
 - Adjust the template structure when it improves clarity or completeness, noting the deviation so reviewers understand the intent.
-- Log verification evidence (date and inspected files) before marking the checkbox complete so the roadmap entry stays aligned with the expectations in `AGENTS.md`.
+- Log verification evidence (date and inspected files) in `docs/CHANGELOG.md` before marking the checkbox complete so the roadmap entry stays aligned with the expectations in `AGENTS.md`.
 - If no template captures the work, pause and propose a new roadmap template in `templates/tasks/` before continuing.
-
-## Verification Log
-- 2025-09-30: Refreshed roadmap task guidance to emphasise dependency metadata, small testable slices, and parallelisation notes; checked implementation, validation, and documentation task templates for the new sections.
-- 2025-09-29: Cross-checked `AGENTS.md`, `templates/design/README.md`, and `templates/tasks/README.md` for consistent roadmap workflow guidance and new template escalation paths.

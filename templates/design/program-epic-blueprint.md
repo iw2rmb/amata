@@ -63,10 +63,6 @@ Summarise required failing tests, lab runs, beta phases. Link to roadmap tasks t
 ## Rollout & Adoption Plan
 Phased enablement, feature flag strategy, operator training, fallback paths.
 
-## Verification Log
-| Date | Reviewer | Evidence |
-| --- | --- | --- |
-
 ## Open Questions
 Track unresolved decisions or dependencies.
 

@@ -53,11 +53,6 @@ Metrics, logs, health endpoints, tracing, alerts to add or refine. Capture targe
 - Integration: process kill/drain scenarios.
 - Lab/Production Drills: describe scripts, environments, artefacts to capture.
 
-## Verification Log
-| Date | Scenario | Evidence |
-| --- | --- | --- |
-| YYYY-MM-DD | e.g., Gateway failover drill | `notes/...tar.gz` |
-
 ## Follow-Up Work (YYYY-MM-DD)
 Document the remaining hardening gaps or future iterations. Follow the roadmap checklist format, omitting redundant trailing status text:
 - [x] Completed (YYYY-MM-DD) – [<N> <Task name>](<path-to-task.md>)

@@ -18,7 +18,7 @@ Use these templates to keep design documentation consistent across teams. Follow
 
 1. `component-design-spec.md`
    - **When to use**: New service/component capabilities or substantial feature expansions. Mirrors documents like `@iw2rmb/grid/docs/design/membership/README.md` and `@iw2rmb/ploy/docs/design/ipfs-artifacts/README.md` where the goal is to spell out intent, architecture, interfaces, and rollout.
-   - **Highlights**: Expanded metadata with dependency fields, detailed architecture and interface sections, risk and observability callouts, parallelisation snapshot, shared component inventory, and a verification log so evidence stays attached to the doc.
+   - **Highlights**: Expanded metadata with dependency fields, detailed architecture and interface sections, risk and observability callouts, parallelisation snapshot, shared component inventory, and an entry in `docs/CHANGELOG.md` so evidence stays attached to the doc.
 
 2. `integration-alignment-spec.md`
    - **When to use**: Cross-repo contract alignments (e.g., `@iw2rmb/ploy/docs/design/workflow-rpc-alignment/README.md`). Focus on harmonising payloads, subjects, CLI flows, and migration tactics between systems.
@@ -41,7 +41,3 @@ Use these templates to keep design documentation consistent across teams. Follow
 - After drafting or revising a design doc, update `docs/design/README.md` with the summary, status checkbox, dependency highlights, and a dated verification note referencing the files you inspected.
 - Capture supporting scripts, fixtures, or helper commands inside the design doc before implementation begins so roadmap tasks can reference them, and flag which items belong in an "unblocking" plan.
 - If none of the existing templates fit the work, pause and propose a new template in `templates/design/` before drafting.
-
-## Verification Log
-- 2025-09-30: Updated template guidance for dependency metadata, parallelisation snapshots, and unblocking work alignment; verified `component-design-spec.md`, `integration-alignment-spec.md`, `program-epic-blueprint.md`, and `resiliency-hardening-plan.md` include the new sections.
-- 2025-09-29: Inspected `AGENTS.md` and `templates/design/README.md` to ensure instructions on template selection, decomposition, deviations, and new template proposals align.
