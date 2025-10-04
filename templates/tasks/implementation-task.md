@@ -1,7 +1,6 @@
 # <Task ID> – <Concise Title>
 
 - **Identifier**: `<initiative>-<capability>-<sequence>`
-- **Parent Plan**: `[<Plan Name>](../../docs/plans/<initiative>/README.md)`
 - [ ] **Status**: Not started · In progress · Completed (set one, include date)
 - **Blocked by**:
   - `<initiative>-<capability>-<sequence>` / `../design/<feature>/README.md`
@@ -27,9 +26,9 @@
 - **Parallelisation Notes**
   - Shared fixtures, data, or helpers needed by neighbouring tasks
   - Environments/reviewers needed in parallel
-  - Whether this task should move into an "unblocking" plan first
+  - Whether this task requires enabling work to land first
 - **Dependencies & Blockers**
-  - Other roadmap tasks or upstream merges required (cross-check with Blocked by list)
+  - Other tasks or upstream merges required (cross-check with Blocked by list)
 - **Verification Steps**
   - Commands/tests to run before marking complete (record date + evidence)
 - **Changelog / Docs Impact**

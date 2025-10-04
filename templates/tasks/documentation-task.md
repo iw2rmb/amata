@@ -1,7 +1,6 @@
 # <Task ID> – <Documentation / Comms Update>
 
 - **Identifier**: `<initiative>-<capability>-<sequence>`
-- **Parent Plan**: `[<Plan Name>](../../docs/plans/<initiative>/README.md)`
 - [ ] **Status**: Not started · In progress · Completed (include date)
 - **Blocked by**:
   - Implementation/design tasks that must land first (relative links)
@@ -26,7 +25,7 @@
 - **Definition of Done**
   - All listed docs updated and cross-referenced.
   - Links validated and relative paths confirmed.
-  - Verification details recorded in design doc / roadmap.
+  - Verification details recorded in design doc / task spec.
 - **Review & Verification**
   - Reviewer(s) and commands to lint/build docs.
   - Evidence captured (screenshots, lint output, preview URL).

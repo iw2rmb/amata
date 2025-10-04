@@ -1,11 +1,10 @@
 # <Integration Name> Alignment Spec
 
 - **Identifier**: `<initiative>-<capability>`
-- **Owning Plan**: `[<Plan Name>](../../docs/plans/<initiative>/README.md)`
 - **Status**: [ ] Draft · [ ] In progress · [ ] Completed — last updated YYYY-MM-DD
 - **Participating Systems**: <System/Project 1> · <System/Project 2> · <System/Project 3> (expand as needed)
-- **Linked Roadmap Tasks**:
-  - [ ] `<initiative>-<capability>-<sequence>` – `../../roadmap/<area>/<sequence>-<stage>.md`
+- **Linked Tasks**:
+  - [ ] `<initiative>-<capability>-<sequence>` – `../../docs/tasks/<area>/<sequence>-<stage>.md`
 - **Blocked by**:
   - `../<project>/docs/design/<doc>/README.md`
   - `<initiative>-<other-capability>-<sequence>`
@@ -24,10 +23,10 @@ Clarify why the integration is needed and the business/user impact.
 | Workstream | Ready When | Owner | Notes |
 | --- | --- | --- | --- |
 | Example | Mock server landed | name | Unblocks contract tests |
-Summarise which roadmap tasks can execute concurrently and which must wait for contract alignment or tooling.
+Summarise which tasks can execute concurrently and which must wait for contract alignment or tooling.
 
 ## Shared Components & Unblocking Candidates
-List shared schemas, SDK upgrades, fixtures, or tooling that multiple systems require. Flag whether they live in an enabling "unblocking" plan or a specific roadmap task.
+List shared schemas, SDK upgrades, fixtures, or tooling that multiple systems require. Flag whether they live in enabling work or a specific task spec.
 
 ## Scope
 Define what is covered in this alignment (protocols, payloads, workflows) and what stays out of scope.
@@ -48,7 +47,7 @@ Explain how you will migrate from current to target state: feature flags, dual-w
 ## Testing & Validation
 - Shared contract tests (location + owner)
 - Integration/Lab runs required
-- Tooling or fixtures to add (link back to design doc + roadmap tasks)
+- Tooling or fixtures to add (link back to design doc + task specs)
 
 ## Telemetry & Debugging
 Define metrics, logs, and tooling needed to debug the integrated path across repos.
@@ -62,11 +61,11 @@ List cross-repo risks and how to address them (e.g., version skew, auth failures
 | YYYY-MM-DD | Example decision | Refer to issue/PR |
 
 ## Follow-Up Tasks (YYYY-MM-DD)
-Enumerate roadmap entries created or updated because of this alignment. Use the same checklist structure as the Workspace HTTP API design, without the redundant trailing status:
+Enumerate tasks created or updated because of this alignment. Use the same checklist structure as the Workspace HTTP API design, without the redundant trailing status:
 - [x] Completed (YYYY-MM-DD) – [<N> <Task name>](<path-to-task.md>)
 - [ ] Planned – [<N> <Task name>](<path-to-task.md>)
 
-Capture a verification note once the roadmap alignment is double-checked, e.g. `Status verification: roadmap entries reviewed on YYYY-MM-DD.`
+Capture a verification note once the task alignment is double-checked, e.g. `Status verification: task entries reviewed on YYYY-MM-DD.`
 
 ## References
 Relative links to source design docs, API schemas, SDK docs, and changelog entries.

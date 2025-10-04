@@ -1,10 +1,9 @@
 # <Area> Resiliency & Hardening Plan
 
 - **Identifier**: `<initiative>-<capability>`
-- **Owning Plan**: `[<Plan Name>](../../docs/plans/<initiative>/README.md)`
 - **Status**: [ ] Draft · [ ] In progress · [ ] Completed — last updated YYYY-MM-DD
-- **Linked Roadmap Tasks**:
-  - [ ] `<initiative>-<capability>-<sequence>` – `../../roadmap/<area>/<sequence>-<stage>.md`
+- **Linked Tasks**:
+  - [ ] `<initiative>-<capability>-<sequence>` – `../../docs/tasks/<area>/<sequence>-<stage>.md`
 - **Blocked by**:
   - Supporting design docs or enabling tasks (relative links)
 - **Unblocks**:
@@ -24,7 +23,7 @@ Summarise the resiliency problem, customer impact, and SLA/SLO targets.
 Clarify which mitigations can progress concurrently and what enabling work must exist first.
 
 ## Shared Components & Unblocking Candidates
-List reusable tooling (kill scripts, fixtures, dashboards) and infrastructure prerequisites that unlock multiple mitigations. Flag enabling work that belongs in an unblocking plan.
+List reusable tooling (kill scripts, fixtures, dashboards) and infrastructure prerequisites that unlock multiple mitigations. Flag enabling work that belongs in its own task entry.
 
 ## Critical Components In Scope
 List the services or workflows included (gateway, scheduler, DNS, exporters, CLI, etc.).
@@ -37,9 +36,9 @@ Describe known outages or risks motivating the work. Link to incident reports or
 - Objective 2
 
 ## Mitigation Matrix
-| Component | Mitigation | Owner | Roadmap Link | Verification |
+| Component | Mitigation | Owner | Task Link | Verification |
 | --- | --- | --- | --- | --- |
-| Example | Dual listeners + shared dedupe KV | Control Plane | `../../roadmap/...` | Kill test, `go test ./...` |
+| Example | Dual listeners + shared dedupe KV | Control Plane | `../../docs/tasks/...` | Kill test, `go test ./...` |
 Document critical path vs. parallel-ready mitigations within the table notes.
 
 ## Operational Playbook Updates
@@ -54,11 +53,11 @@ Metrics, logs, health endpoints, tracing, alerts to add or refine. Capture targe
 - Lab/Production Drills: describe scripts, environments, artefacts to capture.
 
 ## Follow-Up Work (YYYY-MM-DD)
-Document the remaining hardening gaps or future iterations. Follow the roadmap checklist format, omitting redundant trailing status text:
+Document the remaining hardening gaps or future iterations. Follow the task checklist format, omitting redundant trailing status text:
 - [x] Completed (YYYY-MM-DD) – [<N> <Task name>](<path-to-task.md>)
 - [ ] Planned – [<N> <Task name>](<path-to-task.md>)
 
-Add a final verification line when you reconfirm status with roadmap owners, e.g. `Status verification: roadmap entries reviewed on YYYY-MM-DD.`
+Add a final verification line when you reconfirm status with task owners, e.g. `Status verification: task entries reviewed on YYYY-MM-DD.`
 
 ## References
 Relative links to design docs, incident write-ups, shared dashboards, and automation scripts.

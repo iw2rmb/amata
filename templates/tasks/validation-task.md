@@ -1,7 +1,6 @@
 # <Task ID> – <Validation Scenario>
 
 - **Identifier**: `<initiative>-<capability>-<sequence>`
-- **Parent Plan**: `[<Plan Name>](../../docs/plans/<initiative>/README.md)`
 - [ ] **Status**: Not started · In progress · Completed (include date + operator)
 - **Blocked by**:
   - Environment readiness, fixtures, or upstream tasks (relative links)
@@ -33,4 +32,4 @@
 - **CHANGELOG Update**
   - Add a dated summary to `docs/CHANGELOG.md` with command transcripts, artefacts, and follow-up owners.
 - **Follow-Ups**
-  - Issues or roadmap tasks spawned from findings.
+  - Issues or tasks spawned from findings.
