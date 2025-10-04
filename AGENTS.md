@@ -9,6 +9,7 @@
 
 ## Workflow and Parallelisation Guardrails
 - The high-level workflow remains: Design Docs → Task Specs → Tests; use this flow to stage work so parallel development never outruns design intent.
+- When any new feature request arrives—including seemingly small issue fixes, behaviour adjustments, or additive enhancements—confirm whether relevant design docs already exist; if they conflict with the request, stop and obtain explicit user approval before changing them. When the request fits an existing design, extend the doc accordingly, add any required follow-on tasks so implementation covers the new inputs, and move the design doc back to Planned status.
 - Draft design docs with the templates catalogued in `/Users/vk/@iw2rmb/docs/templates/design/README.md`; the templates define required metadata, dependency mirroring, and the parallelisation snapshot.
 - Break designs into task specs using the structures in `/Users/vk/@iw2rmb/docs/templates/tasks/README.md` so blockers, definition of done, tests, and parallelisation notes stay consistent.
 - After every task update, re-open and regenerate `docs/tasks/README.md` using template in `/Users/vk/@iw2rmb/docs/templates/tasks/INDEX.md` so it lists all open tasks ordered by blocking dependencies (unblocked work first, most constrained items last). Never rely on a cached editor buffer when refreshing this queue.
