@@ -33,7 +33,6 @@
   - Other documentation tasks sharing reviewers, style guides, or release timelines
   - Opportunities to templatise shared snippets to accelerate parallel work
 - **Pages / Files To Update**
-  - `docs/<path>.md` – summary of changes
   - `CHANGELOG.md` – add dated entry YYYY-MM-DD
 - **Source of Truth / Dependencies**
   - Implementation PRs, design docs, API specs that must stay consistent.

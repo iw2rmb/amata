@@ -47,6 +47,6 @@
   - Automated suites triggered (e.g., `go test ./tests/lab`)
   - CI jobs that must stay red until work lands
 - **CHANGELOG Update**
-  - Add a dated summary to `docs/CHANGELOG.md` with command transcripts, artefacts, and follow-up owners.
+  - Add a dated summary to `CHANGELOG.md` with command transcripts, artefacts, and follow-up owners.
 - **Follow-Ups**
   - Issues or tasks spawned from findings.

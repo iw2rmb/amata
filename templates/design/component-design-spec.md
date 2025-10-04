@@ -3,9 +3,9 @@
 - **Identifier**: `<initiative>-<capability>`
 - **Status**: [ ] Draft · [ ] In progress · [ ] Completed — last updated YYYY-MM-DD
 - **Linked Tasks**:
-  - [ ] `<initiative>-<capability>-<sequence>` – `../../docs/tasks/<feature>/<sequence>-<stage>.md`
+  - [ ] `<initiative>-<capability>-<sequence>` – `docs/tasks/<feature>/<sequence>-<stage>.md`
 - **Blocked by**:
-  - `<initiative>-<capability>-<sequence>` / `../<related-design>/README.md`
+  - `<initiative>-<capability>-<sequence>` / `docs/design/<related-design>/README.md`
 - **Unblocks**:
   - `<initiative>-<capability>-<sequence>` / downstream features
 - **Last Verification**: YYYY-MM-DD — inspected <files/tests> (capture evidence + commands)

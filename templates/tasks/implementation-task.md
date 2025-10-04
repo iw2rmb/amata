@@ -3,7 +3,7 @@
 - **Identifier**: `<initiative>-<capability>-<sequence>`
 - [ ] **Status**: Not started · In progress · Completed (set one, include date)
 - **Blocked by**:
-  - `<initiative>-<capability>-<sequence>` / `../design/<feature>/README.md`
+  - `<initiative>-<capability>-<sequence>` / `docs/design/<feature>/README.md`
 - **Unblocks**:
   - Downstream tasks/features (relative links)
 - **Planned Complexity (COSMIC)**

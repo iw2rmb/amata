@@ -4,15 +4,15 @@
 - **Status**: [ ] Draft · [ ] In progress · [ ] Completed — last updated YYYY-MM-DD
 - **Participating Systems**: <System/Project 1> · <System/Project 2> · <System/Project 3> (expand as needed)
 - **Linked Tasks**:
-  - [ ] `<initiative>-<capability>-<sequence>` – `../../docs/tasks/<area>/<sequence>-<stage>.md`
+  - [ ] `<initiative>-<capability>-<sequence>` – `docs/tasks/<area>/<sequence>-<stage>.md`
 - **Blocked by**:
-  - `../<project>/docs/design/<doc>/README.md`
+  - `docs/design/<doc>/README.md`
   - `<initiative>-<other-capability>-<sequence>`
 - **Unblocks**:
   - Downstream integrations/tasks (relative links)
 - **Last Verification**: YYYY-MM-DD — compared against <tests/fixtures/documents>
 - **Upstream Dependencies**:
-  - `../<project>/docs/design/<doc>/README.md`
+  - `docs/design/<doc>/README.md`
   - `<@owner>/<project>/blob/main/<doc>/README.md`
   - External API specs/packages (relative links)
 

@@ -2,7 +2,7 @@
 
 - **Identifier**: `<initiative>-<capability>`
 - **Status**: [ ] Draft · [ ] In progress · [ ] Completed — last updated YYYY-MM-DD
-- **Linked Task Folder**: `../../docs/tasks/<program>/`
+- **Linked Task Folder**: `docs/tasks/<program>/`
 - **Blocked by**:
   - `../<upstream-program>/README.md`
   - `<initiative>-<capability>-<sequence>`

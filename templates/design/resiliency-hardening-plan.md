@@ -3,7 +3,7 @@
 - **Identifier**: `<initiative>-<capability>`
 - **Status**: [ ] Draft · [ ] In progress · [ ] Completed — last updated YYYY-MM-DD
 - **Linked Tasks**:
-  - [ ] `<initiative>-<capability>-<sequence>` – `../../docs/tasks/<area>/<sequence>-<stage>.md`
+  - [ ] `<initiative>-<capability>-<sequence>` – `docs/tasks/<area>/<sequence>-<stage>.md`
 - **Blocked by**:
   - Supporting design docs or enabling tasks (relative links)
 - **Unblocks**:
@@ -38,7 +38,7 @@ Describe known outages or risks motivating the work. Link to incident reports or
 ## Mitigation Matrix
 | Component | Mitigation | Owner | Task Link | Verification |
 | --- | --- | --- | --- | --- |
-| Example | Dual listeners + shared dedupe KV | Control Plane | `../../docs/tasks/...` | Kill test, `go test ./...` |
+| Example | Dual listeners + shared dedupe KV | Control Plane | `docs/tasks/...` | Kill test, `go test ./...` |
 Document critical path vs. parallel-ready mitigations within the table notes.
 
 ## Operational Playbook Updates
