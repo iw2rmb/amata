@@ -19,15 +19,6 @@
 ## Purpose
 Clarify why the integration is needed and the business/user impact.
 
-## Parallelisation Snapshot
-| Workstream | Ready When | Owner | Notes |
-| --- | --- | --- | --- |
-| Example | Mock server landed | name | Unblocks contract tests |
-Summarise which tasks can execute concurrently and which must wait for contract alignment or tooling.
-
-## Shared Components & Unblocking Candidates
-List shared schemas, SDK upgrades, fixtures, or tooling that multiple systems require. Flag whether they live in enabling work or a specific task spec.
-
 ## Scope
 Define what is covered in this alignment (protocols, payloads, workflows) and what stays out of scope.
 

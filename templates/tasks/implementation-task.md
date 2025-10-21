@@ -15,15 +15,6 @@
 | TOTAL              |   |   |   |   |     |
 
   - Assumptions / notes: TODO
-- **Factual Complexity (COSMIC)**
-  - Measured on: YYYY-MM-DD · Actual CFP: _ (fill after implementation)
-
-| Functional process | E | X | R | W | CFP |
-|--------------------|---|---|---|---|-----|
-| <name>             |   |   |   |   |     |
-| TOTAL              |   |   |   |   |     |
-
-  - Variance / follow-ups: TODO
 
 - **Why**
   - Describe the customer or system problem this task solves. Reference design doc section(s).
@@ -40,10 +31,6 @@
   - Unit: `<package>/_test.go`
   - Integration: `<path>`
   - Lab / manual: commands to run, artefacts to capture
-- **Parallelisation Notes**
-  - Shared fixtures, data, or helpers needed by neighbouring tasks
-  - Environments/reviewers needed in parallel
-  - Whether this task requires enabling work to land first
 - **Dependencies & Blockers**
   - Other tasks or upstream merges required (cross-check with Blocked by list)
 - **Verification Steps**

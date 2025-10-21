@@ -15,23 +15,11 @@
 | TOTAL              |   |   |   |   |     |
 
   - Assumptions / notes: TODO
-- **Factual Complexity (COSMIC)**
-  - Measured on: YYYY-MM-DD · Actual CFP: _ (populate post-implementation)
-
-| Functional process | E | X | R | W | CFP |
-|--------------------|---|---|---|---|-----|
-| <name>             |   |   |   |   |     |
-| TOTAL              |   |   |   |   |     |
-
-  - Variance / follow-ups: TODO
 
 - **Why**
   - Describe the knowledge gap or compliance requirement prompting this update. Link to design doc or release note.
 - **Audience & Scope**
   - Who needs this information (operators, developers, customers) and where it will live.
-- **Parallelisation Notes**
-  - Other documentation tasks sharing reviewers, style guides, or release timelines
-  - Opportunities to templatise shared snippets to accelerate parallel work
 - **Pages / Files To Update**
   - `CHANGELOG.md` – add dated entry YYYY-MM-DD
 - **Source of Truth / Dependencies**

@@ -16,15 +16,6 @@
 ## Intent
 Describe the transformation or large milestone this program delivers and why it matters.
 
-## Parallelisation Snapshot
-| Feature / Stage | Ready When | Owner | Parallel Tracks |
-| --- | --- | --- | --- |
-| Stage 1 | Enabling API merged | name | Parallel with Stage 2 tasks |
-Outline which stages can start concurrently, prerequisites, and slack vs. critical path items.
-
-## Shared Components & Unblocking Candidates
-List shared tooling, schemas, infrastructure, or policy updates required before multiple features can progress. State whether they live in enabling work captured as separate tasks.
-
 ## Success Metrics
 List quantitative signals (latency, failure rate, adoption) and qualitative acceptance criteria.
 

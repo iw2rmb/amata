@@ -1,5 +1,14 @@
 # Changelog
 
+## 2025-10-21
+- docs/AGENTS.md: Added workflow guardrail to run targeted web searches for current library/component versions, snippets, documentation, and best practices ahead of edits; reviewed `templates/design/README.md` to ensure guidance remains consistent.
+
+## 2025-10-19
+- docs/AGENTS.md: Removed parallelisation guardrail references and the COSMIC post-implementation sizing requirement; confirmed template guidance aligned after edits.
+- docs/templates/design/*: Dropped parallelisation snapshot/unblocking sections across design templates and pruned README highlights; validated via `rg "Parallelisation"` that no guardrail wording remains.
+- docs/templates/tasks/*: Removed Factual COSMIC tables and parallelisation notes from task templates plus README guidance; verified absence with `rg "Factual Complexity"` and `rg "Parallelisation"`.
+- README.md: Updated structure overview to match the task template fields after removing parallelisation notes, verifying terminology consistency manually.
+
 ## 2025-10-04
 - docs/AGENTS.md: Retired the plan document layer, streamlined workflow guidance to point at the design/task templates, and validated cross-references against `templates/design/README.md` and `templates/tasks/README.md` (reviewed 2025-10-04).
 - docs/README.md: Updated documentation structure to surface the task queue and removed plan references; confirmed alignment with the relocation to `templates/tasks/INDEX.md` (reviewed 2025-10-04).

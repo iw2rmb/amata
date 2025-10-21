@@ -15,23 +15,11 @@
 | TOTAL              |   |   |   |   |     |
 
   - Assumptions / notes: TODO
-- **Factual Complexity (COSMIC)**
-  - Measured on: YYYY-MM-DD · Actual CFP: _ (fill after execution)
-
-| Functional process | E | X | R | W | CFP |
-|--------------------|---|---|---|---|-----|
-| <name>             |   |   |   |   |     |
-| TOTAL              |   |   |   |   |     |
-
-  - Variance / follow-ups: TODO
 
 - **Why**
   - Outline the risk or regression this validation addresses. Link to design doc / incident / SLA.
 - **Scenario Overview**
   - Describe the environment (lab/staging/prod mimic), data sets, and expected workflow.
-- **Parallelisation Notes**
-  - Lab slot contention, shared tooling, or data resets required between runs
-  - Coordinated schedules with other teams or validations
 - **Prerequisites**
   - Lab credentials, feature flags, fixtures, scripts to prepare.
 - **Execution Steps**

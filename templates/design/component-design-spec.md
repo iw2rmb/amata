@@ -16,15 +16,6 @@
 ## Intent
 Summarise the capability this component adds, the user-facing impact, and how it plugs into the existing Grid/Ploy/Skazka architecture.
 
-## Parallelisation Snapshot
-| Track | Ready When | Owner | Notes |
-| --- | --- | --- | --- |
-| Example task | Enabling fixture merged | name | Parallel with Task N+1 |
-Highlight which tasks can start immediately, which wait on enabling work, and slack vs. critical path.
-
-## Shared Components & Unblocking Candidates
-List shared libraries, fixtures, environments, or scripts worth building first to unlock multiple tasks. Link to enabling work where relevant.
-
 ## Context
 Explain the current behaviour or gap. Reference relevant design docs, task specs, or production findings that motivate the change.
 
@@ -52,7 +43,7 @@ Tables, KV buckets, subjects, file formats touched.
 Enumerate failure scenarios and how the design handles them.
 
 ## Dependencies & Interactions
-Reference runtime/services/packages that must change. Note sequencing with other tasks or releases, critical path vs. optional parallel work, and any shared reviewers or environments.
+Reference runtime/services/packages that must change. Note sequencing with other tasks or releases, highlight critical path items, and call out any shared reviewers or environments.
 
 ## Risks & Mitigations
 | Risk | Impact | Mitigation |

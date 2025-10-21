@@ -4,7 +4,7 @@ This repository curates the documentation system for a spec-driven software deli
 
 ## Structure
 - `docs/design/<feature>/README.md` — feature design dossiers covering intent, architecture, risks, tests, and dependency maps derived from neighbouring work.
-- `docs/tasks/<feature>/<n>-<stage>.md` — task specs that translate designs into executable, verifiable work packages with status, definition of done, and parallelisation notes.
+- `docs/tasks/<feature>/<n>-<stage>.md` — task specs that translate designs into executable, verifiable work packages with status, definition of done, and dependency metadata.
 - `templates/tasks/INDEX.md` — dependency-ordered task queue template showing what is ready to pick up next.
 - `templates/` — scaffolding for designs and tasks to keep metadata, dependency mirroring, and entries in `docs/CHANGELOG.md` consistent.
 

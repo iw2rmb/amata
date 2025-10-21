@@ -16,15 +16,6 @@
 ## Purpose
 Summarise the resiliency problem, customer impact, and SLA/SLO targets.
 
-## Parallelisation Snapshot
-| Mitigation Track | Ready When | Owner | Parallel Tracks |
-| --- | --- | --- | --- |
-| Example | Chaos harness updated | name | Parallel with alerting upgrade |
-Clarify which mitigations can progress concurrently and what enabling work must exist first.
-
-## Shared Components & Unblocking Candidates
-List reusable tooling (kill scripts, fixtures, dashboards) and infrastructure prerequisites that unlock multiple mitigations. Flag enabling work that belongs in its own task entry.
-
 ## Critical Components In Scope
 List the services or workflows included (gateway, scheduler, DNS, exporters, CLI, etc.).
 
@@ -39,7 +30,7 @@ Describe known outages or risks motivating the work. Link to incident reports or
 | Component | Mitigation | Owner | Task Link | Verification |
 | --- | --- | --- | --- | --- |
 | Example | Dual listeners + shared dedupe KV | Control Plane | `docs/tasks/...` | Kill test, `go test ./...` |
-Document critical path vs. parallel-ready mitigations within the table notes.
+Document critical path items and sequencing expectations within the table notes.
 
 ## Operational Playbook Updates
 List updates required in runbooks or CLIs so operators can execute the mitigations.
