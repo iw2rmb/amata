@@ -9,7 +9,8 @@
 - Register every design doc in `docs/design/QUEUE.md` as a checkbox entry ordered from ready-to-pull to most constrained.
 
 ## Workflow
-- Before drafting or updating any artefact, run a web search to capture current versions, examples, documentation, and current best practices for the task.
+- Before drafting or updating any artefact, review `/Users/vk/@iw2rmb/docs/WEBSEARCH.md` for existing answers; only if gaps remain, run a web search to capture current versions, examples, documentation, and current best practices for the task.
+- After every new web search, append strict, short key takeaways with tags/keywords into `/Users/vk/@iw2rmb/docs/WEBSEARCH.md`.
 - Follow this sequence: Design Doc → Tests → Implementation. Implementation must always trail a reviewed plan.
 - When a new request lands, locate the relevant design doc. If alignment is required, revise that doc and its queue entry—never resurrect stale task specs.
 - Draft every design doc using `/Users/vk/@iw2rmb/docs/design/TEMPLATE.md`.
@@ -18,6 +19,7 @@
 
 ## Scope Sizing (COSMIC)
 - When a design doc feels broad, run `/Users/vk/@iw2rmb/docs/COSMIC.md` to decide whether to split the scope.
+- If the COSMIC evaluation exceeds 4 points, decompose and replace that design doc with smaller design docs until each scores 4 points or less.
 - Store the COSMIC assumptions with the design doc so future updates can reuse or refine them.
 
 ## Work Coordination
@@ -26,7 +28,7 @@
 - Step 1 — Review the queue top-down. Lines beginning with `- [ ]` are unclaimed; lines beginning with `- [x]` are already reserved.
 - Step 2.1 — If the doc you need already reads `- [x]`, leave it untouched and pick another unblocked item.
 - Step 2.2 — If the doc is available, flip its checkbox to `- [x]` so other agents see it is reserved.
-- Step 3 — After hand-off or completion, mark the design doc finished with status and timestamps, clear its queue entries, then move `docs/design/<subject>` into `.archive/`.
+- Step 3 — After hand-off or completion, mark the design doc finished with status and timestamps, clear its queue entries, then move `docs/design/<subject>` into `.archive/` and commit everything.
 
 # Coding Rules
 - Begin every function with a one-line comment that states what the function does or why it exists.
