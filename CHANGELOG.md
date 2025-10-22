@@ -1,5 +1,10 @@
 # Changelog
 
+## 2025-10-22
+- design/agents-guidelines-refresh/README.md: Authored design doc for AGENTS.md language cleanup; captured dependencies and COSMIC scope review (documented 2025-10-22).
+- design/QUEUE.md, design/README.md: Reserved and indexed the design doc so other agents see the in-flight work (documented 2025-10-22).
+- AGENTS.md: Rephrased directives for a stricter, concise tone per the new design doc; manually proofread the rendered Markdown (reviewed 2025-10-22).
+
 ## 2025-10-21
 - docs/AGENTS.md, README.md, design/QUEUE.md, design/README.md, templates/design/README.md, design/TEMPLATE.md: Replaced the task-centric workflow with a single lightweight design-doc process and queue; confirmed new guidance rendered correctly by re-reading each file and ensuring `rg "docs/tasks"` only matches historical changelog notes (run 2025-10-21).
 - design/TEMPLATE.md: Relocated the template from `templates/design/design-doc.md` and updated references across the docs set; checked with `rg "design/TEMPLATE"` and `rg "design-doc"` to ensure paths align (run 2025-10-21).
