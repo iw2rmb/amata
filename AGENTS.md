@@ -4,45 +4,35 @@
 
 # How to handle documentation: 
 
-## Work Units, Naming, and Dependencies
-- Treat **features** as capabilities/epics. Document them under `docs/design/<feature>/README.md` and reference every task they decompose into.
-- Treat **tasks** as work packages/user stories. Keep them in `docs/tasks/<feature>/<n>-<stage>.md` with sequence numbers reflecting execution order.
-- Adopt the identifier format `<initiative>-<capability>-<sequence>` across features and tasks so dependency references stay unambiguous.
-- Every feature and task must expose both **Blocked by** and **Unblocks** lists (relative links only) and keep them current after each edit.
-- Mirror dependency metadata across artefacts: if a feature says it is blocked by Task A, Task A must list that feature in its Unblocks list.
+## Work Units and Dependencies
+- Design docs are the only planning artefact. Author each one at `docs/design/<subject>/README.md` and treat it as the unit that is delivered and verified.
+- Keep the doc short and focused; if the scope grows, split into additional design docs rather than reviving tasks.
+- Each design doc must be listed in the shared queue (`docs/design/QUEUE.md`) using checkbox entries ordered from ready-to-pull to most constrained work.
 
 ## Workflow
 - Before drafting or revising any artefact, actively use web search to capture the latest library/component versions, code snippets, documentation, and current best practices needed for the work.
-- The high-level workflow remains: Design Docs → Task Specs → Tests; use this flow to stage work so parallel development never outruns design intent.
-- When any new feature request arrives—including seemingly small issue fixes, behaviour adjustments, or additive enhancements—confirm whether relevant design docs already exist; if they conflict with the request, stop and obtain explicit user approval before changing them. When the request fits an existing design, extend the doc accordingly, add any required follow-on tasks so implementation covers the new inputs, and move the design doc back to Planned status.
-- Draft design docs with the templates catalogued in `/Users/vk/@iw2rmb/docs/templates/design/README.md`; the templates define required metadata and dependency mirroring.
-- Break designs into task specs using the structures in `/Users/vk/@iw2rmb/docs/templates/tasks/README.md` so blockers, definition of done, and tests stay consistent.
-- After every task update, re-open and regenerate `docs/tasks/README.md` using template in `/Users/vk/@iw2rmb/docs/templates/tasks/INDEX.md` so it lists all open tasks ordered by blocking dependencies (unblocked work first, most constrained items last). Never rely on a cached editor buffer when refreshing this queue.
-- Implementation only begins after the corresponding failing tests or snapshots are committed. Keep PRs scoped to a single task wherever possible so reviewers can validate dependency fields quickly.
+- The workflow is now: Design Doc → Tests → Implementation. Keep docs authoritative so implementation always trails a reviewed plan.
+- When a new request arrives, check for an existing design doc. If alignment is needed, revise the doc and its queue; never resurrect task specs.
+- Draft every design doc using template from `/Users/vk/@iw2rmb/docs/design/TEMPLATE.md`.
+- Maintain `docs/design/QUEUE.md` as the shared pull list for open design docs. Re-open it before editing so you never operate on a stale queue.
 - Maintain `docs/design/README.md` as an index of all design documents with one-line summaries, status checkboxes, and dependency highlights; update it every time any design doc changes.
-- When new information surfaces, update the design doc and tasks immediately, documenting the verification steps and noting which artefacts were reviewed so downstream teams know the new ground truth.
-- As soon as work completes, mark the corresponding design and task entries finished (checkboxes, status sections, timestamps) and confirm the Blocked by/Unblocks lists still make sense before starting fresh implementation.
+- As soon as work completes, mark the design doc finished (status, timestamps), confirm its queue entries are cleared, then move the entire `docs/design/<subject>` folder into the root `.archive/` directory.
 - Ask clarifying questions whenever requirements or constraints are uncertain, including ambiguity in dependency or sequencing expectations.
-- Any new behaviour must appear in `CHANGELOG.md` with concrete dates (YYYY-MM-DD).
 - Every new or updated design document must list the exact upstream docs, specs, or code packages it depends on—use explicit relative links so the dependency chain remains traceable end-to-end.
-- Before landing any documentation change, verify the current implementation or tests reflect the described behaviour (or note the gap as a follow-up), then record the verification date, evidence, and files reviewed in CHANGELOG.md.
-- Any change that affects workflow submission/execution must update `docs/workflow/README.md` and review the linked artefacts (`docs/envs/README.md`, `docs/cli/README.md`, `docs/cli/gridctl.md`, `docs/api/openapi.yaml`, `docs/runbooks/`, `docs/examples/`) so they stay consistent.
 
-## Complexity Estimation (COSMIC)
-- While decomposing design docs into tasks, size every prospective task using the COSMIC checklist in `/Users/vk/@iw2rmb/docs/COSMIC.md` before the task spec is finalised.
-- If the planned COSMIC function points (CFP) for a task exceed 4, split the work into smaller, testable tasks wherever feasible so each slice remains independently verifiable.
-- Capture the planned COSMIC sizing inside the task spec when drafting it.
+## Scope Sizing (COSMIC)
+- When a design doc feels broad, run the COSMIC sizing checklist in `/Users/vk/@iw2rmb/docs/COSMIC.md` to decide whether to split the work into multiple design docs.
+- Keep the COSMIC assumptions with the design doc so future updates can reuse the estimate or refine it.
 
-## Parallel Work Coordination
-- Use `docs/tasks/README.md` as the single dependency-ordered reservation surface.
-- Step 0: Immediately before editing, re-open `docs/tasks/README.md` so you are working from the latest state—never depend on a cached copy.
-- Step 1: Review the queue top-down; entries written as `- [ ] path` are planned and unclaimed, while lines starts with `- [x]` are already reserved.
-- Step 2.1: If the task you want already starts with `- [x]`, leave the file unchanged and choose another unblocked task.
-- Step 2.2: If the task is ready and unclaimed, update its line by changing to `- [x]` so other agents see it is reserved.
-- Step 3: Once the task hands off or completes, remove its line entirely so downstream work can proceed.
+## Work Coordination
+- Use `docs/design/QUEUE.md` as the single dependency-ordered reservation surface.
+- Step 0: Immediately before editing, re-open `docs/design/QUEUE.md` so you are working from the latest state—never depend on a cached copy.
+- Step 1: Review the queue top-down; entries written as `- [ ] path` are planned and unclaimed, while lines starting with `- [x]` are already reserved.
+- Step 2.1: If the design doc you want already starts with `- [x]`, leave the file unchanged and choose another unblocked doc.
+- Step 2.2: If the design doc is ready and unclaimed, update its line by changing to `- [x]` so other agents see it is reserved.
+- Step 3: Once the doc hands off or completes, remove its line entirely so downstream work can proceed.
 
 # How to code
 - Every function must start with a one-liner comment what/why this function performs
-- If source code file edited exceeds 500 lines split it in logical modules in different files
 - For golang source code follow `/Users/vk/@iw2rmb/docs/GOLANG.md` instructions
-- Run and update the tests referenced in tasks before declaring work complete, and document results in `CHANGELOG.md`.
+- Run and update the tests referenced in the active design doc before declaring work complete, and document results in `CHANGELOG.md`.

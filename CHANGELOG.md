@@ -1,6 +1,10 @@
 # Changelog
 
 ## 2025-10-21
+- docs/AGENTS.md, README.md, design/QUEUE.md, design/README.md, templates/design/README.md, design/TEMPLATE.md: Replaced the task-centric workflow with a single lightweight design-doc process and queue; confirmed new guidance rendered correctly by re-reading each file and ensuring `rg "docs/tasks"` only matches historical changelog notes (run 2025-10-21).
+- design/TEMPLATE.md: Relocated the template from `templates/design/design-doc.md` and updated references across the docs set; checked with `rg "design/TEMPLATE"` and `rg "design-doc"` to ensure paths align (run 2025-10-21).
+- AGENTS.md, README.md: Added rule to relocate completed design doc directories into `.archive/`; verified instruction alignment and created `.archive/.gitkeep` to track the destination (run 2025-10-21).
+- templates/design/{component-design-spec.md,integration-alignment-spec.md,program-epic-blueprint.md,resiliency-hardening-plan.md}, templates/tasks/*: Removed superseded templates to enforce the single format; verified directories with `ls templates` and `ls templates/design` (run 2025-10-21).
 - docs/AGENTS.md: Added workflow guardrail to run targeted web searches for current library/component versions, snippets, documentation, and best practices ahead of edits; reviewed `templates/design/README.md` to ensure guidance remains consistent.
 
 ## 2025-10-19
