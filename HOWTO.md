@@ -16,10 +16,10 @@
 - Step 1 — Review the queue top-down. Lines beginning with `- [ ]` are unclaimed; lines beginning with `- [x]` are already reserved.
 - Step 2.1 — If the doc you need already reads `- [x]`, leave it untouched and pick another unblocked item.
 - Step 2.2 — If the doc is available, flip its checkbox to `- [x]` so other agents see it is reserved.
-- Step 3 — After hand-off or completion, 
+- Step 3 — After hand-off or completion,
     3.1 Clear record for this design doc from queue.
     3.2 Move this design doc into `.archive/` (relative to a project's root folder).
-    3.3 Review implementation process and check for comments or explanations to provide in code (more preferrable) or docs (less prefferable) that would simplify future understanding of the codebase and help to avoid time spending on multiple theories.
+    3.3 Review the implementation and add concise in-code comments (preferred) or doc notes (secondary) that prevent future misreads.
     3.4 Commit everything.
 
 # Coding Rules

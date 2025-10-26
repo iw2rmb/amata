@@ -1,9 +1,9 @@
 # <design doc name>
-> Keep in mind, that design doc is required to mitigate risks. 
+> Keep in mind that a design doc exists to mitigate risks.
 > While outlining the document, it is important to:
 > - Search web for best practices, last stable versions of components involved
 > - Check for inconsistencies and raise questions
-> - Challange approach/direction to avoid overengineering
+> - Challenge the approach/direction to avoid overengineering
 
 ## Why
 > Explain the problem or opportunity and link to upstream evidence
