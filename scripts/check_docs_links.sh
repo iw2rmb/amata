@@ -1,21 +1,41 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-root="$(pwd)"
-cd "$root"
-
+start_root="$(pwd)"
 doc_dirs=(design docs research roadmap)
+
+find_docs_root() {
+  local candidate="$1"
+  local nested="$candidate/docs"
+
+  if [[ -d "$nested/design" && -d "$nested/docs" && -d "$nested/research" && -d "$nested/roadmap" ]]; then
+    printf '%s\n' "$nested"
+    return 0
+  fi
+
+  if [[ -d "$candidate/design" || -d "$candidate/docs" || -d "$candidate/research" || -d "$candidate/roadmap" ]]; then
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+
+  return 1
+}
+
+docs_root="$(find_docs_root "$start_root" || true)"
+if [[ -z "$docs_root" ]]; then
+  echo "check_docs_links: no documentation folders found from $start_root (expected repo root with any of: design/ docs/ research/ roadmap/, or workspace root with docs/{design,docs,research,roadmap}/)" >&2
+  exit 1
+fi
+
+workspace_root="$(dirname "$docs_root")"
+cd "$docs_root"
+
 scan_dirs=()
 for dir in "${doc_dirs[@]}"; do
   if [[ -d "$dir" ]]; then
     scan_dirs+=("$dir")
   fi
 done
-
-if [[ ${#scan_dirs[@]} -eq 0 ]]; then
-  echo "check_docs_links: no documentation folders found in $root (expected any of: design/ docs/ research/ roadmap/)" >&2
-  exit 1
-fi
 
 fail=0
 
@@ -43,14 +63,33 @@ check_refs() {
     return 0
   fi
 
-  local target
+  local targets=()
   if [[ "$ref_path" == /* ]]; then
-    target="$ref_path"
+    targets+=("$ref_path")
   else
-    target="$(dirname "$source")/$ref_path"
+    targets+=("$(dirname "$source")/$ref_path")
+    targets+=("$docs_root/$ref_path")
+
+    if [[ "$ref_path" == docs/* ]]; then
+      targets+=("$docs_root/${ref_path#docs/}")
+      targets+=("$workspace_root/$ref_path")
+    fi
+
+    case "$ref_path" in
+      app/*|shell/*|protocol/*|parser/*|textwidth/*)
+        targets+=("$workspace_root/$ref_path")
+        ;;
+    esac
   fi
 
-  if [[ ! -e "$target" ]]; then
+  local target
+  for target in "${targets[@]}"; do
+    if [[ -e "$target" ]]; then
+      return 0
+    fi
+  done
+
+  if [[ ! -e "${targets[0]}" ]]; then
     echo "MISSING: ${source}:${line} -> ${ref}"
     fail=1
   fi
