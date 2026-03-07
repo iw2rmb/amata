@@ -1,0 +1,1 @@
+/Users/vk/.codex/AGENTS.md
