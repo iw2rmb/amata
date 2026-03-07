@@ -7,4 +7,5 @@
 > Script implemented and instructions provided in the global AGENTS.md.
 - Please add a preflight disk-space check (and optional cleanup hint) before running Rust/Swift test builds, because full-volume failures now block validation late in the cycle.
 - A reusable non-interactive app/macOS regression harness for multiple concurrent interactive command blocks (for example two `psql` sessions with focus switches and typed input) would make focus/pending-tail bugs much faster to reproduce and verify than current ad hoc test-hook assembly.
+- Add a dedicated testing-tools index in the docs repo (human README + machine-readable index) for replay tools, frame capture, test hooks, and scenario runners; today that information is scattered across design docs, runtime validation notes, and code comments, which makes discovery unreliable during implementation.
 - A documented subagent handoff summary would help orchestration: when a spawned Codex agent changes files, show whether those edits landed in my current worktree, stayed on an isolated branch, or require an explicit merge/cherry-pick step.
