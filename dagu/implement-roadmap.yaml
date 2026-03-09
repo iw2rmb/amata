@@ -1,0 +1,457 @@
+# Implement Roadmap Dagu workflow
+# Roadmap is a file based on ROADMAP.md template. See examples in ../{ploy|aster|flourish|spok}/roadmap/**
+# Workflow **MUST** base on:
+#   - Roadmap Implementation policy at .codex/policies/composing-and-implementing-roadmaps.md
+#   - Documentation Handling policy at .codex/AGENTS.md
+# For every item in roadmap, sequentially
+# - implement:
+#   - call codex agent with gpt-5.4 with reasoning defined in item or high as default
+#     - prompt: |
+#         implement next open item from the <roadmap-file-path>
+#         mark item as done
+#         respond with:
+#           - proposed commit message text
+#           - estimated reasoning for review, based on the complexity of the task
+# - review:
+#   - call codex agent with gpt-5.4 with reasoning from the implementation step response
+#     - review DIFF and address findings
+# - commit
+#   - call shell command to commit using message from `implement`
+# After all tasks are complete
+# - review all:
+#   - call codex agent with gpt-5.4 with reasoning xhigh
+#     - prompt: confirm by inspecting codebase that everything from the roadmap is wired, implemented correctly and in full, leaving no leftovers.
+#     - respond with list of issues to solve and reasoning required
+#   - for each item:
+#     - fix gap:
+#       - call codex agent with gpt-5.4 with reasoning from `review all` for that item
+#       - close by agent with corresponding reasoning and respond with commit message
+#     - commit
+#       - call shell command to commit with message from `fix gap`
+# Refactoring
+# - refactor:
+#   - call claude
+#     - prompt: |
+#         review codebase related to implemented roadmap items
+#         for redundancy, overengineering, dead code;
+#         options to simplify algorithms, reduce boilerplate;
+#         considerations to split files with mixed domains or high LOC number.
+#     - respond with list of refactoring targets and reasoning required
+#   - for each item:
+#     - fix gap:
+#       - call codex agent with gpt-5.4 with reasoning from `refactor` for that item
+#       - close by agent with corresponding reasoning and respond with commit message
+#     - commit
+#       - call shell command to commit with message from `fix gap`
+# Updating docs
+# - docs:
+#   - call codex agent with gpt-5.4 with reasoning `high`
+#     - prompt: |
+#       - delete completed roadmap and it's design doc if there are no refs in upcoming DDs/roadmaps;
+#       - ensure that corresponding docs updated with taking into account that this DD is completed.
+#   - commit:
+#     - call shell command to commit with message `cleanup`
+
+name: dev-delivery
+working_dir: ${REPO_DIR}
+shell: ["bash", "-e", "-u", "-o", "pipefail"]
+params:
+  - REPO_DIR: "."
+  - TASK_DOC: "implementation.md"
+  - STATE_DIR: ".amata"
+
+steps:
+  - name: init-state
+    command: mkdir -p "${STATE_DIR}/queues"
+
+  - name: implement-all-open-tasks
+    call: implement-open-tasks-loop
+    params: "REPO_DIR=${REPO_DIR} TASK_DOC=${TASK_DOC} STATE_DIR=${STATE_DIR}"
+
+  - name: correctness-pass
+    call: correctness-phase
+    params: "REPO_DIR=${REPO_DIR} TASK_DOC=${TASK_DOC} STATE_DIR=${STATE_DIR}"
+
+  - name: refactor-pass
+    call: refactor-phase
+    params: "REPO_DIR=${REPO_DIR} TASK_DOC=${TASK_DOC} STATE_DIR=${STATE_DIR}"
+
+  - name: sort-docs
+    call: sort-docs-phase
+    params: "REPO_DIR=${REPO_DIR} TASK_DOC=${TASK_DOC} STATE_DIR=${STATE_DIR}"
+
+---
+name: implement-open-tasks-loop
+working_dir: ${REPO_DIR}
+params:
+  - REPO_DIR: "."
+  - TASK_DOC: "implementation.md"
+  - STATE_DIR: ".amata"
+
+steps:
+  - id: impl_iter
+    call: implement-one-open-task
+    params: "REPO_DIR=${REPO_DIR} TASK_DOC=${TASK_DOC} STATE_DIR=${STATE_DIR}"
+    output: IMPL_ITER
+    repeat_policy:
+      repeat: while
+      condition: "${IMPL_ITER.outputs.phase.hasMore}"
+      expected: "true"
+      interval_sec: 1
+
+---
+name: implement-one-open-task
+working_dir: ${REPO_DIR}
+params:
+  - REPO_DIR: "."
+  - TASK_DOC: "implementation.md"
+  - STATE_DIR: ".amata"
+
+steps:
+  - id: pick_task
+    command: python "${STATE_DIR}/next-open-task.py" --doc "${TASK_DOC}"
+    output:
+      name: NEXT_TASK
+      key: nextTask
+
+  - id: implement_task
+    type: agent
+    continue_on: skipped
+    preconditions:
+      - condition: "${NEXT_TASK.hasWork}"
+        expected: "true"
+    agent:
+      model: codex-agent
+      safe_mode: false
+      max_iterations: 80
+    messages:
+      - role: user
+        content: |
+          Repository root: ${REPO_DIR}
+          Task document: ${TASK_DOC}
+
+          Implement ONLY the selected open task below.
+
+          Requirements:
+          1. change code and tests as needed,
+          2. run the checks described in the task,
+          3. update the task document and mark only this item done,
+          4. leave everything uncommitted,
+          5. output ONLY valid JSON:
+             {"taskTitle":"...","commitMessage":"...","summary":"..."}
+
+          Selected task JSON:
+          ${NEXT_TASK}
+
+  - id: parse_implement
+    continue_on: skipped
+    preconditions:
+      - condition: "${NEXT_TASK.hasWork}"
+        expected: "true"
+    command: >
+      jq -ce
+      'if type=="object" and has("taskTitle") and has("commitMessage")
+       then .
+       else error("expected object with taskTitle and commitMessage")
+       end'
+      ${implement_task.stdout}
+    output:
+      name: IMPLEMENT_RESULT
+      key: implement
+
+  - id: review_diff
+    type: agent
+    continue_on: skipped
+    preconditions:
+      - condition: "${NEXT_TASK.hasWork}"
+        expected: "true"
+    agent:
+      model: codex-reviewer
+      safe_mode: false
+      max_iterations: 40
+    messages:
+      - role: user
+        content: |
+          Review the current uncommitted diff for the selected task.
+          You may patch the code directly if you find issues.
+          When the diff is good, output ONLY valid JSON:
+             {"approved":"true","notes":"..."}
+
+          Selected task JSON:
+          ${NEXT_TASK}
+
+          Proposed commit message:
+          ${IMPLEMENT_RESULT.commitMessage}
+
+  - id: parse_review
+    continue_on: skipped
+    preconditions:
+      - condition: "${NEXT_TASK.hasWork}"
+        expected: "true"
+    command: >
+      jq -ce
+      'if type=="object" and .approved == "true"
+       then .
+       else error("review not approved")
+       end'
+      ${review_diff.stdout}
+    output:
+      name: REVIEW_RESULT
+      key: review
+
+  - id: commit_task
+    continue_on: skipped
+    preconditions:
+      - condition: "${NEXT_TASK.hasWork}"
+        expected: "true"
+    command: ./.amata/commit-if-changed.sh "${IMPLEMENT_RESULT.commitMessage}"
+    output:
+      name: COMMIT_RESULT
+      key: commit
+
+  - id: phase_status
+    command: python "${STATE_DIR}/remaining-open-tasks.py" --doc "${TASK_DOC}"
+    output:
+      name: PHASE
+      key: phase
+
+---
+name: correctness-phase
+working_dir: ${REPO_DIR}
+params:
+  - REPO_DIR: "."
+  - TASK_DOC: "implementation.md"
+  - STATE_DIR: ".amata"
+
+steps:
+  - id: review_whole_correctness
+    type: agent
+    agent:
+      model: codex-reviewer
+      safe_mode: false
+      max_iterations: 60
+    messages:
+      - role: user
+        content: |
+          Review the whole repository for implementation correctness.
+          Inspect code and tests.
+          Output ONLY valid JSON array.
+          Each item must be an object like:
+            {"id":"c-1","title":"...","reasoning":"..."}
+          Return [] if nothing needs to be fixed.
+
+  - id: validate_correctness_items
+    command: >
+      jq -ce
+      'if type=="array"
+       then .
+       else error("expected JSON array")
+       end'
+      ${review_whole_correctness.stdout}
+    output:
+      name: CORRECTNESS_ITEMS
+      key: correctnessItems
+
+  - name: write_correctness_queue
+    command: >
+      python "${STATE_DIR}/write-queue.py"
+      --queue "${STATE_DIR}/queues/correctness.json"
+      --source "${validate_correctness_items.stdout}"
+      --kind correctness
+
+  - id: correctness_iter
+    call: fix-one-queued-item
+    params: >
+      REPO_DIR=${REPO_DIR}
+      TASK_DOC=${TASK_DOC}
+      STATE_DIR=${STATE_DIR}
+      QUEUE_FILE=${STATE_DIR}/queues/correctness.json
+      PHASE_LABEL=correctness
+    output: CORRECTNESS_ITER
+    repeat_policy:
+      repeat: while
+      condition: "${CORRECTNESS_ITER.outputs.phase.hasMore}"
+      expected: "true"
+      interval_sec: 1
+
+---
+name: refactor-phase
+working_dir: ${REPO_DIR}
+params:
+  - REPO_DIR: "."
+  - TASK_DOC: "implementation.md"
+  - STATE_DIR: ".amata"
+
+steps:
+  - id: review_refactor_targets
+    type: agent
+    agent:
+      model: claude-reviewer
+      safe_mode: false
+      max_iterations: 60
+    messages:
+      - role: user
+        content: |
+          Review the whole repository for refactoring targets.
+          Output ONLY valid JSON array.
+          Each item must be an object like:
+            {"id":"r-1","title":"...","reasoning":"...","complexity":"low|medium|high"}
+          Return [] if nothing should be refactored.
+
+  - id: validate_refactor_items
+    command: >
+      jq -ce
+      'if type=="array"
+       then .
+       else error("expected JSON array")
+       end'
+      ${review_refactor_targets.stdout}
+    output:
+      name: REFACTOR_ITEMS
+      key: refactorItems
+
+  - name: write_refactor_queue
+    command: >
+      python "${STATE_DIR}/write-queue.py"
+      --queue "${STATE_DIR}/queues/refactor.json"
+      --source "${validate_refactor_items.stdout}"
+      --kind refactor
+
+  - id: refactor_iter
+    call: fix-one-queued-item
+    params: >
+      REPO_DIR=${REPO_DIR}
+      TASK_DOC=${TASK_DOC}
+      STATE_DIR=${STATE_DIR}
+      QUEUE_FILE=${STATE_DIR}/queues/refactor.json
+      PHASE_LABEL=refactor
+    output: REFACTOR_ITER
+    repeat_policy:
+      repeat: while
+      condition: "${REFACTOR_ITER.outputs.phase.hasMore}"
+      expected: "true"
+      interval_sec: 1
+
+---
+name: fix-one-queued-item
+working_dir: ${REPO_DIR}
+params:
+  - REPO_DIR: "."
+  - TASK_DOC: "implementation.md"
+  - STATE_DIR: ".amata"
+  - QUEUE_FILE: ".amata/queues/items.json"
+  - PHASE_LABEL: "correctness"
+
+steps:
+  - id: pick_item
+    command: python "${STATE_DIR}/next-queue-item.py" --queue "${QUEUE_FILE}"
+    output:
+      name: NEXT_ITEM
+      key: nextItem
+
+  - id: apply_item
+    type: agent
+    continue_on: skipped
+    preconditions:
+      - condition: "${NEXT_ITEM.hasWork}"
+        expected: "true"
+    agent:
+      model: codex-agent
+      safe_mode: false
+      max_iterations: 80
+    messages:
+      - role: user
+        content: |
+          Apply this ${PHASE_LABEL} item in the repository.
+          Keep the change minimal and targeted.
+          Run relevant tests/checks.
+          Leave everything uncommitted.
+          Output ONLY valid JSON:
+            {"itemId":"...","commitMessage":"...","summary":"..."}
+
+          Queue item JSON:
+          ${NEXT_ITEM}
+
+  - id: parse_apply
+    continue_on: skipped
+    preconditions:
+      - condition: "${NEXT_ITEM.hasWork}"
+        expected: "true"
+    command: >
+      jq -ce
+      'if type=="object" and has("itemId") and has("commitMessage")
+       then .
+       else error("expected object with itemId and commitMessage")
+       end'
+      ${apply_item.stdout}
+    output:
+      name: APPLY_RESULT
+      key: apply
+
+  - id: commit_item
+    continue_on: skipped
+    preconditions:
+      - condition: "${NEXT_ITEM.hasWork}"
+        expected: "true"
+    command: ./.amata/commit-if-changed.sh "${APPLY_RESULT.commitMessage}"
+    output:
+      name: ITEM_COMMIT
+      key: commit
+
+  - id: mark_item_done
+    continue_on: skipped
+    preconditions:
+      - condition: "${NEXT_ITEM.hasWork}"
+        expected: "true"
+    command: >
+      python "${STATE_DIR}/mark-queue-item-done.py"
+      --queue "${QUEUE_FILE}"
+      --item-id "${NEXT_ITEM.id}"
+
+  - id: phase_status
+    command: python "${STATE_DIR}/queue-has-more.py" --queue "${QUEUE_FILE}"
+    output:
+      name: PHASE
+      key: phase
+
+---
+name: sort-docs-phase
+working_dir: ${REPO_DIR}
+params:
+  - REPO_DIR: "."
+  - TASK_DOC: "implementation.md"
+  - STATE_DIR: ".amata"
+
+steps:
+  - id: sort_docs_agent
+    type: agent
+    agent:
+      model: codex-agent
+      safe_mode: false
+      max_iterations: 40
+    messages:
+      - role: user
+        content: |
+          Reorder and tidy the project documentation.
+          Focus on structure, naming, ordering, links, and index pages.
+          Preserve meaning. Leave changes uncommitted.
+          Output ONLY valid JSON:
+            {"commitMessage":"docs: sort and organize documentation"}
+
+  - id: parse_docs_result
+    command: >
+      jq -ce
+      'if type=="object" and has("commitMessage")
+       then .
+       else error("expected object with commitMessage")
+       end'
+      ${sort_docs_agent.stdout}
+    output:
+      name: DOCS_RESULT
+      key: docs
+
+  - id: commit_docs
+    command: ./.amata/commit-if-changed.sh "${DOCS_RESULT.commitMessage}"
+    output:
+      name: DOCS_COMMIT
+      key: commit

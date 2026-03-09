@@ -19,14 +19,10 @@ Legend: [ ] todo, [x] done.
   - Repository: <Which repository it affects>
   - Component: <Which components/modules/crates it affects>
   - Verification: <Comma separated one-liner test scenarios>
+  - Reasoning: <Estimated reasoning level required for gpt-5.4 model: xhigh|high|medium|low>
 1. <Functional action at class/function/struct level>
 2. <Functional action at class/function/struct level>
 3. <Functional action at class/function/struct level>
 
 - [ ] <n.n Next item short title-summary>
-  - Repository: <Which repository it affects>
-  - Component: <Which components/modules/crates it affects>
-  - Verification: <Comma separated one-liner test scenarios>
-1. <Functional action at class/function/struct level>
-2. <Functional action at class/function/struct level>
-3. <Functional action at class/function/struct level>
+...
