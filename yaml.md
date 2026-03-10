@@ -15,7 +15,7 @@ amata:
 
 shell step
 
-```
+```yaml
 id: <unique>
 type: shell
 command: <shell script or command>

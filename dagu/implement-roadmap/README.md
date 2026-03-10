@@ -21,10 +21,20 @@ Workflow shell helpers live in `./scripts/` and are implemented in bash:
 - `commit-if-changed.sh`
 - `run-codex-prompt.sh`
 - `run-claude-prompt.sh`
+- `implement-open-items-loop.sh`
+- `fix-queue.sh`
+- `correctness-phase.sh`
+- `refactor-phase.sh`
+- `update-docs-phase.sh`
+
+Control flow lives in the bash helpers, not in Dagu JSON output expressions.
+Dagu only sequences the coarse phases.
+This avoids silent skips caused by Dagu treating step outputs as raw stdout strings in interpolation.
 
 AI execution is explicit:
 - Codex steps run through `codex exec` so model and reasoning are set per step.
 - Refactor inspection runs through `claude -p` so the workflow does not depend on Dagu's generic `type: agent` abstraction.
+- Commit steps exclude the workflow `STATE_DIR` so `.amata/` queue files never leak into repository commits.
 
 Runtime prerequisites:
 - `codex` CLI installed and authenticated
