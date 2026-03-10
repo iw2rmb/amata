@@ -1,33 +1,55 @@
 #!/usr/bin/env python3
+import os
+import pathlib
 import re
 import sys
+import tempfile
 
-from common import emit, fail, ok, read_request, resolve_path, write_text_atomic
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+
+from sdk.python import emit, fail, ok, read_request
 
 
 CHECKLIST_RE = re.compile(r"^(?P<prefix>\s*-\s\[)(?P<state>[ xX])(?P<suffix>\]\s+)(?P<title>.+)$")
 TITLE_LABEL_RE = re.compile(r"^(?P<label>[0-9]+(?:\.[0-9]+)*)\s+(?P<summary>.+)$")
 
 
+def write_text_atomic(path: pathlib.Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, dir=str(path.parent)) as handle:
+        handle.write(content)
+        tmp_name = handle.name
+    os.replace(tmp_name, path)
+
+
 def main() -> int:
     try:
         request = read_request()
-        file_value = request.get("file")
-        match_value = request.get("match")
+        config = request.get("config")
+        if not isinstance(config, dict):
+            emit(fail("invalid_request", "field `config` must be an object"))
+            return 0
+
+        file_value = config.get("file")
+        match_value = config.get("match")
         if not isinstance(file_value, str) or not file_value:
-            emit(fail("invalid_request", "field `file` must be a non-empty string"))
+            emit(fail("invalid_request", "field `config.file` must be a non-empty string"))
             return 0
         if not isinstance(match_value, dict):
-            emit(fail("invalid_request", "field `match` must be an object"))
+            emit(fail("invalid_request", "field `config.match` must be an object"))
             return 0
 
         expected_label = match_value.get("label")
         expected_title = match_value.get("title")
         if not expected_label and not expected_title:
-            emit(fail("invalid_request", "match requires `label` or `title`"))
+            emit(fail("invalid_request", "field `config.match` requires `label` or `title`"))
             return 0
 
-        path = resolve_path(file_value)
+        path = pathlib.Path(file_value)
+        if not path.is_absolute():
+            emit(fail("invalid_request", "field `config.file` must be an absolute path"))
+            return 0
+
         lines = path.read_text(encoding="utf-8").splitlines()
         match_indexes: list[int] = []
 

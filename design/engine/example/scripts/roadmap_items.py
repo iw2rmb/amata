@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 import hashlib
+import pathlib
 import re
 import sys
 
-from common import emit, fail, ok, read_request, resolve_path
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+
+from sdk.python import emit, fail, ok, read_request
 
 
 CHECKLIST_RE = re.compile(r"^\s*-\s\[(?P<state>[ xX])\]\s+(?P<title>.+)$")
@@ -109,12 +112,21 @@ def parse_items(text: str) -> list[dict]:
 def main() -> int:
     try:
         request = read_request()
-        file_value = request.get("file")
-        if not isinstance(file_value, str) or not file_value:
-            emit(fail("invalid_request", "field `file` must be a non-empty string"))
+        config = request.get("config")
+        if not isinstance(config, dict):
+            emit(fail("invalid_request", "field `config` must be an object"))
             return 0
 
-        path = resolve_path(file_value)
+        file_value = config.get("file")
+        if not isinstance(file_value, str) or not file_value:
+            emit(fail("invalid_request", "field `config.file` must be a non-empty string"))
+            return 0
+
+        path = pathlib.Path(file_value)
+        if not path.is_absolute():
+            emit(fail("invalid_request", "field `config.file` must be an absolute path"))
+            return 0
+
         text = path.read_text(encoding="utf-8")
         emit(ok({"items": parse_items(text)}))
         return 0

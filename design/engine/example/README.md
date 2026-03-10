@@ -7,6 +7,8 @@ It contains:
   - the workflow spec
 - `plugins.yaml`
   - a concrete plugin registry example for custom step types
+- `sdk/`
+  - small language-specific helpers for the engine/plugin process contract
 - `scripts/`
   - executable plugin implementations and a fixture bootstrap script
 - `fixture-repo/`
@@ -30,5 +32,6 @@ Example operator flow:
 
 Notes:
 - `plugins.yaml` is a concrete example of registry wiring, not a normative part of the engine spec.
+- `sdk/python.py` contains only protocol-level helpers shared across plugins.
 - Script paths in `plugins.yaml` are resolved relative to the registry file.
 - The fixture roadmap format matches the current parser behavior in `dagu/implement-roadmap/scripts/common.sh`.

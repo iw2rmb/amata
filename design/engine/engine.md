@@ -356,6 +356,44 @@ The plugin contract is:
 
 The example bundle in [example/README.md](example/README.md) includes a concrete, non-normative plugin registry file at [example/plugins.yaml](example/plugins.yaml). That registry resolves plugin executables relative to the registry file so the example remains self-contained.
 
+#### Plugin process request contract
+
+When a plugin runs as an external process, the engine should send a single JSON request on stdin.
+
+Minimum request shape:
+
+```json
+{
+  "run": {
+    "id": "run-20260311-001",
+    "dir": "/abs/.amata/runs/run-20260311-001"
+  },
+  "step": {
+    "id": "roadmap",
+    "ref": "roadmap#1",
+    "artifacts_dir": "/abs/.amata/runs/run-20260311-001/artifacts/roadmap#1"
+  },
+  "workspace": {
+    "cwd": "/abs/repo"
+  },
+  "config": {
+    "file": "/abs/repo/roadmap/index.md"
+  }
+}
+```
+
+Rules:
+- `config` contains the plugin-specific step config after expression evaluation and default application.
+- The engine, not the plugin, owns process setup such as working directory, run metadata, and artifact-directory allocation.
+- Filesystem path fields should be normalized before plugin invocation when the plugin contract declares them as filesystem paths.
+- Plugins should not recover core execution metadata from process state when the engine can provide it explicitly.
+- The process result still uses the standard step result object on stdout.
+
+SDK guidance:
+- The engine may ship small language-specific SDK helpers for this protocol.
+- Those helpers should focus on request parsing and step-result encoding, not domain-specific behavior.
+- The example bundle includes a Python SDK sketch at [example/sdk/python.py](example/sdk/python.py).
+
 ### 7. Templates
 
 Fields such as prompts may be templates. Template expressions use the same engine registry as normal expressions.
