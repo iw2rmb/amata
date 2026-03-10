@@ -14,6 +14,35 @@ require_file() {
   [ -f "$1" ] || die "missing file: $1"
 }
 
+normalize_markdown_fence_file() {
+  local file="$1"
+
+  require_file "$file"
+
+  perl -0pe '
+    if (/\A\s*```[^\n]*\n(.*)\n```\s*\z/s) {
+      $_ = $1;
+    }
+  ' "$file"
+}
+
+prompt_runner_script() {
+  local scripts_dir="$1"
+  local runner="$2"
+
+  case "$runner" in
+    codex)
+      printf '%s/run-codex-prompt.sh\n' "$scripts_dir"
+      ;;
+    claude)
+      printf '%s/run-claude-prompt.sh\n' "$scripts_dir"
+      ;;
+    *)
+      die "unsupported prompt runner: $runner"
+      ;;
+  esac
+}
+
 load_file_lines() {
   local file="$1"
   FILE_LINES=()

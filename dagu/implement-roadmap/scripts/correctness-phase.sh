@@ -91,7 +91,8 @@ rtk bash "${scripts_dir}/fix-queue.sh" \
   --repo "$repo" \
   --roadmap-file "$roadmap_file" \
   --scripts-dir "$scripts_dir" \
-  --model "$model" \
+  --apply-runner codex \
+  --apply-model "$model" \
   --queue "${state_dir}/queues/correctness.json" \
   --phase-label correctness \
   --state-dir "$state_dir" >"$phase_file"

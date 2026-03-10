@@ -58,4 +58,4 @@ if ! rtk claude -p \
 fi
 
 [ -s "$out_file" ] || die "claude -p did not produce output"
-cat "$out_file"
+normalize_markdown_fence_file "$out_file"

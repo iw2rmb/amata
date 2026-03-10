@@ -33,7 +33,7 @@ This avoids silent skips caused by Dagu treating step outputs as raw stdout stri
 
 AI execution is explicit:
 - Codex steps run through `codex exec` so model and reasoning are set per step.
-- Refactor inspection runs through `claude -p` so the workflow does not depend on Dagu's generic `type: agent` abstraction.
+- Claude steps run through `claude -p` so the workflow does not depend on Dagu's generic `type: agent` abstraction.
 - Commit steps exclude the workflow `STATE_DIR` so `.amata/` queue files never leak into repository commits.
 
 Runtime prerequisites:
@@ -93,11 +93,14 @@ dagu start dagu/implement-roadmap/implement-roadmap.yaml -- \
         considerations to split files with mixed domains or high LOC number.
     - respond with list of refactoring targets and reasoning required
   - for each item:
-    - fix gap:
+    - implement refactor:
+      - call claude with reasoning from `refactor` for that item
+      - apply the targeted refactor, run relevant checks, and respond with commit message plus summary
+    - review diff:
       - call codex agent with gpt-5.4 with reasoning from `refactor` for that item
-      - close by agent with corresponding reasoning and respond with commit message
+      - validate the actual uncommitted diff for sanity using claude summary as context, patch findings if needed, and approve the result
     - commit
-      - call shell command to commit with message from `fix gap`
+      - call shell command to commit with message from claude's apply step
 
 
 ## Updating docs

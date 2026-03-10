@@ -85,10 +85,9 @@ JSON
 {"itemId":"c-1","commitMessage":"fix: add correctness marker","summary":"applied"}
 JSON
     ;;
-  *"Apply ONLY this queued refactor item in the repository."*)
-    printf 'refactor\n' > refactor.txt
+  *"Review the current uncommitted diff for the queued refactor item."*)
     cat >"$out_file" <<'JSON'
-{"itemId":"r-1","commitMessage":"refactor: add refactor marker","summary":"applied"}
+{"approved":"true","notes":"refactor diff looks sane"}
 JSON
     ;;
   *"Update documentation for the completed roadmap work."*)
@@ -115,7 +114,17 @@ prompt="$(cat)"
 case "$prompt" in
   *"Review the codebase related to the implemented roadmap items."*)
     cat <<'JSON'
+```json
 [{"id":"r-1","title":"Add refactor marker","details":"create refactor.txt","reasoning":"low"}]
+```
+JSON
+    ;;
+  *"Apply ONLY this queued refactor item in the repository."*)
+    printf 'refactor\n' > refactor.txt
+    cat <<'JSON'
+```json
+{"itemId":"r-1","commitMessage":"refactor: add refactor marker","summary":"created refactor marker and ran targeted checks"}
+```
 JSON
     ;;
   *)

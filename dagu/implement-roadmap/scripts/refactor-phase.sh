@@ -99,7 +99,10 @@ rtk bash "${scripts_dir}/fix-queue.sh" \
   --repo "$repo" \
   --roadmap-file "$roadmap_file" \
   --scripts-dir "$scripts_dir" \
-  --model "$model" \
+  --apply-runner claude \
+  --apply-model "$claude_model" \
+  --review-runner codex \
+  --review-model "$model" \
   --queue "${state_dir}/queues/refactor.json" \
   --phase-label refactor \
   --state-dir "$state_dir" >"$phase_file"
