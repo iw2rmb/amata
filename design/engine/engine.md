@@ -168,7 +168,7 @@ Expression engine contract:
 - The engine returns a JSON-serializable value.
 - Expressions perform computation only; they do not perform IO.
 
-Shorthand form:
+Default-language expression object:
 
 ```yaml
 when:
@@ -188,6 +188,8 @@ Rules:
 - Starlark is built in and must be available in every run.
 - Other engines are registered by plugin name.
 - Template interpolation uses the same expression registry.
+- Fields that may hold either a literal value or a computed value use the object form to distinguish expressions from literals.
+- Expression-only positions may define shorthand syntax. In `amata/v1`, the required shorthand is the `expr` step form described below.
 
 ### 5. Step Result Contract
 
@@ -227,6 +229,43 @@ defaults: {}
 schemas: {}
 flows: {}
 ```
+
+#### Params
+
+`params` declares workflow inputs and optional defaults.
+
+Scalar shorthand is allowed for simple typed defaults:
+
+```yaml
+params:
+  repo_dir: "design/engine/example/fixture-repo"
+  codex_model: "gpt-5.4"
+  max_attempts: 3
+  dry_run: false
+```
+
+This normalizes to:
+
+```yaml
+params:
+  repo_dir:
+    type: string
+    default: "design/engine/example/fixture-repo"
+  codex_model:
+    type: string
+    default: "gpt-5.4"
+  max_attempts:
+    type: number
+    default: 3
+  dry_run:
+    type: boolean
+    default: false
+```
+
+Rules:
+- Scalar shorthand is valid only for `string`, `number`, and `boolean` defaults.
+- Object form is required when the param needs metadata or validation such as `description`, `enum`, `required`, `secret`, or non-literal defaults.
+- Object and array defaults must use the full object form.
 
 #### Flow
 
@@ -272,6 +311,18 @@ Sequential order is implicit in the `steps:` list. Non-linear routing comes from
 
 - `expr`
   - Evaluates an expression and returns its value.
+  - A step may omit `type: expr` when `expr` is the only executor-specific field.
+  - Example:
+
+```yaml
+- id: open_items
+  expr: |
+    [
+      item
+      for item in ctx.steps.roadmap.last.value["items"]
+      if not item["checked"]
+    ]
+```
 
 - `assert`
   - Fails the run when an expression is false.

@@ -3,30 +3,14 @@ name: implement-roadmap
 entry: main
 
 params:
-  repo_dir:
-    type: string
-    default: "design/engine/example/fixture-repo"
-  roadmap_file:
-    type: string
-    default: "roadmap/index.md"
-  state_dir:
-    type: string
-    default: ".amata"
-  codex_model:
-    type: string
-    default: "gpt-5.4"
-  codex_correctness_reasoning:
-    type: string
-    default: "xhigh"
-  codex_docs_reasoning:
-    type: string
-    default: "high"
-  claude_model:
-    type: string
-    default: "sonnet"
-  claude_refactor_reasoning:
-    type: string
-    default: "high"
+  repo_dir: "design/engine/example/fixture-repo"
+  roadmap_file: "roadmap/index.md"
+  state_dir: ".amata"
+  codex_model: "gpt-5.4"
+  codex_correctness_reasoning: "xhigh"
+  codex_docs_reasoning: "high"
+  claude_model: "sonnet"
+  claude_refactor_reasoning: "high"
 
 defaults:
   cwd:
@@ -116,7 +100,6 @@ flows:
             $ref: "#/schemas/roadmap_items"
 
       - id: open_items
-        type: expr
         expr: |
           [
             item
