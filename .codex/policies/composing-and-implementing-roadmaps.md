@@ -19,4 +19,6 @@
   - Mark the item complete; commit.
 - After completing all items:
   - Order Codex subagent with `gpt-5.4` model and `xhigh` reasoning to confirm by inspecting the codebase that every step from the roadmap is implemented correctly and in full; wired end-to-end; there are no leftovers.
-  - If gaps were found, run Codex subagent to address them; commit.
+  - Address gaps, if any.
+  - Remove the transient design/roadmap pair if the shipped docs now stand on their own.
+  - Commit.

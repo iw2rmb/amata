@@ -1,0 +1,101 @@
+# Implement Roadmap Dagu workflow
+
+Dagu Docs: https://docs.dagu.sh/reference/cli
+
+Workflow **MUST** base on:
+  - Roadmap Implementation policy at .codex/policies/composing-and-implementing-roadmaps.md
+  - Documentation Handling policy at .codex/AGENTS.md
+
+Roadmap is a file based on `ROADMAP.md` template. 
+See examples in ../{ploy|aster|flourish|spok}/roadmap/**
+
+## Runtime helpers
+
+Workflow shell helpers live in `./scripts/` and are implemented in bash:
+- `next-open-item.sh`
+- `remaining-open-items.sh`
+- `write-queue.sh`
+- `next-queue-item.sh`
+- `mark-queue-item-done.sh`
+- `queue-has-more.sh`
+- `commit-if-changed.sh`
+- `run-codex-prompt.sh`
+- `run-claude-prompt.sh`
+
+AI execution is explicit:
+- Codex steps run through `codex exec` so model and reasoning are set per step.
+- Refactor inspection runs through `claude -p` so the workflow does not depend on Dagu's generic `type: agent` abstraction.
+
+Runtime prerequisites:
+- `codex` CLI installed and authenticated
+- `claude` CLI installed and authenticated
+- `dagu` CLI installed
+
+Example run:
+
+```bash
+dagu start dagu/implement-roadmap/implement-roadmap.yaml -- \
+  ROADMAP_FILE=roadmap/my-feature/index.md \
+  CODEX_MODEL=gpt-5.4 \
+  CLAUDE_MODEL=sonnet
+```
+
+
+## For every item in roadmap, sequentially
+
+- implement:
+  - call codex agent with gpt-5.4 with reasoning defined in item or high as default
+    - prompt: |
+        implement next open item from the <roadmap-file-path>
+        mark item as done
+        respond with:
+          - proposed commit message text
+          - estimated reasoning for review, based on the complexity of the task
+- review:
+  - call codex agent with gpt-5.4 with reasoning from the implementation step response
+    - review DIFF and address findings
+- commit
+  - call shell command to commit using message from `implement`
+
+
+## After all tasks are complete
+
+- review all:
+  - call codex agent with gpt-5.4 with reasoning xhigh
+    - prompt: confirm by inspecting codebase that everything from the roadmap is wired, implemented correctly and in full, leaving no leftovers.
+    - respond with list of issues to solve and reasoning required
+  - for each item:
+    - fix gap:
+      - call codex agent with gpt-5.4 with reasoning from `review all` for that item
+      - close by agent with corresponding reasoning and respond with commit message
+    - commit
+      - call shell command to commit with message from `fix gap`
+
+
+## Refactoring
+
+- refactor:
+  - call claude
+    - prompt: |
+        review codebase related to implemented roadmap items
+        for redundancy, overengineering, dead code;
+        options to simplify algorithms, reduce boilerplate;
+        considerations to split files with mixed domains or high LOC number.
+    - respond with list of refactoring targets and reasoning required
+  - for each item:
+    - fix gap:
+      - call codex agent with gpt-5.4 with reasoning from `refactor` for that item
+      - close by agent with corresponding reasoning and respond with commit message
+    - commit
+      - call shell command to commit with message from `fix gap`
+
+
+## Updating docs
+
+- docs:
+  - call codex agent with gpt-5.4 with reasoning `high`
+    - prompt: |
+      - delete completed roadmap and it's design doc if there are no refs in upcoming DDs/roadmaps;
+      - ensure that corresponding docs updated with taking into account that this DD is completed.
+  - commit:
+    - call shell command to commit with a `cleanup` message

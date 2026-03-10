@@ -1,0 +1,486 @@
+name: implement-roadmap
+working_dir: ${REPO_DIR}
+shell: ["bash", "-e", "-u", "-o", "pipefail"]
+params:
+  - REPO_DIR: "."
+  - ROADMAP_FILE: "roadmap/index.md"
+  - STATE_DIR: ".amata"
+  - SCRIPTS_DIR: "/Users/vk/@iw2rmb/auto/dagu/implement-roadmap/scripts"
+  - CODEX_MODEL: "gpt-5.4"
+  - CODEX_CORRECTNESS_REASONING: "xhigh"
+  - CODEX_DOCS_REASONING: "high"
+  - CLAUDE_MODEL: "sonnet"
+  - CLAUDE_REFACTOR_REASONING: "high"
+
+steps:
+  - name: init-state
+    command: rtk mkdir -p "${STATE_DIR}/queues"
+
+  - name: implement-all-open-items
+    call: implement-open-items-loop
+    params: >
+      REPO_DIR=${REPO_DIR}
+      ROADMAP_FILE=${ROADMAP_FILE}
+      STATE_DIR=${STATE_DIR}
+      SCRIPTS_DIR=${SCRIPTS_DIR}
+      CODEX_MODEL=${CODEX_MODEL}
+
+  - name: correctness-pass
+    call: correctness-phase
+    params: >
+      REPO_DIR=${REPO_DIR}
+      ROADMAP_FILE=${ROADMAP_FILE}
+      STATE_DIR=${STATE_DIR}
+      SCRIPTS_DIR=${SCRIPTS_DIR}
+      CODEX_MODEL=${CODEX_MODEL}
+      CODEX_CORRECTNESS_REASONING=${CODEX_CORRECTNESS_REASONING}
+
+  - name: refactor-pass
+    call: refactor-phase
+    params: >
+      REPO_DIR=${REPO_DIR}
+      ROADMAP_FILE=${ROADMAP_FILE}
+      STATE_DIR=${STATE_DIR}
+      SCRIPTS_DIR=${SCRIPTS_DIR}
+      CODEX_MODEL=${CODEX_MODEL}
+      CLAUDE_MODEL=${CLAUDE_MODEL}
+      CLAUDE_REFACTOR_REASONING=${CLAUDE_REFACTOR_REASONING}
+
+  - name: update-docs
+    call: update-docs-phase
+    params: >
+      REPO_DIR=${REPO_DIR}
+      ROADMAP_FILE=${ROADMAP_FILE}
+      STATE_DIR=${STATE_DIR}
+      SCRIPTS_DIR=${SCRIPTS_DIR}
+      CODEX_MODEL=${CODEX_MODEL}
+      CODEX_DOCS_REASONING=${CODEX_DOCS_REASONING}
+
+---
+name: implement-open-items-loop
+working_dir: ${REPO_DIR}
+params:
+  - REPO_DIR: "."
+  - STATE_DIR: ".amata"
+  - SCRIPTS_DIR: "/Users/vk/@iw2rmb/auto/dagu/implement-roadmap/scripts"
+  - CODEX_MODEL: "gpt-5.4"
+
+steps:
+  - id: impl_iter
+    call: implement-one-open-item
+    params: >
+      REPO_DIR=${REPO_DIR}
+      ROADMAP_FILE=${ROADMAP_FILE}
+      STATE_DIR=${STATE_DIR}
+      SCRIPTS_DIR=${SCRIPTS_DIR}
+      CODEX_MODEL=${CODEX_MODEL}
+    output: IMPL_ITER
+    repeat_policy:
+      repeat: while
+      condition: "${IMPL_ITER.outputs.phase.hasMore}"
+      expected: "true"
+      interval_sec: 1
+
+---
+name: implement-one-open-item
+working_dir: ${REPO_DIR}
+params:
+  - REPO_DIR: "."
+  - STATE_DIR: ".amata"
+  - SCRIPTS_DIR: "/Users/vk/@iw2rmb/auto/dagu/implement-roadmap/scripts"
+  - CODEX_MODEL: "gpt-5.4"
+
+steps:
+  - id: pick_item
+    command: >
+      rtk bash "${SCRIPTS_DIR}/next-open-item.sh"
+      --doc "${ROADMAP_FILE}"
+    output:
+      name: NEXT_ITEM
+      key: nextItem
+
+  - id: implement_item
+    continue_on: skipped
+    preconditions:
+      - condition: "${NEXT_ITEM.hasWork}"
+        expected: "true"
+    command: |
+      cat <<'PROMPT' | rtk bash "${SCRIPTS_DIR}/run-codex-prompt.sh" \
+        --repo "${REPO_DIR}" \
+        --model "${CODEX_MODEL}" \
+        --reasoning "${NEXT_ITEM.reasoning}"
+      Repository root: ${REPO_DIR}
+      Roadmap file: ${ROADMAP_FILE}
+
+      Implement ONLY the selected open roadmap item below.
+
+      Requirements:
+      1. Change code and tests as needed.
+      2. Run the checks described in the roadmap item. If no checks are listed, run the most relevant focused validation.
+      3. Update the roadmap file and mark only this item done.
+      4. Do not start later roadmap items.
+      5. Leave everything uncommitted.
+      6. Output ONLY valid JSON:
+         {"itemTitle":"...","commitMessage":"...","reviewReasoning":"low|medium|high|xhigh","summary":"..."}
+
+      Selected open roadmap item JSON:
+      ${NEXT_ITEM}
+      PROMPT
+
+  - id: parse_implement
+    continue_on: skipped
+    preconditions:
+      - condition: "${NEXT_ITEM.hasWork}"
+        expected: "true"
+    command: >
+      rtk jq -ce
+      'if type=="object"
+          and has("itemTitle")
+          and has("commitMessage")
+          and has("reviewReasoning")
+       then .
+       else error("expected object with itemTitle, commitMessage, and reviewReasoning")
+       end'
+      ${implement_item.stdout}
+    output:
+      name: IMPLEMENT_RESULT
+      key: implement
+
+  - id: review_diff
+    continue_on: skipped
+    preconditions:
+      - condition: "${NEXT_ITEM.hasWork}"
+        expected: "true"
+    command: |
+      cat <<'PROMPT' | rtk bash "${SCRIPTS_DIR}/run-codex-prompt.sh" \
+        --repo "${REPO_DIR}" \
+        --model "${CODEX_MODEL}" \
+        --reasoning "${IMPLEMENT_RESULT.reviewReasoning}"
+      Repository root: ${REPO_DIR}
+      Roadmap file: ${ROADMAP_FILE}
+      Requested review reasoning: ${IMPLEMENT_RESULT.reviewReasoning}
+
+      Review the current uncommitted diff for the selected roadmap item.
+      Stay within the selected item's scope.
+      You may patch the code directly if you find issues, then rerun any checks needed for confidence.
+      When the diff is ready to commit, output ONLY valid JSON:
+         {"approved":"true","notes":"..."}
+
+      Selected roadmap item JSON:
+      ${NEXT_ITEM}
+
+      Proposed commit message:
+      ${IMPLEMENT_RESULT.commitMessage}
+      PROMPT
+
+  - id: parse_review
+    continue_on: skipped
+    preconditions:
+      - condition: "${NEXT_ITEM.hasWork}"
+        expected: "true"
+    command: >
+      rtk jq -ce
+      'if type=="object" and .approved == "true"
+       then .
+       else error("review not approved")
+       end'
+      ${review_diff.stdout}
+    output:
+      name: REVIEW_RESULT
+      key: review
+
+  - id: commit_task
+    continue_on: skipped
+    preconditions:
+      - condition: "${NEXT_ITEM.hasWork}"
+        expected: "true"
+    command: >
+      rtk bash "${SCRIPTS_DIR}/commit-if-changed.sh"
+      "${IMPLEMENT_RESULT.commitMessage}"
+    output:
+      name: COMMIT_RESULT
+      key: commit
+
+  - id: phase_status
+    command: >
+      rtk bash "${SCRIPTS_DIR}/remaining-open-items.sh"
+      --doc "${ROADMAP_FILE}"
+    output:
+      name: PHASE
+      key: phase
+
+---
+name: correctness-phase
+working_dir: ${REPO_DIR}
+params:
+  - REPO_DIR: "."
+  - STATE_DIR: ".amata"
+  - SCRIPTS_DIR: "/Users/vk/@iw2rmb/auto/dagu/implement-roadmap/scripts"
+  - CODEX_MODEL: "gpt-5.4"
+  - CODEX_CORRECTNESS_REASONING: "xhigh"
+
+steps:
+  - id: review_whole_correctness
+    command: |
+      cat <<'PROMPT' | rtk bash "${SCRIPTS_DIR}/run-codex-prompt.sh" \
+        --repo "${REPO_DIR}" \
+        --model "${CODEX_MODEL}" \
+        --reasoning "${CODEX_CORRECTNESS_REASONING}"
+      Repository root: ${REPO_DIR}
+      Roadmap file: ${ROADMAP_FILE}
+
+      Confirm by inspecting the codebase, tests, and current documentation that the roadmap work is wired end-to-end,
+      implemented correctly and in full, and leaves no leftover or partially applied work.
+      Output ONLY valid JSON array.
+      Each item must be an object like:
+        {"id":"c-1","title":"...","details":"...","reasoning":"low|medium|high|xhigh"}
+      Return [] if nothing needs a follow-up fix.
+      PROMPT
+
+  - id: validate_correctness_items
+    command: >
+      rtk jq -ce
+      'if type=="array"
+       then .
+       else error("expected JSON array")
+       end'
+      ${review_whole_correctness.stdout}
+    output:
+      name: CORRECTNESS_ITEMS
+      key: correctnessItems
+
+  - name: write_correctness_queue
+    command: >
+      rtk bash "${SCRIPTS_DIR}/write-queue.sh"
+      --queue "${STATE_DIR}/queues/correctness.json"
+      --source "${validate_correctness_items.stdout}"
+      --kind correctness
+
+  - id: correctness_iter
+    call: fix-one-queued-item
+    params: >
+      REPO_DIR=${REPO_DIR}
+      ROADMAP_FILE=${ROADMAP_FILE}
+      STATE_DIR=${STATE_DIR}
+      SCRIPTS_DIR=${SCRIPTS_DIR}
+      CODEX_MODEL=${CODEX_MODEL}
+      QUEUE_FILE=${STATE_DIR}/queues/correctness.json
+      PHASE_LABEL=correctness
+    output: CORRECTNESS_ITER
+    repeat_policy:
+      repeat: while
+      condition: "${CORRECTNESS_ITER.outputs.phase.hasMore}"
+      expected: "true"
+      interval_sec: 1
+
+---
+name: refactor-phase
+working_dir: ${REPO_DIR}
+params:
+  - REPO_DIR: "."
+  - STATE_DIR: ".amata"
+  - SCRIPTS_DIR: "/Users/vk/@iw2rmb/auto/dagu/implement-roadmap/scripts"
+  - CODEX_MODEL: "gpt-5.4"
+  - CLAUDE_MODEL: "sonnet"
+  - CLAUDE_REFACTOR_REASONING: "high"
+
+steps:
+  - id: review_refactor_targets
+    command: |
+      cat <<'PROMPT' | rtk bash "${SCRIPTS_DIR}/run-claude-prompt.sh" \
+        --repo "${REPO_DIR}" \
+        --model "${CLAUDE_MODEL}" \
+        --reasoning "${CLAUDE_REFACTOR_REASONING}"
+      Repository root: ${REPO_DIR}
+      Roadmap file: ${ROADMAP_FILE}
+
+      Review the codebase related to the implemented roadmap items.
+      Find real refactoring targets for redundancy, overengineering, dead code, unnecessary boilerplate,
+      or files that should be split because they mix domains or grew too large.
+      Output ONLY valid JSON array.
+      Each item must be an object like:
+        {"id":"r-1","title":"...","details":"...","reasoning":"low|medium|high|xhigh"}
+      Return [] if nothing materially improves the implementation.
+      PROMPT
+
+  - id: validate_refactor_items
+    command: >
+      rtk jq -ce
+      'if type=="array"
+       then .
+       else error("expected JSON array")
+       end'
+      ${review_refactor_targets.stdout}
+    output:
+      name: REFACTOR_ITEMS
+      key: refactorItems
+
+  - name: write_refactor_queue
+    command: >
+      rtk bash "${SCRIPTS_DIR}/write-queue.sh"
+      --queue "${STATE_DIR}/queues/refactor.json"
+      --source "${validate_refactor_items.stdout}"
+      --kind refactor
+
+  - id: refactor_iter
+    call: fix-one-queued-item
+    params: >
+      REPO_DIR=${REPO_DIR}
+      ROADMAP_FILE=${ROADMAP_FILE}
+      STATE_DIR=${STATE_DIR}
+      SCRIPTS_DIR=${SCRIPTS_DIR}
+      CODEX_MODEL=${CODEX_MODEL}
+      QUEUE_FILE=${STATE_DIR}/queues/refactor.json
+      PHASE_LABEL=refactor
+    output: REFACTOR_ITER
+    repeat_policy:
+      repeat: while
+      condition: "${REFACTOR_ITER.outputs.phase.hasMore}"
+      expected: "true"
+      interval_sec: 1
+
+---
+name: fix-one-queued-item
+working_dir: ${REPO_DIR}
+params:
+  - REPO_DIR: "."
+  - STATE_DIR: ".amata"
+  - SCRIPTS_DIR: "/Users/vk/@iw2rmb/auto/dagu/implement-roadmap/scripts"
+  - CODEX_MODEL: "gpt-5.4"
+  - QUEUE_FILE: ".amata/queues/items.json"
+  - PHASE_LABEL: "correctness"
+
+steps:
+  - id: pick_item
+    command: >
+      rtk bash "${SCRIPTS_DIR}/next-queue-item.sh"
+      --queue "${QUEUE_FILE}"
+    output:
+      name: NEXT_ITEM
+      key: nextItem
+
+  - id: apply_item
+    continue_on: skipped
+    preconditions:
+      - condition: "${NEXT_ITEM.hasWork}"
+        expected: "true"
+    command: |
+      cat <<'PROMPT' | rtk bash "${SCRIPTS_DIR}/run-codex-prompt.sh" \
+        --repo "${REPO_DIR}" \
+        --model "${CODEX_MODEL}" \
+        --reasoning "${NEXT_ITEM.reasoning}"
+      Repository root: ${REPO_DIR}
+      Roadmap file: ${ROADMAP_FILE}
+
+      Apply ONLY this queued ${PHASE_LABEL} item in the repository.
+      Use the queue item's details and requested reasoning level.
+      Keep the change minimal and targeted.
+      Run relevant tests/checks.
+      Leave everything uncommitted.
+      Output ONLY valid JSON:
+        {"itemId":"...","commitMessage":"...","summary":"..."}
+
+      Queue item JSON:
+      ${NEXT_ITEM}
+      PROMPT
+
+  - id: parse_apply
+    continue_on: skipped
+    preconditions:
+      - condition: "${NEXT_ITEM.hasWork}"
+        expected: "true"
+    command: >
+      rtk jq -ce
+      'if type=="object" and has("itemId") and has("commitMessage")
+       then .
+       else error("expected object with itemId and commitMessage")
+       end'
+      ${apply_item.stdout}
+    output:
+      name: APPLY_RESULT
+      key: apply
+
+  - id: commit_item
+    continue_on: skipped
+    preconditions:
+      - condition: "${NEXT_ITEM.hasWork}"
+        expected: "true"
+    command: >
+      rtk bash "${SCRIPTS_DIR}/commit-if-changed.sh"
+      "${APPLY_RESULT.commitMessage}"
+    output:
+      name: ITEM_COMMIT
+      key: commit
+
+  - id: mark_item_done
+    continue_on: skipped
+    preconditions:
+      - condition: "${NEXT_ITEM.hasWork}"
+        expected: "true"
+    command: >
+      rtk bash "${SCRIPTS_DIR}/mark-queue-item-done.sh"
+      --queue "${QUEUE_FILE}"
+      --item-id "${NEXT_ITEM.id}"
+
+  - id: phase_status
+    command: >
+      rtk bash "${SCRIPTS_DIR}/queue-has-more.sh"
+      --queue "${QUEUE_FILE}"
+    output:
+      name: PHASE
+      key: phase
+
+---
+name: update-docs-phase
+working_dir: ${REPO_DIR}
+params:
+  - REPO_DIR: "."
+  - STATE_DIR: ".amata"
+  - SCRIPTS_DIR: "/Users/vk/@iw2rmb/auto/dagu/implement-roadmap/scripts"
+  - CODEX_MODEL: "gpt-5.4"
+  - CODEX_DOCS_REASONING: "medium"
+
+steps:
+  - id: update_docs_agent
+    command: |
+      cat <<'PROMPT' | rtk bash "${SCRIPTS_DIR}/run-codex-prompt.sh" \
+        --repo "${REPO_DIR}" \
+        --model "${CODEX_MODEL}" \
+        --reasoning "${CODEX_DOCS_REASONING}"
+      Repository root: ${REPO_DIR}
+      Completed roadmap file: ${ROADMAP_FILE}
+
+      Update documentation for the completed roadmap work.
+
+      Requirements:
+      1. If the roadmap is fully complete, delete the completed roadmap file.
+      2. Delete the corresponding design doc only when no unfinished roadmap or design doc still depends on it.
+      3. Ensure durable current-state explanations live in docs/**, not in completed roadmap/design files.
+      4. Keep docs/, roadmap/, design/, and research/ within their intended domains.
+      5. Leave changes uncommitted.
+      Output ONLY valid JSON:
+        {"commitMessage":"cleanup: remove completed roadmap artifacts and refresh docs"}
+      PROMPT
+
+  - id: parse_docs_result
+    command: >
+      rtk jq -ce
+      'if type=="object" and has("commitMessage")
+       then .
+       else error("expected object with commitMessage")
+       end'
+      ${update_docs_agent.stdout}
+    output:
+      name: DOCS_RESULT
+      key: docs
+
+  - id: check_docs_links
+    command: rtk bash /Users/vk/@iw2rmb/auto/scripts/check_docs_links.sh
+
+  - id: commit_docs
+    command: >
+      rtk bash "${SCRIPTS_DIR}/commit-if-changed.sh"
+      "${DOCS_RESULT.commitMessage}"
+    output:
+      name: DOCS_COMMIT
+      key: commit
