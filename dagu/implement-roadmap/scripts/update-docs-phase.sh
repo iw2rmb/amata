@@ -87,8 +87,6 @@ rtk jq -ce \
 
 commit_message="$(rtk jq -r '.commitMessage' "$docs_result_file")"
 
-rtk bash /Users/vk/@iw2rmb/auto/scripts/check_docs_links.sh
-
 rtk bash "${scripts_dir}/commit-if-changed.sh" \
   --exclude-path "$state_dir" \
   "$commit_message" >"$commit_result_file"

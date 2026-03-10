@@ -5,7 +5,7 @@ entry: main
 params:
   repo_dir:
     type: string
-    default: "."
+    default: "design/engine/example/fixture-repo"
   roadmap_file:
     type: string
     default: "roadmap/index.md"
@@ -283,9 +283,6 @@ flows:
         response:
           schema:
             $ref: "#/schemas/docs_result"
-
-      - id: check_docs_links
-        type: docs.check_links
 
       - id: commit_docs
         type: git.commit

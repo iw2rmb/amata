@@ -2,11 +2,11 @@
 
 ## Summary
 
-Define a local-first workflow engine for coding-agent-driven development flows. The engine must replace stringly typed orchestration and shell-script control loops with typed step results, built-in control-flow blocks, resumable run state, and pluggable executors for shell, agents, git, docs checks, and domain-specific helpers.
+Define a local-first workflow engine for coding-agent-driven development flows. The engine must replace stringly typed orchestration and shell-script control loops with typed step results, built-in control-flow blocks, resumable run state, and pluggable executors for shell, agents, git, and domain-specific helpers.
 
 The reference outcome is that the current `implement-roadmap` workflow can be expressed mostly in YAML, with shell used only for true leaf commands or small executor plugins, not for queue management, iteration, routing, or state persistence.
 
-See the reference spec sketch in `design/engine/implement-roadmap-example.yaml`.
+See the reference example bundle in `design/engine/example/`, especially `implement-roadmap.yaml` and `plugins.yaml`.
 
 ## Scope
 
@@ -297,12 +297,13 @@ Any non-built-in `type` is resolved through the executor registry. Example categ
 - `roadmap.items`
 - `roadmap.mark_done`
 - `git.commit`
-- `docs.check_links`
 
 The plugin contract is:
 - receive validated step config
 - receive `ctx`
 - return a standard step result object
+
+The example bundle in [example/README.md](example/README.md) includes a concrete, non-normative plugin registry file at [example/plugins.yaml](example/plugins.yaml). That registry resolves plugin executables relative to the registry file so the example remains self-contained.
 
 ### 7. Templates
 
@@ -332,7 +333,6 @@ The core engine should stay small, but a standard local-development plugin pack 
 Priority plugins:
 - `git.commit`
 - `git.status`
-- `docs.check_links`
 - `roadmap.items`
 - `roadmap.mark_done`
 
@@ -419,6 +419,7 @@ Testable outcome:
 ## References
 
 - Draft requirements: [yaml.md](../../yaml.md)
+- Self-contained reference bundle: [example/README.md](example/README.md)
 - Current Dagu workflow overview: [README.md](../../dagu/implement-roadmap/README.md)
 - Current orchestration baseline:
   - `dagu/implement-roadmap/implement-roadmap.yaml`

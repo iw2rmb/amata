@@ -1,0 +1,15 @@
+version: amata/plugins/v1
+
+plugins:
+  roadmap.items:
+    exec:
+      - python3
+      - scripts/roadmap_items.py
+  roadmap.mark_done:
+    exec:
+      - python3
+      - scripts/roadmap_mark_done.py
+  git.commit:
+    exec:
+      - python3
+      - scripts/git_commit.py
