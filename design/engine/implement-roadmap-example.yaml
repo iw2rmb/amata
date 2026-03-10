@@ -1,0 +1,345 @@
+version: amata/v1
+name: implement-roadmap
+entry: main
+
+params:
+  repo_dir:
+    type: string
+    default: "."
+  roadmap_file:
+    type: string
+    default: "roadmap/index.md"
+  state_dir:
+    type: string
+    default: ".amata"
+  codex_model:
+    type: string
+    default: "gpt-5.4"
+  codex_correctness_reasoning:
+    type: string
+    default: "xhigh"
+  codex_docs_reasoning:
+    type: string
+    default: "high"
+  claude_model:
+    type: string
+    default: "sonnet"
+  claude_refactor_reasoning:
+    type: string
+    default: "high"
+
+defaults:
+  cwd:
+    expr: ctx.params.repo_dir
+  expr_lang: starlark
+
+schemas:
+  roadmap_item:
+    type: object
+    required:
+      - title
+      - label
+      - checked
+      - reasoning
+    properties:
+      title: {type: string}
+      label: {type: string}
+      checked: {type: boolean}
+      reasoning: {type: string}
+      verification: {type: string}
+      actions:
+        type: array
+        items: {type: string}
+  roadmap_items:
+    type: object
+    required: [items]
+    properties:
+      items:
+        type: array
+        items:
+          $ref: "#/schemas/roadmap_item"
+  implement_result:
+    type: object
+    required: [itemTitle, commitMessage, reviewReasoning, summary]
+    properties:
+      itemTitle: {type: string}
+      commitMessage: {type: string}
+      reviewReasoning: {type: string}
+      summary: {type: string}
+  review_result:
+    type: object
+    required: [approved, notes]
+    properties:
+      approved: {type: string}
+      notes: {type: string}
+  finding:
+    type: object
+    required: [id, title, reasoning]
+    properties:
+      id: {type: string}
+      title: {type: string}
+      details: {type: string}
+      reasoning: {type: string}
+  finding_list:
+    type: array
+    items:
+      $ref: "#/schemas/finding"
+  apply_result:
+    type: object
+    required: [itemId, commitMessage, summary]
+    properties:
+      itemId: {type: string}
+      commitMessage: {type: string}
+      summary: {type: string}
+  docs_result:
+    type: object
+    required: [commitMessage]
+    properties:
+      commitMessage: {type: string}
+
+flows:
+  main:
+    steps:
+      - id: init_state
+        type: shell
+        command:
+          - mkdir
+          - -p
+          - expr: ctx.params.state_dir + "/queues"
+
+      - id: roadmap
+        type: roadmap.items
+        file:
+          expr: ctx.params.roadmap_file
+        response:
+          schema:
+            $ref: "#/schemas/roadmap_items"
+
+      - id: open_items
+        type: expr
+        expr: |
+          [
+            item
+            for item in ctx.steps.roadmap.last.value["items"]
+            if not item["checked"]
+          ]
+
+      - id: implement_all_open_items
+        type: foreach
+        items:
+          expr: ctx.steps.open_items.last.value
+        as: roadmap_item
+        order: seq
+        steps:
+          - id: implement_item
+            type: codex
+            model:
+              expr: ctx.params.codex_model
+            reasoning:
+              expr: ctx.this.value["reasoning"]
+            prompt: |
+              Repository root: {{ ctx.params.repo_dir }}
+              Roadmap file: {{ ctx.params.roadmap_file }}
+
+              Implement ONLY the selected open roadmap item below.
+
+              Requirements:
+              1. Change code and tests as needed.
+              2. Run the checks described in the roadmap item. If no checks are listed, run the most relevant focused validation.
+              3. Update the roadmap file and mark only this item done.
+              4. Do not start later roadmap items.
+              5. Leave everything uncommitted.
+              6. Output ONLY valid JSON:
+                 {"itemTitle":"...","commitMessage":"...","reviewReasoning":"low|medium|high|xhigh","summary":"..."}
+
+              Selected open roadmap item JSON:
+              {{ to_json(ctx.this.value) }}
+            response:
+              schema:
+                $ref: "#/schemas/implement_result"
+
+          - id: review_item
+            type: codex
+            model:
+              expr: ctx.params.codex_model
+            reasoning:
+              expr: ctx.steps.implement_item.last.value["reviewReasoning"]
+            prompt: |
+              Repository root: {{ ctx.params.repo_dir }}
+              Roadmap file: {{ ctx.params.roadmap_file }}
+              Requested review reasoning: {{ ctx.steps.implement_item.last.value["reviewReasoning"] }}
+
+              Review the current uncommitted diff for the selected roadmap item.
+              Stay within the selected item's scope.
+              You may patch the code directly if you find issues, then rerun any checks needed for confidence.
+              When the diff is ready to commit, output ONLY valid JSON:
+                 {"approved":"true","notes":"..."}
+
+              Selected roadmap item JSON:
+              {{ to_json(ctx.this.value) }}
+
+              Proposed commit message:
+              {{ ctx.steps.implement_item.last.value["commitMessage"] }}
+            response:
+              schema:
+                $ref: "#/schemas/review_result"
+
+          - id: assert_review_approved
+            type: assert
+            expr: ctx.steps.review_item.last.value["approved"] == "true"
+
+          - id: mark_item_done
+            type: roadmap.mark_done
+            file:
+              expr: ctx.params.roadmap_file
+            match:
+              label:
+                expr: ctx.this.value["label"]
+
+          - id: commit_item
+            type: git.commit
+            message:
+              expr: ctx.steps.implement_item.last.value["commitMessage"]
+            exclude_paths:
+              - expr: ctx.params.state_dir
+
+      - id: correctness_review
+        type: codex
+        model:
+          expr: ctx.params.codex_model
+        reasoning:
+          expr: ctx.params.codex_correctness_reasoning
+        prompt: |
+          Repository root: {{ ctx.params.repo_dir }}
+          Roadmap file: {{ ctx.params.roadmap_file }}
+
+          Confirm by inspecting the codebase, tests, and current documentation that the roadmap work is wired end-to-end,
+          implemented correctly and in full, and leaves no leftover or partially applied work.
+          Output ONLY valid JSON array.
+          Each item must be an object like:
+            {"id":"c-1","title":"...","details":"...","reasoning":"low|medium|high|xhigh"}
+          Return [] if nothing needs a follow-up fix.
+        response:
+          schema:
+            $ref: "#/schemas/finding_list"
+
+      - id: fix_correctness_items
+        type: call
+        flow: fix_finding_list
+        inputs:
+          phase_label: correctness
+          findings:
+            expr: ctx.steps.correctness_review.last.value
+
+      - id: refactor_review
+        type: claude
+        model:
+          expr: ctx.params.claude_model
+        reasoning:
+          expr: ctx.params.claude_refactor_reasoning
+        prompt: |
+          Repository root: {{ ctx.params.repo_dir }}
+          Roadmap file: {{ ctx.params.roadmap_file }}
+
+          Review the codebase related to the implemented roadmap items.
+          Find real refactoring targets for redundancy, overengineering, dead code, unnecessary boilerplate,
+          or files that should be split because they mix domains or grew too large.
+          Output ONLY valid JSON array.
+          Each item must be an object like:
+            {"id":"r-1","title":"...","details":"...","reasoning":"low|medium|high|xhigh"}
+          Return [] if nothing materially improves the implementation.
+        response:
+          schema:
+            $ref: "#/schemas/finding_list"
+
+      - id: fix_refactor_items
+        type: call
+        flow: fix_finding_list
+        inputs:
+          phase_label: refactor
+          findings:
+            expr: ctx.steps.refactor_review.last.value
+
+      - id: update_docs
+        type: codex
+        model:
+          expr: ctx.params.codex_model
+        reasoning:
+          expr: ctx.params.codex_docs_reasoning
+        prompt: |
+          Repository root: {{ ctx.params.repo_dir }}
+          Completed roadmap file: {{ ctx.params.roadmap_file }}
+
+          Update documentation for the completed roadmap work.
+
+          Requirements:
+          1. If the roadmap is fully complete, delete the completed roadmap file.
+          2. Delete the corresponding design doc only when no unfinished roadmap or design doc still depends on it.
+          3. Ensure durable current-state explanations live in docs/**, not in completed roadmap/design files.
+          4. Keep docs/, roadmap/, design/, and research/ within their intended domains.
+          5. Leave changes uncommitted.
+          Output ONLY valid JSON:
+            {"commitMessage":"cleanup: remove completed roadmap artifacts and refresh docs"}
+        response:
+          schema:
+            $ref: "#/schemas/docs_result"
+
+      - id: check_docs_links
+        type: docs.check_links
+
+      - id: commit_docs
+        type: git.commit
+        message:
+          expr: ctx.steps.update_docs.last.value["commitMessage"]
+        exclude_paths:
+          - expr: ctx.params.state_dir
+
+  fix_finding_list:
+    inputs:
+      phase_label:
+        type: string
+      findings:
+        type: array
+
+    steps:
+      - id: each_finding
+        type: foreach
+        items:
+          expr: ctx.inputs.findings
+        as: finding
+        order: seq
+        steps:
+          - id: apply_finding
+            type: codex
+            model:
+              expr: ctx.params.codex_model
+            reasoning:
+              expr: ctx.this.value["reasoning"]
+            prompt: |
+              Repository root: {{ ctx.params.repo_dir }}
+              Roadmap file: {{ ctx.params.roadmap_file }}
+
+              Apply ONLY this queued {{ ctx.inputs.phase_label }} item in the repository.
+              Use the queue item's details and requested reasoning level.
+              Keep the change minimal and targeted.
+              Run relevant tests/checks.
+              Leave everything uncommitted.
+              Output ONLY valid JSON:
+                {"itemId":"...","commitMessage":"...","summary":"..."}
+
+              Queue item JSON:
+              {{ to_json(ctx.this.value) }}
+            response:
+              schema:
+                $ref: "#/schemas/apply_result"
+
+          - id: assert_finding_match
+            type: assert
+            expr: ctx.steps.apply_finding.last.value["itemId"] == ctx.this.value["id"]
+
+          - id: commit_finding
+            type: git.commit
+            message:
+              expr: ctx.steps.apply_finding.last.value["commitMessage"]
+            exclude_paths:
+              - expr: ctx.params.state_dir
