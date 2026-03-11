@@ -188,9 +188,13 @@ Rules:
 - Starlark is built in and must be available in every run.
 - Other engines are registered by plugin name.
 - Template interpolation uses the same expression registry.
-- Fields that may hold either a literal value or a computed value use the object form to distinguish expressions from literals.
+- Fields that may hold either a literal value or a computed value use the object form to distinguish expressions from literals by default.
+- In `amata/v1`, any expression-accepting scalar position may also use whole-scalar root-context shorthand. A scalar whose entire value starts with `$.` desugars to `{ expr: <same expression with `$` replaced by `ctx`> }`.
+- Root-context shorthand is valid only when the entire YAML scalar is the expression. It does not perform string interpolation inside larger strings.
+- Templates keep `{{ ... }}` syntax. For example, `prompt: "repo={{ ctx.params.repo_dir }}"` is interpolation, while `cwd: $.params.repo_dir` is whole-scalar expression sugar.
+- In literal-or-expression positions, a whole scalar starting with `$$` escapes the shorthand and becomes a literal string with one leading `$`.
 - Expression-only positions may define shorthand syntax. In `amata/v1`, the required shorthand is the `expr` step form described below.
-- Executor-specific shorthand may omit `type` when exactly one built-in executor is implied by the step's fields. In `amata/v1`, this applies to `expr` via `expr:` and to `shell` via `command:`.
+- Executor-specific shorthand may omit `type` when exactly one built-in executor is implied by the step's fields. In `amata/v1`, this applies to `expr` via `expr:`, to `assert` via `assert:`, and to `shell` via `command:`.
 
 ### 5. Step Result Contract
 
@@ -276,19 +280,16 @@ Example:
 
 ```yaml
 defaults:
-  cwd:
-    expr: ctx.params.repo_dir
+  cwd: $.params.repo_dir
   expr_lang: starlark
   executors:
     codex:
-      model:
-        expr: ctx.params.codex_model
+      model: $.params.codex_model
     claude:
-      model:
-        expr: ctx.params.claude_model
+      model: $.params.claude_model
     git.commit:
       exclude_paths:
-        - expr: ctx.params.state_dir
+        - $.params.state_dir
 ```
 
 Rules:
@@ -296,6 +297,7 @@ Rules:
 - Mapping values are deep-merged. Scalar values and arrays are replaced by the step-local value.
 - Executor defaults are resolved after param defaults and before step execution.
 - Aliases such as `codex` and `claude` may define defaults independently of the provider-neutral `agent` type.
+- The `$.` shorthand applies after YAML parsing, so quoted and unquoted whole scalars behave the same.
 
 #### Flow
 
@@ -312,6 +314,7 @@ flows:
 - id: <unique-within-flow>
   type: <built-in-or-plugin-type>
   when: <expression-or-null>
+  expect: <expression-or-null>
   timeout: 10m
   retry:
     max_attempts: 3
@@ -325,6 +328,12 @@ flows:
 ```
 
 Sequential order is implicit in the `steps:` list. Non-linear routing comes from explicit control blocks, not a generic `then` pointer on every leaf step.
+
+Rules:
+- `expect` is evaluated after the step produces its result and after `response.schema` validation succeeds.
+- `expect` runs in the normal runtime context extended with the current step result at `ctx.status`, `ctx.value`, `ctx.error`, and `ctx.artifacts`.
+- If `expect` evaluates to false, the step itself fails with an expectation error.
+- Use `expect` for direct postconditions on the same step. Use a standalone `assert` step for cross-step invariants or multi-step checks.
 
 #### Built-in step types
 
@@ -340,7 +349,7 @@ Sequential order is implicit in the `steps:` list. Non-linear routing comes from
   command:
     - mkdir
     - -p
-    - expr: ctx.params.state_dir
+    - $.params.state_dir
 ```
 
 - `agent`
@@ -369,9 +378,18 @@ Sequential order is implicit in the `steps:` list. Non-linear routing comes from
 
 - `assert`
   - Fails the run when an expression is false.
+  - A step may omit `type: assert` when `assert` is the only executor-specific field.
+  - Prefer `expect` when the check is only about the result of the same step.
+  - Example:
+
+```yaml
+- id: assert_correct_approved
+  assert: $.steps.correct.last.value["approved"]
+```
 
 - `foreach`
   - Iterates over an input collection.
+  - `items` may be supplied as a literal collection, an expression object, or whole-scalar `$.` shorthand.
   - Supports `order: seq | parallel`.
   - Child steps execute with `ctx.this`, `ctx.prev`, and `ctx.next`.
   - Returns an array of child flow results.

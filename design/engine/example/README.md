@@ -37,3 +37,4 @@ Notes:
 - The example scripts rely on engine-side config validation rather than re-validating every request field locally.
 - Script paths in `plugins.yaml` are resolved relative to the registry file.
 - The fixture roadmap format matches the current parser behavior in `dagu/implement-roadmap/scripts/common.sh`.
+- `implement-roadmap.yaml` uses `$.` for whole-scalar expressions, `expect:` for direct step postconditions, `assert:` for standalone assertions, and `{{ ctx... }}` for string interpolation.

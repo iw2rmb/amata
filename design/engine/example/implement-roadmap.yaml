@@ -13,19 +13,16 @@ params:
   claude_refactor_reasoning: "high"
 
 defaults:
-  cwd:
-    expr: ctx.params.repo_dir
+  cwd: $.params.repo_dir
   expr_lang: starlark
   executors:
     codex:
-      model:
-        expr: ctx.params.codex_model
+      model: $.params.codex_model
     claude:
-      model:
-        expr: ctx.params.claude_model
+      model: $.params.claude_model
     git.commit:
       exclude_paths:
-        - expr: ctx.params.state_dir
+        - $.params.state_dir
 
 schemas:
   roadmap_item:
@@ -84,8 +81,7 @@ flows:
     steps:
       - id: roadmap
         type: roadmap.items
-        file:
-          expr: ctx.params.roadmap_file
+        file: $.params.roadmap_file
         response:
           schema:
             $ref: "#/schemas/roadmap_items"
@@ -100,15 +96,13 @@ flows:
 
       - id: implement_all_open_items
         type: foreach
-        items:
-          expr: ctx.steps.open_items.last.value
+        items: $.steps.open_items.last.value
         as: roadmap_item
         order: seq
         steps:
           - id: implement_item
             type: codex
-            reasoning:
-              expr: ctx.this.value["reasoning"]
+            reasoning: $.this.value["reasoning"]
             prompt: |
               Repository root: {{ ctx.params.repo_dir }}
               Roadmap file: {{ ctx.params.roadmap_file }}
@@ -131,8 +125,7 @@ flows:
 
           - id: review_item
             type: codex
-            reasoning:
-              expr: ctx.steps.implement_item.last.value["reviewReasoning"]
+            reasoning: $.steps.implement_item.last.value["reviewReasoning"]
             prompt: |
               Repository root: {{ ctx.params.repo_dir }}
               Roadmap file: {{ ctx.params.roadmap_file }}
@@ -151,28 +144,21 @@ flows:
             response:
               schema:
                 $ref: "#/schemas/review_result"
-
-          - id: assert_review_approved
-            type: assert
-            expr: ctx.steps.review_item.last.value["approved"]
+            expect: $.value["approved"]
 
           - id: mark_item_done
             type: roadmap.mark_done
-            file:
-              expr: ctx.params.roadmap_file
+            file: $.params.roadmap_file
             match:
-              label:
-                expr: ctx.this.value["label"]
+              label: $.this.value["label"]
 
           - id: commit_item
             type: git.commit
-            message:
-              expr: ctx.steps.implement_item.last.value["commitMessage"]
+            message: $.steps.implement_item.last.value["commitMessage"]
 
       - id: correct
         type: codex
-        reasoning:
-          expr: ctx.params.codex_correctness_reasoning
+        reasoning: $.params.codex_correctness_reasoning
         prompt: |
           Repository root: {{ ctx.params.repo_dir }}
           Roadmap file: {{ ctx.params.roadmap_file }}
@@ -187,15 +173,11 @@ flows:
         response:
           schema:
             $ref: "#/schemas/review_result"
-
-      - id: assert_correct_approved
-        type: assert
-        expr: ctx.steps.correct.last.value["approved"]
+        expect: $.value["approved"]
 
       - id: refactor
         type: claude
-        reasoning:
-          expr: ctx.params.claude_refactor_reasoning
+        reasoning: $.params.claude_refactor_reasoning
         prompt: |
           Repository root: {{ ctx.params.repo_dir }}
           Roadmap file: {{ ctx.params.roadmap_file }}
@@ -210,15 +192,11 @@ flows:
         response:
           schema:
             $ref: "#/schemas/review_result"
-
-      - id: assert_refactor_approved
-        type: assert
-        expr: ctx.steps.refactor.last.value["approved"]
+        expect: $.value["approved"]
 
       - id: sanity
         type: codex
-        reasoning:
-          expr: ctx.params.codex_correctness_reasoning
+        reasoning: $.params.codex_correctness_reasoning
         prompt: |
           Repository root: {{ ctx.params.repo_dir }}
           Roadmap file: {{ ctx.params.roadmap_file }}
@@ -231,20 +209,15 @@ flows:
         response:
           schema:
             $ref: "#/schemas/sanity_result"
-
-      - id: assert_sanity_approved
-        type: assert
-        expr: ctx.steps.sanity.last.value["approved"]
+        expect: $.value["approved"]
 
       - id: commit_followups
         type: git.commit
-        message:
-          expr: ctx.steps.sanity.last.value["commitMessage"]
+        message: $.steps.sanity.last.value["commitMessage"]
 
       - id: update_docs
         type: codex
-        reasoning:
-          expr: ctx.params.codex_docs_reasoning
+        reasoning: $.params.codex_docs_reasoning
         prompt: |
           Repository root: {{ ctx.params.repo_dir }}
           Completed roadmap file: {{ ctx.params.roadmap_file }}
@@ -264,5 +237,4 @@ flows:
 
       - id: commit_docs
         type: git.commit
-        message:
-          expr: ctx.steps.update_docs.last.value["commitMessage"]
+        message: $.steps.update_docs.last.value["commitMessage"]
