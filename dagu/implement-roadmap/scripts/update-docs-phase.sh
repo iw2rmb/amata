@@ -62,6 +62,7 @@ trap 'rm -f "$docs_result_file" "$commit_result_file"' EXIT
 cat <<PROMPT | rtk bash "${scripts_dir}/run-codex-prompt.sh" \
   --repo "$repo" \
   --model "$model" \
+  --state-dir "$state_dir" \
   --reasoning "$reasoning" >"$docs_result_file"
 Repository root: ${repo}
 Completed roadmap file: ${roadmap_file}

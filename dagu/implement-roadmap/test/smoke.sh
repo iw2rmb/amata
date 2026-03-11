@@ -45,7 +45,10 @@ while [ "$#" -gt 0 ]; do
       repo="$2"
       shift 2
       ;;
-    --dangerously-bypass-approvals-and-sandbox|--color|--model|-c)
+    --dangerously-bypass-approvals-and-sandbox)
+      shift
+      ;;
+    --color|--model|-c)
       shift 2
       ;;
     -)

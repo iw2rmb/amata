@@ -63,6 +63,7 @@ trap 'rm -f "$review_file" "$validated_items_file" "$phase_file"' EXIT
 cat <<PROMPT | rtk bash "${scripts_dir}/run-codex-prompt.sh" \
   --repo "$repo" \
   --model "$model" \
+  --state-dir "$state_dir" \
   --reasoning "$reasoning" >"$review_file"
 Repository root: ${repo}
 Roadmap file: ${roadmap_file}

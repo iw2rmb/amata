@@ -33,8 +33,15 @@ This avoids silent skips caused by Dagu treating step outputs as raw stdout stri
 
 AI execution is explicit:
 - Codex steps run through `codex exec` so model and reasoning are set per step.
+- Codex prompt runs persist prompts, logs, session IDs, and final outputs under `${STATE_DIR}/codex-runs/` when a state dir is available.
+- Codex prompt runs watch for session/log inactivity, kill a wedged `codex exec`, and resume the same session once before failing with artifact paths.
 - Claude steps run through `claude -p` so the workflow does not depend on Dagu's generic `type: agent` abstraction.
 - Commit steps exclude the workflow `STATE_DIR` so `.amata/` queue files never leak into repository commits.
+
+Codex watchdog tuning:
+- `CODEX_WATCHDOG_IDLE_SECONDS` sets the inactivity threshold before recovery. Default: `900`.
+- `CODEX_WATCHDOG_POLL_SECONDS` sets how often the watchdog checks activity. Default: `15`.
+- `CODEX_WATCHDOG_MAX_RECOVERIES` sets how many resume attempts are allowed before the wrapper fails. Default: `1`.
 
 Runtime prerequisites:
 - `codex` CLI installed and authenticated

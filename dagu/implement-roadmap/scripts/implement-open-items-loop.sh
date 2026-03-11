@@ -69,6 +69,7 @@ while true; do
   cat <<PROMPT | rtk bash "${scripts_dir}/run-codex-prompt.sh" \
     --repo "$repo" \
     --model "$model" \
+    --state-dir "$state_dir" \
     --reasoning "$reasoning" >"$implement_result_file"
 Repository root: ${repo}
 Roadmap file: ${doc}
@@ -104,6 +105,7 @@ PROMPT
   cat <<PROMPT | rtk bash "${scripts_dir}/run-codex-prompt.sh" \
     --repo "$repo" \
     --model "$model" \
+    --state-dir "$state_dir" \
     --reasoning "$review_reasoning" >"$review_result_file"
 Repository root: ${repo}
 Roadmap file: ${doc}

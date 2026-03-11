@@ -105,6 +105,15 @@ if [ -n "$review_runner" ]; then
   review_runner_script="$(prompt_runner_script "$scripts_dir" "$review_runner")"
 fi
 
+apply_runner_args=()
+review_runner_args=()
+if [ "$apply_runner" = "codex" ]; then
+  apply_runner_args+=(--state-dir "$state_dir")
+fi
+if [ "$review_runner" = "codex" ]; then
+  review_runner_args+=(--state-dir "$state_dir")
+fi
+
 while true; do
   rtk bash "${scripts_dir}/next-queue-item.sh" --queue "$queue" >"$next_item_file"
 
@@ -118,6 +127,7 @@ while true; do
   reasoning="$(rtk jq -r '.nextItem.reasoning' "$next_item_file")"
 
   cat <<PROMPT | rtk bash "$apply_runner_script" \
+    "${apply_runner_args[@]}" \
     --repo "$repo" \
     --model "$apply_model" \
     --reasoning "$reasoning" >"$apply_result_file"
@@ -151,6 +161,7 @@ PROMPT
 
   if [ -n "$review_runner_script" ]; then
     cat <<PROMPT | rtk bash "$review_runner_script" \
+      "${review_runner_args[@]}" \
       --repo "$repo" \
       --model "$review_model" \
       --reasoning "$reasoning" >"$review_result_file"
