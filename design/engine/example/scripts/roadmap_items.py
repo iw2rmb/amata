@@ -112,21 +112,7 @@ def parse_items(text: str) -> list[dict]:
 def main() -> int:
     try:
         request = read_request()
-        config = request.get("config")
-        if not isinstance(config, dict):
-            emit(fail("invalid_request", "field `config` must be an object"))
-            return 0
-
-        file_value = config.get("file")
-        if not isinstance(file_value, str) or not file_value:
-            emit(fail("invalid_request", "field `config.file` must be a non-empty string"))
-            return 0
-
-        path = pathlib.Path(file_value)
-        if not path.is_absolute():
-            emit(fail("invalid_request", "field `config.file` must be an absolute path"))
-            return 0
-
+        path = pathlib.Path(request["config"]["file"])
         text = path.read_text(encoding="utf-8")
         emit(ok({"items": parse_items(text)}))
         return 0

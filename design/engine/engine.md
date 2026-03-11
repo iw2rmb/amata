@@ -267,6 +267,35 @@ Rules:
 - Object form is required when the param needs metadata or validation such as `description`, `enum`, `required`, `secret`, or non-literal defaults.
 - Object and array defaults must use the full object form.
 
+#### Defaults
+
+`defaults` carries workflow-wide runtime defaults and per-executor default config.
+
+Example:
+
+```yaml
+defaults:
+  cwd:
+    expr: ctx.params.repo_dir
+  expr_lang: starlark
+  executors:
+    codex:
+      model:
+        expr: ctx.params.codex_model
+    claude:
+      model:
+        expr: ctx.params.claude_model
+    git.commit:
+      exclude_paths:
+        - expr: ctx.params.state_dir
+```
+
+Rules:
+- `defaults.executors.<type>` applies to steps whose declared `type` is `<type>`.
+- Mapping values are deep-merged. Scalar values and arrays are replaced by the step-local value.
+- Executor defaults are resolved after param defaults and before step execution.
+- Aliases such as `codex` and `claude` may define defaults independently of the provider-neutral `agent` type.
+
 #### Flow
 
 ```yaml
@@ -308,6 +337,9 @@ Sequential order is implicit in the `steps:` list. Non-linear routing comes from
   - Required fields: `provider`, `prompt`, `model`.
   - Optional fields: `reasoning`, `cwd`, `env`.
   - Aliases such as `codex` and `claude` are allowed as sugar over `agent`.
+  - When `response.schema` is declared and `response.from` is omitted or set to `value`, the executor must request structured JSON output for `value`.
+  - Provider-native structured-output features should be preferred. Prompt-only formatting instructions are a fallback, not the primary contract.
+  - Prompts should describe task semantics, not restate JSON wrappers already implied by `response.schema`.
 
 - `expr`
   - Evaluates an expression and returns its value.
@@ -351,10 +383,36 @@ Any non-built-in `type` is resolved through the executor registry. Example categ
 
 The plugin contract is:
 - receive validated step config
-- receive `ctx`
+- receive engine-managed execution metadata appropriate to the runtime boundary
 - return a standard step result object
 
 The example bundle in [example/README.md](example/README.md) includes a concrete, non-normative plugin registry file at [example/plugins.yaml](example/plugins.yaml). That registry resolves plugin executables relative to the registry file so the example remains self-contained.
+
+Plugin registry entries may declare `config_schema` so the engine can validate plugin config before launching the external process.
+
+Example:
+
+```yaml
+plugins:
+  roadmap.items:
+    exec:
+      - python3
+      - scripts/roadmap_items.py
+    config_schema:
+      type: object
+      required: [file]
+      additionalProperties: false
+      properties:
+        file:
+          type: string
+          format: path
+```
+
+Rules:
+- The engine evaluates expressions and applies executor defaults before validating plugin config.
+- `config_schema` uses JSON Schema plus engine-specific annotations such as `format: path` for filesystem-path normalization.
+- The engine should reject invalid plugin config before process spawn rather than asking the plugin script to repeat structural validation.
+- External plugins may assume `request.config` already conforms to the declared schema.
 
 #### Plugin process request contract
 
@@ -383,7 +441,7 @@ Minimum request shape:
 ```
 
 Rules:
-- `config` contains the plugin-specific step config after expression evaluation and default application.
+- `config` contains the plugin-specific step config after expression evaluation, default application, schema validation, and path normalization.
 - The engine, not the plugin, owns process setup such as working directory, run metadata, and artifact-directory allocation.
 - Filesystem path fields should be normalized before plugin invocation when the plugin contract declares them as filesystem paths.
 - Plugins should not recover core execution metadata from process state when the engine can provide it explicitly.
@@ -444,6 +502,8 @@ Important implementation notes:
 - Keep execution records immutable after they are appended.
 - Make template rendering and expression evaluation use the same type system.
 - Treat plugin executors and built-in executors uniformly at the runtime boundary.
+- Make agent structured-output mode derive from `response.schema` rather than repeated prompt boilerplate.
+- Validate plugin step config in the engine, not ad hoc inside every plugin script.
 
 ## Milestones
 

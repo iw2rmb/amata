@@ -40,19 +40,9 @@ def is_excluded(path: str, excluded: list[str]) -> bool:
 def main() -> int:
     try:
         request = read_request()
-        config = request.get("config")
-        if not isinstance(config, dict):
-            emit(fail("invalid_request", "field `config` must be an object"))
-            return 0
-
-        message = config.get("message")
+        config = request["config"]
+        message = config["message"]
         excluded = config.get("exclude_paths", [])
-        if not isinstance(message, str) or not message:
-            emit(fail("invalid_request", "field `config.message` must be a non-empty string"))
-            return 0
-        if not isinstance(excluded, list) or any(not isinstance(item, str) for item in excluded):
-            emit(fail("invalid_request", "field `config.exclude_paths` must be an array of strings"))
-            return 0
 
         inside_repo = run_git("rev-parse", "--is-inside-work-tree")
         if inside_repo.returncode != 0 or inside_repo.stdout.strip() != "true":

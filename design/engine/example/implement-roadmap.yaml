@@ -16,6 +16,16 @@ defaults:
   cwd:
     expr: ctx.params.repo_dir
   expr_lang: starlark
+  executors:
+    codex:
+      model:
+        expr: ctx.params.codex_model
+    claude:
+      model:
+        expr: ctx.params.claude_model
+    git.commit:
+      exclude_paths:
+        - expr: ctx.params.state_dir
 
 schemas:
   roadmap_item:
@@ -54,7 +64,7 @@ schemas:
     type: object
     required: [approved, notes]
     properties:
-      approved: {type: string}
+      approved: {type: boolean}
       notes: {type: string}
   finding:
     type: object
@@ -116,8 +126,6 @@ flows:
         steps:
           - id: implement_item
             type: codex
-            model:
-              expr: ctx.params.codex_model
             reasoning:
               expr: ctx.this.value["reasoning"]
             prompt: |
@@ -132,8 +140,7 @@ flows:
               3. Update the roadmap file and mark only this item done.
               4. Do not start later roadmap items.
               5. Leave everything uncommitted.
-              6. Output ONLY valid JSON:
-                 {"itemTitle":"...","commitMessage":"...","reviewReasoning":"low|medium|high|xhigh","summary":"..."}
+              Return the selected item title, a commit message, the requested review reasoning level, and a short summary.
 
               Selected open roadmap item JSON:
               {{ to_json(ctx.this.value) }}
@@ -143,8 +150,6 @@ flows:
 
           - id: review_item
             type: codex
-            model:
-              expr: ctx.params.codex_model
             reasoning:
               expr: ctx.steps.implement_item.last.value["reviewReasoning"]
             prompt: |
@@ -155,8 +160,7 @@ flows:
               Review the current uncommitted diff for the selected roadmap item.
               Stay within the selected item's scope.
               You may patch the code directly if you find issues, then rerun any checks needed for confidence.
-              When the diff is ready to commit, output ONLY valid JSON:
-                 {"approved":"true","notes":"..."}
+              When the diff is ready to commit, return approval as a boolean and a short review note.
 
               Selected roadmap item JSON:
               {{ to_json(ctx.this.value) }}
@@ -169,7 +173,7 @@ flows:
 
           - id: assert_review_approved
             type: assert
-            expr: ctx.steps.review_item.last.value["approved"] == "true"
+            expr: ctx.steps.review_item.last.value["approved"]
 
           - id: mark_item_done
             type: roadmap.mark_done
@@ -183,13 +187,9 @@ flows:
             type: git.commit
             message:
               expr: ctx.steps.implement_item.last.value["commitMessage"]
-            exclude_paths:
-              - expr: ctx.params.state_dir
 
       - id: correctness_review
         type: codex
-        model:
-          expr: ctx.params.codex_model
         reasoning:
           expr: ctx.params.codex_correctness_reasoning
         prompt: |
@@ -198,10 +198,7 @@ flows:
 
           Confirm by inspecting the codebase, tests, and current documentation that the roadmap work is wired end-to-end,
           implemented correctly and in full, and leaves no leftover or partially applied work.
-          Output ONLY valid JSON array.
-          Each item must be an object like:
-            {"id":"c-1","title":"...","details":"...","reasoning":"low|medium|high|xhigh"}
-          Return [] if nothing needs a follow-up fix.
+          Return a list of follow-up findings. Return an empty list if nothing needs a follow-up fix.
         response:
           schema:
             $ref: "#/schemas/finding_list"
@@ -216,8 +213,6 @@ flows:
 
       - id: refactor_review
         type: claude
-        model:
-          expr: ctx.params.claude_model
         reasoning:
           expr: ctx.params.claude_refactor_reasoning
         prompt: |
@@ -227,10 +222,7 @@ flows:
           Review the codebase related to the implemented roadmap items.
           Find real refactoring targets for redundancy, overengineering, dead code, unnecessary boilerplate,
           or files that should be split because they mix domains or grew too large.
-          Output ONLY valid JSON array.
-          Each item must be an object like:
-            {"id":"r-1","title":"...","details":"...","reasoning":"low|medium|high|xhigh"}
-          Return [] if nothing materially improves the implementation.
+          Return a list of refactoring findings. Return an empty list if nothing materially improves the implementation.
         response:
           schema:
             $ref: "#/schemas/finding_list"
@@ -245,8 +237,6 @@ flows:
 
       - id: update_docs
         type: codex
-        model:
-          expr: ctx.params.codex_model
         reasoning:
           expr: ctx.params.codex_docs_reasoning
         prompt: |
@@ -261,8 +251,7 @@ flows:
           3. Ensure durable current-state explanations live in docs/**, not in completed roadmap/design files.
           4. Keep docs/, roadmap/, design/, and research/ within their intended domains.
           5. Leave changes uncommitted.
-          Output ONLY valid JSON:
-            {"commitMessage":"cleanup: remove completed roadmap artifacts and refresh docs"}
+          Return the commit message for the docs cleanup.
         response:
           schema:
             $ref: "#/schemas/docs_result"
@@ -271,8 +260,6 @@ flows:
         type: git.commit
         message:
           expr: ctx.steps.update_docs.last.value["commitMessage"]
-        exclude_paths:
-          - expr: ctx.params.state_dir
 
   fix_finding_list:
     inputs:
@@ -291,8 +278,6 @@ flows:
         steps:
           - id: apply_finding
             type: codex
-            model:
-              expr: ctx.params.codex_model
             reasoning:
               expr: ctx.this.value["reasoning"]
             prompt: |
@@ -304,8 +289,7 @@ flows:
               Keep the change minimal and targeted.
               Run relevant tests/checks.
               Leave everything uncommitted.
-              Output ONLY valid JSON:
-                {"itemId":"...","commitMessage":"...","summary":"..."}
+              Return the finding id, a commit message, and a short summary.
 
               Queue item JSON:
               {{ to_json(ctx.this.value) }}
@@ -321,5 +305,3 @@ flows:
             type: git.commit
             message:
               expr: ctx.steps.apply_finding.last.value["commitMessage"]
-            exclude_paths:
-              - expr: ctx.params.state_dir
