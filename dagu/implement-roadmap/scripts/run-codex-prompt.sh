@@ -60,15 +60,11 @@ file_mtime_epoch() {
 
   if [ ! -e "$file" ]; then
     printf '0\n'
-    return
-  fi
-
-  if stat -f '%m' "$file" >/dev/null 2>&1; then
+  elif stat -f '%m' "$file" >/dev/null 2>&1; then
     stat -f '%m' "$file"
-    return
+  else
+    stat -c '%Y' "$file"
   fi
-
-  stat -c '%Y' "$file"
 }
 
 now_epoch() {
