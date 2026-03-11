@@ -26,23 +26,6 @@ normalize_markdown_fence_file() {
   ' "$file"
 }
 
-prompt_runner_script() {
-  local scripts_dir="$1"
-  local runner="$2"
-
-  case "$runner" in
-    codex)
-      printf '%s/run-codex-prompt.sh\n' "$scripts_dir"
-      ;;
-    claude)
-      printf '%s/run-claude-prompt.sh\n' "$scripts_dir"
-      ;;
-    *)
-      die "unsupported prompt runner: $runner"
-      ;;
-  esac
-}
-
 load_file_lines() {
   local file="$1"
   FILE_LINES=()

@@ -13,9 +13,6 @@ params:
   - CLAUDE_REFACTOR_REASONING: "high"
 
 steps:
-  - name: init-state
-    command: rtk mkdir -p "${STATE_DIR}/queues"
-
   - name: implement-all-open-items
     command: >
       rtk bash "${SCRIPTS_DIR}/implement-open-items-loop.sh"
@@ -25,26 +22,34 @@ steps:
       --model "${CODEX_MODEL}"
       --state-dir "${STATE_DIR}"
 
-  - name: correctness-pass
+  - name: correct
     command: >
-      rtk bash "${SCRIPTS_DIR}/correctness-phase.sh"
+      rtk bash "${SCRIPTS_DIR}/correct-phase.sh"
       --repo "${REPO_DIR}"
       --roadmap-file "${ROADMAP_FILE}"
-      --state-dir "${STATE_DIR}"
       --scripts-dir "${SCRIPTS_DIR}"
       --model "${CODEX_MODEL}"
       --reasoning "${CODEX_CORRECTNESS_REASONING}"
+      --state-dir "${STATE_DIR}"
 
-  - name: refactor-pass
+  - name: refactor
     command: >
       rtk bash "${SCRIPTS_DIR}/refactor-phase.sh"
       --repo "${REPO_DIR}"
       --roadmap-file "${ROADMAP_FILE}"
-      --state-dir "${STATE_DIR}"
+      --scripts-dir "${SCRIPTS_DIR}"
+      --model "${CLAUDE_MODEL}"
+      --reasoning "${CLAUDE_REFACTOR_REASONING}"
+
+  - name: sanity
+    command: >
+      rtk bash "${SCRIPTS_DIR}/sanity-phase.sh"
+      --repo "${REPO_DIR}"
+      --roadmap-file "${ROADMAP_FILE}"
       --scripts-dir "${SCRIPTS_DIR}"
       --model "${CODEX_MODEL}"
-      --claude-model "${CLAUDE_MODEL}"
-      --reasoning "${CLAUDE_REFACTOR_REASONING}"
+      --reasoning "${CODEX_CORRECTNESS_REASONING}"
+      --state-dir "${STATE_DIR}"
 
   - name: update-docs
     command: >

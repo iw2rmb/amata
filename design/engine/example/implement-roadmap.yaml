@@ -66,25 +66,13 @@ schemas:
     properties:
       approved: {type: boolean}
       notes: {type: string}
-  finding:
+  sanity_result:
     type: object
-    required: [id, title, reasoning]
+    required: [approved, notes, commitMessage]
     properties:
-      id: {type: string}
-      title: {type: string}
-      details: {type: string}
-      reasoning: {type: string}
-  finding_list:
-    type: array
-    items:
-      $ref: "#/schemas/finding"
-  apply_result:
-    type: object
-    required: [itemId, commitMessage, summary]
-    properties:
-      itemId: {type: string}
+      approved: {type: boolean}
+      notes: {type: string}
       commitMessage: {type: string}
-      summary: {type: string}
   docs_result:
     type: object
     required: [commitMessage]
@@ -94,13 +82,6 @@ schemas:
 flows:
   main:
     steps:
-      - id: init_state
-        type: shell
-        command:
-          - mkdir
-          - -p
-          - expr: ctx.params.state_dir + "/queues"
-
       - id: roadmap
         type: roadmap.items
         file:
@@ -188,7 +169,7 @@ flows:
             message:
               expr: ctx.steps.implement_item.last.value["commitMessage"]
 
-      - id: correctness_review
+      - id: correct
         type: codex
         reasoning:
           expr: ctx.params.codex_correctness_reasoning
@@ -198,20 +179,20 @@ flows:
 
           Confirm by inspecting the codebase, tests, and current documentation that the roadmap work is wired end-to-end,
           implemented correctly and in full, and leaves no leftover or partially applied work.
-          Return a list of follow-up findings. Return an empty list if nothing needs a follow-up fix.
+          If you find gaps, patch the repository directly and rerun the relevant checks.
+          Stay within the scope of the implemented roadmap work.
+          Do not do discretionary refactors or docs cleanup in this step.
+          Leave changes uncommitted.
+          Return approval as a boolean and a short review note.
         response:
           schema:
-            $ref: "#/schemas/finding_list"
+            $ref: "#/schemas/review_result"
 
-      - id: fix_correctness_items
-        type: call
-        flow: fix_finding_list
-        inputs:
-          phase_label: correctness
-          findings:
-            expr: ctx.steps.correctness_review.last.value
+      - id: assert_correct_approved
+        type: assert
+        expr: ctx.steps.correct.last.value["approved"]
 
-      - id: refactor_review
+      - id: refactor
         type: claude
         reasoning:
           expr: ctx.params.claude_refactor_reasoning
@@ -222,18 +203,43 @@ flows:
           Review the codebase related to the implemented roadmap items.
           Find real refactoring targets for redundancy, overengineering, dead code, unnecessary boilerplate,
           or files that should be split because they mix domains or grew too large.
-          Return a list of refactoring findings. Return an empty list if nothing materially improves the implementation.
+          Apply the refactors directly when they materially improve the implementation, then rerun relevant checks.
+          Keep behavior and scope intact. Do not start new feature work or docs cleanup.
+          Leave changes uncommitted.
+          Return approval as a boolean and a short review note.
         response:
           schema:
-            $ref: "#/schemas/finding_list"
+            $ref: "#/schemas/review_result"
 
-      - id: fix_refactor_items
-        type: call
-        flow: fix_finding_list
-        inputs:
-          phase_label: refactor
-          findings:
-            expr: ctx.steps.refactor_review.last.value
+      - id: assert_refactor_approved
+        type: assert
+        expr: ctx.steps.refactor.last.value["approved"]
+
+      - id: sanity
+        type: codex
+        reasoning:
+          expr: ctx.params.codex_correctness_reasoning
+        prompt: |
+          Repository root: {{ ctx.params.repo_dir }}
+          Roadmap file: {{ ctx.params.roadmap_file }}
+
+          Review the current uncommitted diff after the correctness and refactor passes.
+          Check for scope drift, regressions, half-applied edits, or architectural mistakes.
+          You may patch the repository directly if you find issues, then rerun any checks needed for confidence.
+          Leave changes uncommitted.
+          Return approval as a boolean, a short review note, and a commit message for any follow-up code changes.
+        response:
+          schema:
+            $ref: "#/schemas/sanity_result"
+
+      - id: assert_sanity_approved
+        type: assert
+        expr: ctx.steps.sanity.last.value["approved"]
+
+      - id: commit_followups
+        type: git.commit
+        message:
+          expr: ctx.steps.sanity.last.value["commitMessage"]
 
       - id: update_docs
         type: codex
@@ -260,48 +266,3 @@ flows:
         type: git.commit
         message:
           expr: ctx.steps.update_docs.last.value["commitMessage"]
-
-  fix_finding_list:
-    inputs:
-      phase_label:
-        type: string
-      findings:
-        type: array
-
-    steps:
-      - id: each_finding
-        type: foreach
-        items:
-          expr: ctx.inputs.findings
-        as: finding
-        order: seq
-        steps:
-          - id: apply_finding
-            type: codex
-            reasoning:
-              expr: ctx.this.value["reasoning"]
-            prompt: |
-              Repository root: {{ ctx.params.repo_dir }}
-              Roadmap file: {{ ctx.params.roadmap_file }}
-
-              Apply ONLY this queued {{ ctx.inputs.phase_label }} item in the repository.
-              Use the queue item's details and requested reasoning level.
-              Keep the change minimal and targeted.
-              Run relevant tests/checks.
-              Leave everything uncommitted.
-              Return the finding id, a commit message, and a short summary.
-
-              Queue item JSON:
-              {{ to_json(ctx.this.value) }}
-            response:
-              schema:
-                $ref: "#/schemas/apply_result"
-
-          - id: assert_finding_match
-            type: assert
-            expr: ctx.steps.apply_finding.last.value["itemId"] == ctx.this.value["id"]
-
-          - id: commit_finding
-            type: git.commit
-            message:
-              expr: ctx.steps.apply_finding.last.value["commitMessage"]

@@ -74,23 +74,18 @@ JSON
     ;;
   *"Review the current uncommitted diff for the selected roadmap item."*)
     cat >"$out_file" <<'JSON'
-{"approved":"true","notes":"ready"}
+{"approved":true,"notes":"ready"}
 JSON
     ;;
   *"Confirm by inspecting the codebase, tests, and current documentation"*)
-    cat >"$out_file" <<'JSON'
-[{"id":"c-1","title":"Add correctness marker","details":"create correctness.txt","reasoning":"low"}]
-JSON
-    ;;
-  *"Apply ONLY this queued correctness item in the repository."*)
     printf 'correctness\n' > correctness.txt
     cat >"$out_file" <<'JSON'
-{"itemId":"c-1","commitMessage":"fix: add correctness marker","summary":"applied"}
+{"approved":true,"notes":"correctness gaps addressed"}
 JSON
     ;;
-  *"Review the current uncommitted diff for the queued refactor item."*)
+  *"Review the current uncommitted diff after the correctness and refactor passes."*)
     cat >"$out_file" <<'JSON'
-{"approved":"true","notes":"refactor diff looks sane"}
+{"approved":true,"notes":"follow-up diff looks sane","commitMessage":"chore: finalize sample follow-ups"}
 JSON
     ;;
   *"Update documentation for the completed roadmap work."*)
@@ -116,17 +111,10 @@ prompt="$(cat)"
 
 case "$prompt" in
   *"Review the codebase related to the implemented roadmap items."*)
-    cat <<'JSON'
-```json
-[{"id":"r-1","title":"Add refactor marker","details":"create refactor.txt","reasoning":"low"}]
-```
-JSON
-    ;;
-  *"Apply ONLY this queued refactor item in the repository."*)
     printf 'refactor\n' > refactor.txt
     cat <<'JSON'
 ```json
-{"itemId":"r-1","commitMessage":"refactor: add refactor marker","summary":"created refactor marker and ran targeted checks"}
+{"approved":true,"notes":"refactor applied and checked"}
 ```
 JSON
     ;;
@@ -161,10 +149,10 @@ PATH="${bin_dir}:$PATH" rtk dagu start "$DAG_FILE" -- \
 [ ! -e "${repo_dir}/roadmap/sample/index.md" ]
 
 commit_count="$(git -C "$repo_dir" rev-list --count HEAD)"
-[ "$commit_count" = "4" ]
+[ "$commit_count" = "3" ]
 
-if git -C "$repo_dir" ls-files --error-unmatch .amata/queues/correctness.json >/dev/null 2>&1; then
-  printf '.amata queue file was committed\n' >&2
+if git -C "$repo_dir" ls-files --error-unmatch .amata/codex-runs >/dev/null 2>&1; then
+  printf '.amata runtime files were committed\n' >&2
   exit 1
 fi
 

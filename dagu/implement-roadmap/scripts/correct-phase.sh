@@ -56,9 +56,7 @@ done
 [ -n "$reasoning" ] || die "--reasoning is required"
 
 review_file="$(mktemp)"
-validated_items_file="$(mktemp)"
-phase_file="$(mktemp)"
-trap 'rm -f "$review_file" "$validated_items_file" "$phase_file"' EXIT
+trap 'rm -f "$review_file"' EXIT
 
 cat <<PROMPT | rtk bash "${scripts_dir}/run-codex-prompt.sh" \
   --repo "$repo" \
@@ -70,32 +68,19 @@ Roadmap file: ${roadmap_file}
 
 Confirm by inspecting the codebase, tests, and current documentation that the roadmap work is wired end-to-end,
 implemented correctly and in full, and leaves no leftover or partially applied work.
-Output ONLY valid JSON array.
-Each item must be an object like:
-  {"id":"c-1","title":"...","details":"...","reasoning":"low|medium|high|xhigh"}
-Return [] if nothing needs a follow-up fix.
+If you find gaps, patch the repository directly and rerun the relevant checks.
+Stay within the scope of the implemented roadmap work.
+Do not do discretionary refactors or docs cleanup in this step.
+Leave changes uncommitted.
+Output ONLY valid JSON:
+  {"approved":true,"notes":"..."}
 PROMPT
 
 rtk jq -ce \
-  'if type=="array"
+  'if type=="object" and .approved == true and has("notes")
    then .
-   else error("expected JSON array")
+   else error("review not approved")
    end' \
-  "$review_file" >"$validated_items_file"
+  "$review_file" >/dev/null
 
-rtk bash "${scripts_dir}/write-queue.sh" \
-  --queue "${state_dir}/queues/correctness.json" \
-  --source "$validated_items_file" \
-  --kind correctness >/dev/null
-
-rtk bash "${scripts_dir}/fix-queue.sh" \
-  --repo "$repo" \
-  --roadmap-file "$roadmap_file" \
-  --scripts-dir "$scripts_dir" \
-  --apply-runner codex \
-  --apply-model "$model" \
-  --queue "${state_dir}/queues/correctness.json" \
-  --phase-label correctness \
-  --state-dir "$state_dir" >"$phase_file"
-
-cat "$phase_file"
+cat "$review_file"

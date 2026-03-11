@@ -33,11 +33,11 @@ The current Dagu-based flow works only after pushing most orchestration into she
 
 Concrete pressures:
 - `dagu/implement-roadmap/implement-roadmap.yaml` now sequences only coarse phases; real iteration and routing live elsewhere.
-- `dagu/implement-roadmap/scripts/implement-open-items-loop.sh` and `dagu/implement-roadmap/scripts/fix-queue.sh` own loops, temp files, JSON parsing, and commit boundaries.
+- `dagu/implement-roadmap/scripts/implement-open-items-loop.sh`, `correct-phase.sh`, `refactor-phase.sh`, and `sanity-phase.sh` own loops, temp files, JSON parsing, and commit boundaries.
 - `dagu/implement-roadmap/scripts/common.sh` parses roadmap markdown with bash and `jq`, then shell code passes that state around via stdout files.
 - `dagu/implement-roadmap/scripts/run-codex-prompt.sh` wraps agent execution in temp files because agent outputs are not first-class workflow values.
 - `dagu/implement-roadmap/scripts/commit-if-changed.sh` has to manually exclude workflow state from commits because the workflow engine does not understand operational state vs repo state.
-- The draft in [yaml.md](../../yaml.md) already identifies the missing primitives: typed responses, resume support, explicit control flow, and expression evaluation over run history.
+- Prior iterations of this design already identified the missing primitives: typed responses, resume support, explicit control flow, and expression evaluation over run history.
 
 The core failure to avoid is silent misrouting when structured outputs are treated like raw strings. The engine must own structured state directly.
 
@@ -74,12 +74,12 @@ The core failure to avoid is silent misrouting when structured outputs are treat
   - commit
   - re-read roadmap
   This logic lives in `dagu/implement-roadmap/scripts/implement-open-items-loop.sh`.
-- Correctness and refactor passes duplicate the same queue-processing pattern in `dagu/implement-roadmap/scripts/fix-queue.sh`.
+- Correctness, refactor, and sanity still live in shell phase scripts with handwritten prompts, JSON validation, and manual commit boundaries.
 - Markdown roadmap parsing is implemented as a reusable bash function with regex matching in `dagu/implement-roadmap/scripts/common.sh`.
-- Queue persistence is ad hoc JSON under `.amata/queues`, written by `dagu/implement-roadmap/scripts/write-queue.sh`.
+- Workflow runtime state is still managed by shell wrappers under `.amata/`, and commit exclusion is still manual.
 - Agent execution is shell-wrapped in `dagu/implement-roadmap/scripts/run-codex-prompt.sh`.
 - The current repo already contains a smoke test for the Dagu workflow because correctness depends on behavior that the orchestrator itself does not enforce: `dagu/implement-roadmap/test/smoke.sh`.
-- The draft in [yaml.md](../../yaml.md) already points toward a structured engine with typed responses, control flow, and resume support, but it still needs a tighter runtime contract.
+- Earlier design iterations already pointed toward a structured engine with typed responses, control flow, and resume support, but they still needed a tighter runtime contract.
 
 ## Target Contract or Target Architecture
 
@@ -190,6 +190,7 @@ Rules:
 - Template interpolation uses the same expression registry.
 - Fields that may hold either a literal value or a computed value use the object form to distinguish expressions from literals.
 - Expression-only positions may define shorthand syntax. In `amata/v1`, the required shorthand is the `expr` step form described below.
+- Executor-specific shorthand may omit `type` when exactly one built-in executor is implied by the step's fields. In `amata/v1`, this applies to `expr` via `expr:` and to `shell` via `command:`.
 
 ### 5. Step Result Contract
 
@@ -331,6 +332,16 @@ Sequential order is implicit in the `steps:` list. Non-linear routing comes from
   - Runs a command.
   - Can capture `stdout`, `stderr`, exit code, and parsed `value`.
   - Can optionally run under a container image.
+  - A step may omit `type: shell` when `command` is the only executor-specific field.
+  - Example:
+
+```yaml
+- id: init_state
+  command:
+    - mkdir
+    - -p
+    - expr: ctx.params.state_dir
+```
 
 - `agent`
   - Provider-neutral agent invocation.
@@ -567,14 +578,15 @@ Testable outcome:
 
 ## References
 
-- Draft requirements: [yaml.md](../../yaml.md)
 - Self-contained reference bundle: [example/README.md](example/README.md)
 - Current Dagu workflow overview: [README.md](../../dagu/implement-roadmap/README.md)
 - Current orchestration baseline:
   - `dagu/implement-roadmap/implement-roadmap.yaml`
   - `dagu/implement-roadmap/scripts/common.sh`
   - `dagu/implement-roadmap/scripts/implement-open-items-loop.sh`
-  - `dagu/implement-roadmap/scripts/fix-queue.sh`
+  - `dagu/implement-roadmap/scripts/correct-phase.sh`
+  - `dagu/implement-roadmap/scripts/refactor-phase.sh`
+  - `dagu/implement-roadmap/scripts/sanity-phase.sh`
   - `dagu/implement-roadmap/scripts/run-codex-prompt.sh`
   - `dagu/implement-roadmap/scripts/commit-if-changed.sh`
   - `dagu/implement-roadmap/test/smoke.sh`

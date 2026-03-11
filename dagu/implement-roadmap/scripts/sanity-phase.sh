@@ -9,6 +9,7 @@ roadmap_file=""
 scripts_dir="${SCRIPT_DIR}"
 model=""
 reasoning=""
+state_dir=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -37,6 +38,11 @@ while [ "$#" -gt 0 ]; do
       reasoning="$2"
       shift 2
       ;;
+    --state-dir)
+      [ "$#" -ge 2 ] || die "--state-dir requires a value"
+      state_dir="$2"
+      shift 2
+      ;;
     *)
       die "unknown argument: $1"
       ;;
@@ -47,32 +53,42 @@ done
 [ -n "$roadmap_file" ] || die "--roadmap-file is required"
 [ -n "$model" ] || die "--model is required"
 [ -n "$reasoning" ] || die "--reasoning is required"
+[ -n "$state_dir" ] || die "--state-dir is required"
 
 review_file="$(mktemp)"
-trap 'rm -f "$review_file"' EXIT
+commit_result_file="$(mktemp)"
+trap 'rm -f "$review_file" "$commit_result_file"' EXIT
 
-cat <<PROMPT | rtk bash "${scripts_dir}/run-claude-prompt.sh" \
+cat <<PROMPT | rtk bash "${scripts_dir}/run-codex-prompt.sh" \
   --repo "$repo" \
   --model "$model" \
+  --state-dir "$state_dir" \
   --reasoning "$reasoning" >"$review_file"
 Repository root: ${repo}
 Roadmap file: ${roadmap_file}
 
-Review the codebase related to the implemented roadmap items.
-Find real refactoring targets for redundancy, overengineering, dead code, unnecessary boilerplate,
-or files that should be split because they mix domains or grew too large.
-Apply the refactors directly when they materially improve the implementation, then rerun relevant checks.
-Keep behavior and scope intact. Do not start new feature work or docs cleanup.
+Review the current uncommitted diff after the correctness and refactor passes.
+Check for scope drift, regressions, half-applied edits, or architectural mistakes.
+You may patch the repository directly if you find issues, then rerun any checks needed for confidence.
 Leave changes uncommitted.
 Output ONLY valid JSON:
-  {"approved":true,"notes":"..."}
+  {"approved":true,"notes":"...","commitMessage":"..."}
 PROMPT
 
 rtk jq -ce \
-  'if type=="object" and .approved == true and has("notes")
+  'if type=="object" and .approved == true and has("notes") and has("commitMessage")
    then .
-   else error("refactor review not approved")
+   else error("sanity review not approved")
    end' \
   "$review_file" >/dev/null
 
-cat "$review_file"
+commit_message="$(rtk jq -r '.commitMessage' "$review_file")"
+
+rtk bash "${scripts_dir}/commit-if-changed.sh" \
+  --exclude-path "$state_dir" \
+  "$commit_message" >"$commit_result_file"
+
+rtk jq -n \
+  --slurpfile review "$review_file" \
+  --slurpfile commit "$commit_result_file" \
+  '{review: $review[0], commit: $commit[0].commit}'

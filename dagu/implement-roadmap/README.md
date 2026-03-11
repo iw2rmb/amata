@@ -14,17 +14,13 @@ See examples in ../{ploy|aster|flourish|spok}/roadmap/**
 Workflow shell helpers live in `./scripts/` and are implemented in bash:
 - `next-open-item.sh`
 - `remaining-open-items.sh`
-- `write-queue.sh`
-- `next-queue-item.sh`
-- `mark-queue-item-done.sh`
-- `queue-has-more.sh`
 - `commit-if-changed.sh`
 - `run-codex-prompt.sh`
 - `run-claude-prompt.sh`
 - `implement-open-items-loop.sh`
-- `fix-queue.sh`
-- `correctness-phase.sh`
+- `correct-phase.sh`
 - `refactor-phase.sh`
+- `sanity-phase.sh`
 - `update-docs-phase.sh`
 
 Control flow lives in the bash helpers, not in Dagu JSON output expressions.
@@ -36,7 +32,7 @@ AI execution is explicit:
 - Codex prompt runs persist prompts, logs, session IDs, and final outputs under `${STATE_DIR}/codex-runs/` when a state dir is available.
 - Codex prompt runs watch for session/log inactivity, kill a wedged `codex exec`, and resume the same session once before failing with artifact paths.
 - Claude steps run through `claude -p` so the workflow does not depend on Dagu's generic `type: agent` abstraction.
-- Commit steps exclude the workflow `STATE_DIR` so `.amata/` queue files never leak into repository commits.
+- Commit steps exclude the workflow `STATE_DIR` so `.amata/` runtime files never leak into repository commits.
 
 Codex watchdog tuning:
 - `CODEX_WATCHDOG_IDLE_SECONDS` sets the inactivity threshold before recovery. Default: `900`.
@@ -77,37 +73,21 @@ dagu start dagu/implement-roadmap/implement-roadmap.yaml -- \
 
 ## After all tasks are complete
 
-- review all:
-  - call codex agent with gpt-5.4 with reasoning xhigh
-    - prompt: confirm by inspecting codebase that everything from the roadmap is wired, implemented correctly and in full, leaving no leftovers.
-    - respond with list of issues to solve and reasoning required
-  - for each item:
-    - fix gap:
-      - call codex agent with gpt-5.4 with reasoning from `review all` for that item
-      - close by agent with corresponding reasoning and respond with commit message
-    - commit
-      - call shell command to commit with message from `fix gap`
-
-
-## Refactoring
+- correct:
+  - call codex agent with gpt-5.4 with reasoning `xhigh`
+  - confirm the roadmap work is wired end-to-end, patch real gaps directly, rerun relevant checks, and leave changes uncommitted
+  - return approval plus notes
 
 - refactor:
-  - call claude
-    - prompt: |
-        review codebase related to implemented roadmap items
-        for redundancy, overengineering, dead code;
-        options to simplify algorithms, reduce boilerplate;
-        considerations to split files with mixed domains or high LOC number.
-    - respond with list of refactoring targets and reasoning required
-  - for each item:
-    - implement refactor:
-      - call claude with reasoning from `refactor` for that item
-      - apply the targeted refactor, run relevant checks, and respond with commit message plus summary
-    - review diff:
-      - call codex agent with gpt-5.4 with reasoning from `refactor` for that item
-      - validate the actual uncommitted diff for sanity using claude summary as context, patch findings if needed, and approve the result
-    - commit
-      - call shell command to commit with message from claude's apply step
+  - call claude with the configured refactor reasoning
+  - apply material refactors directly, rerun relevant checks, and leave changes uncommitted
+  - return approval plus notes
+
+- sanity:
+  - call codex agent with gpt-5.4 with reasoning `xhigh`
+  - review the combined uncommitted diff after `correct` and `refactor`
+  - patch any remaining problems directly, rerun checks as needed, and return approval plus a commit message
+  - commit the follow-up diff with that message
 
 
 ## Updating docs

@@ -115,7 +115,7 @@ Review the current uncommitted diff for the selected roadmap item.
 Stay within the selected item's scope.
 You may patch the code directly if you find issues, then rerun any checks needed for confidence.
 When the diff is ready to commit, output ONLY valid JSON:
-   {"approved":"true","notes":"..."}
+   {"approved":true,"notes":"..."}
 
 Selected roadmap item JSON:
 ${item_payload}
@@ -125,7 +125,7 @@ ${commit_message}
 PROMPT
 
   rtk jq -ce \
-    'if type=="object" and .approved == "true"
+    'if type=="object" and .approved == true and has("notes")
      then .
      else error("review not approved")
      end' \
