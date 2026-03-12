@@ -14,71 +14,56 @@ META_RE = re.compile(r"^\s*-\s+(?P<key>[^:]+):\s*(?P<value>.*)$")
 ACTION_RE = re.compile(r"^\s*\d+\.\s+(?P<value>.*)$")
 TITLE_LABEL_RE = re.compile(r"^(?P<label>[0-9]+(?:\.[0-9]+)*)\s+(?P<summary>.+)$")
 
+META_KEYS = {"Repository", "Component", "Verification", "Reasoning", "Scope", "Tests"}
+
+
+def _parse_block(lines: list[str], start: int) -> tuple[dict, list[str], int, int]:
+    """Parse the metadata block for a checklist item starting at `start`.
+
+    Returns (meta, actions, end_index, next_i) where end_index is the last
+    consumed line index and next_i is where the outer loop should resume.
+    """
+    meta = {k.lower(): "" for k in META_KEYS}
+    actions: list[str] = []
+    end = start
+    j = start + 1
+    while j < len(lines):
+        if CHECKLIST_RE.match(lines[j]):
+            break
+        m = META_RE.match(lines[j])
+        if m:
+            key = m.group("key")
+            if key in META_KEYS:
+                meta[key.lower()] = m.group("value")
+        else:
+            m = ACTION_RE.match(lines[j])
+            if m:
+                actions.append(m.group("value"))
+        end = j
+        j += 1
+    if not meta["verification"] and meta["tests"]:
+        meta["verification"] = meta["tests"]
+    return meta, actions, end, j
+
 
 def parse_items(text: str) -> list[dict]:
     lines = text.splitlines()
     items: list[dict] = []
     i = 0
     while i < len(lines):
-        line = lines[i]
-        match = CHECKLIST_RE.match(line)
-        if not match:
+        m = CHECKLIST_RE.match(lines[i])
+        if not m:
             i += 1
             continue
 
-        title = match.group("title")
-        checked = match.group("state") != " "
-        label = ""
-        summary = title
-        label_match = TITLE_LABEL_RE.match(title)
-        if label_match:
-            label = label_match.group("label")
-            summary = label_match.group("summary")
+        title = m.group("title")
+        checked = m.group("state") != " "
+        label, summary = "", title
+        lm = TITLE_LABEL_RE.match(title)
+        if lm:
+            label, summary = lm.group("label"), lm.group("summary")
 
-        repository = ""
-        component = ""
-        verification = ""
-        reasoning = ""
-        scope = ""
-        tests = ""
-        actions: list[str] = []
-        block_lines = [line]
-        end_index = i
-        j = i + 1
-
-        while j < len(lines):
-            next_line = lines[j]
-            if CHECKLIST_RE.match(next_line):
-                break
-
-            block_lines.append(next_line)
-            meta_match = META_RE.match(next_line)
-            if meta_match:
-                key = meta_match.group("key")
-                value = meta_match.group("value")
-                if key == "Repository":
-                    repository = value
-                elif key == "Component":
-                    component = value
-                elif key == "Verification":
-                    verification = value
-                elif key == "Reasoning":
-                    reasoning = value
-                elif key == "Scope":
-                    scope = value
-                elif key == "Tests":
-                    tests = value
-                    if not verification:
-                        verification = value
-            else:
-                action_match = ACTION_RE.match(next_line)
-                if action_match:
-                    actions.append(action_match.group("value"))
-
-            end_index = j
-            j += 1
-
-        block_text = "\n".join(block_lines)
+        meta, actions, end_index, next_i = _parse_block(lines, i)
         items.append(
             {
                 "checked": checked,
@@ -87,25 +72,20 @@ def parse_items(text: str) -> list[dict]:
                 "summary": summary,
                 "lineNumber": i + 1,
                 "endLine": end_index + 1,
-                "repository": repository,
-                "component": component,
-                "verification": verification,
-                "reasoning": reasoning or "high",
-                "reasoningSource": "roadmap" if reasoning else "default",
-                "scope": scope,
-                "tests": tests,
+                **meta,
+                "reasoning": meta["reasoning"] or "high",
+                "reasoningSource": "roadmap" if meta["reasoning"] else "default",
                 "actions": actions,
-                "block": block_text,
+                "block": "\n".join(lines[i : end_index + 1]),
                 "handle": {
                     "kind": "roadmap.label",
                     "label": label,
-                    "titleHash": hashlib.sha256(title.encode("utf-8")).hexdigest(),
+                    "titleHash": hashlib.sha256(title.encode()).hexdigest(),
                     "lineNumber": i + 1,
                 },
             }
         )
-
-        i = j
+        i = next_i
     return items
 
 
