@@ -2,7 +2,10 @@
 import pathlib
 import subprocess
 import sys
+import tempfile
 
+sys.dont_write_bytecode = True
+sys.pycache_prefix = tempfile.mkdtemp(prefix="git-commit-pycache-")
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from sdk.python import emit, fail, ok, read_request
