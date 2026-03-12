@@ -1,6 +1,7 @@
 # Mandatory Instructions
 
 When Codex agent is in the **interactive mode**, it **MUST** read and follow policies from `/Users/vk/.codex/policies/interactive-mode.md`.
+Don't use `rtk ` prefix when executing commands, it strips important data unpredictibly.
 
 ## Policies
 
@@ -9,29 +10,76 @@ Additional policies **MUST** be loaded when naming is literally corresponds the 
 - When **composing desing docs**: `/Users/vk/.codex/policies/composing-design-docs.md`
 - When **composing or implementing roadmaps**: `/Users/vk/.codex/policies/composing-and-implementing-roadmaps.md`
 
-## Executing Commands Policy
 
-**Always prefix commands with `rtk`**: this saves tokens by filtering out meaningless leftovers.
+## Aster
 
-For example, 
+If `~/@iw2rmb/aster/ASTER.md` file exists, then the following is important:
 
-```bash 
-rtk grep -n ...` or `rtk git commit ...
-```
+- Aster is a framework for the effective codebase navigation and manipulation.
+- Read and follow instructions at `~/@iw2rmb/aster/ASTER.md`.
 
-If RTK has a dedicated filter, it uses it. If not, it passes through unchanged. This means RTK is **always safe to use**. Even in command chains with `&&`, use `rtk`.
+
+## Architecture Patterns Policy
+
+Repetitive boilerplate is the primary source of bugs.
+The solution is to unify and generalize.
+
+
+### Overengineering
+
+Overengineering is the second source of bugs.
+It comes from generalization with unclear boundaries.
+
+To protect yourself from overengineering, 
+- write down edge-cases before writing the code.
+- keep scopes and domains distinctive and clean.
+
+
+### Race conditions
+
+Race conditions must be solved by:
+  - execution order determinism,
+  - execution independence;
+  but never by time waits because they are not guaranteed.
+  
+  
+### [TRIZ](https://en.wikipedia.org/wiki/TRIZ)
+
+Best solution excludes the problem. For example,
+  - Complex cache management and invalidation can be solved by fixing perfomance bottles that led to caching in the first place, thus removing caching.
+  - Complex state management can be solved by splitting components into distinctive domains with clear borders.
+  - Complex support of multiple communication channels can be solved by stripping to one that fits all needs.
+
+
+## Context Window Compacting Policy
+
+The most effective way to compact context window is:
+- Precisely scope the current task;
+- Pin docs and code related;
+
+After compact and before proceeding, reread:
+  - ~/.codex/AGENTS.md, 
+  - scope, docs, code related, 
+  - and the last conversation interaction.
+
 
 ## Development Policy
 
 - **NO** backward compatibility is required.
-- **Always** prefer **architecture-wide** solutions over ways to save time or effort.
-- When editing files with 500+ LOC, **always** consider to split them logically into smaller ones with distinctive and clear domains.
+- **ALWAYS** prefer architecture-wide solutions over time-saving band-aids.
 - Compose commit message from the current diff.
+- 500+ LOC files and 100+ LOC functions are first-class signs for mixed boundaries, thus overengineering; and are candidates to split or simplify.
+
 
 ## Fixing Policy
 
-- **Absolute** priority is **the root cause** to locate and fix.
-- **NO** band-aiding or quick fixes.
+- **ALWAYS** prefer find and solve the root cause over local fix.
+- For **EVERY** case, the algorithm is:
+  - repeat it programmatically in the environment and conditions that are as close to actual ones as possible;
+  - if there are no tools to do that: write them, if they buggy - fix them before continue;
+  - find the root cause;
+  - validate solution with that tool.
+
 
 ## Database Schema Development Policy
 
@@ -39,6 +87,7 @@ If RTK has a dedicated filter, it uses it. If not, it passes through unchanged. 
   - update initial migration instead of creating migration.
   - update `CREATE` statements instead of `ALTER`/`DROP` statements.
 - Do **NOT** plan data migrations.
+
 
 ## Documentation Policy
 
@@ -48,6 +97,7 @@ If RTK has a dedicated filter, it uses it. If not, it passes through unchanged. 
 - `research/` — research docs (what are options and how cool feature can possibly be).
 - `roadmap/` — decomposed plans/implementation notes (in what order what to implement).
 - `docs/` — actual state docs (how it works right now).
+
 
 ### Policy
 
@@ -62,6 +112,7 @@ If RTK has a dedicated filter, it uses it. If not, it passes through unchanged. 
 - Keep all documents cross-referenced.
 - For cross-reference integrity checks, run `/Users/vk/@iw2rmb/auto/scripts/check_docs_links.sh` from the target project root.
 
+
 ## Tests Writing Policy
 
 - Prefer table-driven tests when setup and assertions are the same and only inputs or expected outcomes differ.
@@ -71,6 +122,7 @@ If RTK has a dedicated filter, it uses it. If not, it passes through unchanged. 
 - Merge or remove tests that do not add a unique assertion beyond existing coverage.
 - Use test names that encode both behavior and expected outcome.
 - For test refactors, run focused targets first, then package-level tests.
+
 
 ## Feedback Loop
 
