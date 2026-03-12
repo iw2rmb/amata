@@ -5,7 +5,7 @@ params:
   - REPO_DIR: "."
   - ROADMAP_FILE: "roadmap/index.md"
   - STATE_DIR: ".amata"
-  - SCRIPTS_DIR: "~/@iw2rmb/auto/dagu/implement-roadmap/scripts"
+  - SCRIPTS_DIR: "/Users/vk/@iw2rmb/auto/dagu/implement-roadmap/scripts"
   - CODEX_MODEL: "gpt-5.4"
   - CODEX_CORRECTNESS_REASONING: "xhigh"
   - CODEX_DOCS_REASONING: "high"
@@ -14,49 +14,54 @@ params:
 
 steps:
   - name: implement-all-open-items
-    command: >
-      bash "${SCRIPTS_DIR}/implement-open-items-loop.sh"
-      --repo "${REPO_DIR}"
-      --doc "${ROADMAP_FILE}"
-      --scripts-dir "${SCRIPTS_DIR}"
-      --model "${CODEX_MODEL}"
-      --state-dir "${STATE_DIR}"
+    command: |
+      scripts_dir="${SCRIPTS_DIR/#\~/$HOME}"
+      bash "${scripts_dir}/implement-open-items-loop.sh" \
+        --repo "${REPO_DIR}" \
+        --doc "${ROADMAP_FILE}" \
+        --scripts-dir "${scripts_dir}" \
+        --model "${CODEX_MODEL}" \
+        --state-dir "${STATE_DIR}"
 
   - name: correct
-    command: >
-      bash "${SCRIPTS_DIR}/correct-phase.sh"
-      --repo "${REPO_DIR}"
-      --roadmap-file "${ROADMAP_FILE}"
-      --scripts-dir "${SCRIPTS_DIR}"
-      --model "${CODEX_MODEL}"
-      --reasoning "${CODEX_CORRECTNESS_REASONING}"
-      --state-dir "${STATE_DIR}"
+    command: |
+      scripts_dir="${SCRIPTS_DIR/#\~/$HOME}"
+      bash "${scripts_dir}/correct-phase.sh" \
+        --repo "${REPO_DIR}" \
+        --roadmap-file "${ROADMAP_FILE}" \
+        --scripts-dir "${scripts_dir}" \
+        --model "${CODEX_MODEL}" \
+        --reasoning "${CODEX_CORRECTNESS_REASONING}" \
+        --state-dir "${STATE_DIR}"
 
   - name: refactor
-    command: >
-      bash "${SCRIPTS_DIR}/refactor-phase.sh"
-      --repo "${REPO_DIR}"
-      --roadmap-file "${ROADMAP_FILE}"
-      --scripts-dir "${SCRIPTS_DIR}"
-      --model "${CLAUDE_MODEL}"
-      --reasoning "${CLAUDE_REFACTOR_REASONING}"
+    command: |
+      scripts_dir="${SCRIPTS_DIR/#\~/$HOME}"
+      bash "${scripts_dir}/refactor-phase.sh" \
+        --repo "${REPO_DIR}" \
+        --roadmap-file "${ROADMAP_FILE}" \
+        --scripts-dir "${scripts_dir}" \
+        --model "${CLAUDE_MODEL}" \
+        --reasoning "${CLAUDE_REFACTOR_REASONING}"
 
   - name: sanity
-    command: >
-      bash "${SCRIPTS_DIR}/sanity-phase.sh"
-      --repo "${REPO_DIR}"
-      --roadmap-file "${ROADMAP_FILE}"
-      --scripts-dir "${SCRIPTS_DIR}"
-      --model "${CODEX_MODEL}"
-      --reasoning "${CODEX_CORRECTNESS_REASONING}"
-      --state-dir "${STATE_DIR}"
+    command: |
+      scripts_dir="${SCRIPTS_DIR/#\~/$HOME}"
+      bash "${scripts_dir}/sanity-phase.sh" \
+        --repo "${REPO_DIR}" \
+        --roadmap-file "${ROADMAP_FILE}" \
+        --scripts-dir "${scripts_dir}" \
+        --model "${CODEX_MODEL}" \
+        --reasoning "${CODEX_CORRECTNESS_REASONING}" \
+        --state-dir "${STATE_DIR}"
 
   - name: update-docs
-    command: >
-      bash "${SCRIPTS_DIR}/update-docs-phase.sh"
-      --repo "${REPO_DIR}"
-      --roadmap-file "${ROADMAP_FILE}"
-      --scripts-dir "${SCRIPTS_DIR}"
-      --model "${CODEX_MODEL}"
-      --reasoning "${CODEX_DOCS_REASONING}"
-      --state-dir "${STATE_DIR}"
+    command: |
+      scripts_dir="${SCRIPTS_DIR/#\~/$HOME}"
+      bash "${scripts_dir}/update-docs-phase.sh" \
+        --repo "${REPO_DIR}" \
+        --roadmap-file "${ROADMAP_FILE}" \
+        --scripts-dir "${scripts_dir}" \
+        --model "${CODEX_MODEL}" \
+        --reasoning "${CODEX_DOCS_REASONING}" \
+        --state-dir "${STATE_DIR}"

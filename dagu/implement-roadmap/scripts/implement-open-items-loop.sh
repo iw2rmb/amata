@@ -48,6 +48,13 @@ done
 [ -n "$model" ] || die "--model is required"
 [ -n "$state_dir" ] || die "--state-dir is required"
 
+repo="$(resolve_path_from "$PWD" "$repo")"
+require_dir "$repo"
+doc="$(resolve_path_from "$repo" "$doc")"
+require_file "$doc"
+scripts_dir="$(resolve_path_from "$PWD" "$scripts_dir")"
+require_dir "$scripts_dir"
+
 next_item_file="$(mktemp)"
 implement_result_file="$(mktemp)"
 review_result_file="$(mktemp)"

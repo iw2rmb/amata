@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)"
 DAG_FILE="${ROOT_DIR}/dagu/implement-roadmap/implement-roadmap.yaml"
-SCRIPTS_DIR="${ROOT_DIR}/dagu/implement-roadmap/scripts"
+SCRIPTS_DIR="~/@iw2rmb/auto/dagu/implement-roadmap/scripts"
 
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT

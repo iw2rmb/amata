@@ -21,6 +21,9 @@ done
 
 [ -n "$doc" ] || die "--doc is required"
 
+doc="$(resolve_path_from "$PWD" "$doc")"
+require_file "$doc"
+
 items_json="$(roadmap_items_json "$doc")"
 next_item="$(printf '%s' "$items_json" | jq -ce 'map(select(.checked | not)) | first // {}')"
 has_work=false

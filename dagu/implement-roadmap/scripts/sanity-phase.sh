@@ -55,6 +55,13 @@ done
 [ -n "$reasoning" ] || die "--reasoning is required"
 [ -n "$state_dir" ] || die "--state-dir is required"
 
+repo="$(resolve_path_from "$PWD" "$repo")"
+require_dir "$repo"
+roadmap_file="$(resolve_path_from "$repo" "$roadmap_file")"
+require_file "$roadmap_file"
+scripts_dir="$(resolve_path_from "$PWD" "$scripts_dir")"
+require_dir "$scripts_dir"
+
 review_file="$(mktemp)"
 commit_result_file="$(mktemp)"
 trap 'rm -f "$review_file" "$commit_result_file"' EXIT

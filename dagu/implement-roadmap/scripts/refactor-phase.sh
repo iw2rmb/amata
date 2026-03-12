@@ -48,6 +48,13 @@ done
 [ -n "$model" ] || die "--model is required"
 [ -n "$reasoning" ] || die "--reasoning is required"
 
+repo="$(resolve_path_from "$PWD" "$repo")"
+require_dir "$repo"
+roadmap_file="$(resolve_path_from "$repo" "$roadmap_file")"
+require_file "$roadmap_file"
+scripts_dir="$(resolve_path_from "$PWD" "$scripts_dir")"
+require_dir "$scripts_dir"
+
 review_file="$(mktemp)"
 trap 'rm -f "$review_file"' EXIT
 

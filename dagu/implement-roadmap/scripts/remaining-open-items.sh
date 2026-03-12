@@ -21,6 +21,9 @@ done
 
 [ -n "$doc" ] || die "--doc is required"
 
+doc="$(resolve_path_from "$PWD" "$doc")"
+require_file "$doc"
+
 open_count="$(roadmap_items_json "$doc" | jq -r '[.[] | select(.checked | not)] | length')"
 has_more=false
 

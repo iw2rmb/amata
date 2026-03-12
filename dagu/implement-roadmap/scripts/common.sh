@@ -14,6 +14,42 @@ require_file() {
   [ -f "$1" ] || die "missing file: $1"
 }
 
+require_dir() {
+  [ -d "$1" ] || die "missing directory: $1"
+}
+
+expand_home_path() {
+  local path="$1"
+
+  case "$path" in
+    "~")
+      printf '%s\n' "$HOME"
+      ;;
+    "~/"*)
+      printf '%s/%s\n' "$HOME" "${path#~/}"
+      ;;
+    *)
+      printf '%s\n' "$path"
+      ;;
+  esac
+}
+
+resolve_path_from() {
+  local base_dir="$1"
+  local path="$2"
+
+  path="$(expand_home_path "$path")"
+
+  case "$path" in
+    /*)
+      printf '%s\n' "$path"
+      ;;
+    *)
+      printf '%s/%s\n' "$base_dir" "$path"
+      ;;
+  esac
+}
+
 normalize_markdown_fence_file() {
   local file="$1"
 

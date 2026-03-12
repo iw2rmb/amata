@@ -33,6 +33,8 @@ AI execution is explicit:
 - Codex prompt runs watch for session/log inactivity, kill a wedged `codex exec`, and resume the same session once before failing with artifact paths.
 - Claude steps run through `claude -p` so the workflow does not depend on Dagu's generic `type: agent` abstraction.
 - Commit steps exclude the workflow `STATE_DIR` so `.amata/` runtime files never leak into repository commits.
+- Script helper paths accept absolute paths, repo-relative paths, and `~/...` home-relative paths.
+- Roadmap file arguments accept repo-relative paths and fail fast with a direct missing-file error when the target path is wrong.
 
 Codex watchdog tuning:
 - `CODEX_WATCHDOG_IDLE_SECONDS` sets the inactivity threshold before recovery. Default: `900`.
@@ -49,6 +51,7 @@ Example run:
 ```bash
 dagu start dagu/implement-roadmap/implement-roadmap.yaml -- \
   ROADMAP_FILE=roadmap/my-feature/index.md \
+  SCRIPTS_DIR=~/@iw2rmb/auto/dagu/implement-roadmap/scripts \
   CODEX_MODEL=gpt-5.4 \
   CLAUDE_MODEL=sonnet
 ```

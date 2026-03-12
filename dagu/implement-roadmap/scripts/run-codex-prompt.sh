@@ -41,11 +41,15 @@ done
 [ -n "$model" ] || die "--model is required"
 [ -n "$reasoning" ] || die "--reasoning is required"
 
-repo="$(CDPATH= cd -- "$repo" && pwd)"
+repo="$(resolve_path_from "$PWD" "$repo")"
+require_dir "$repo"
 
-require_command rtk
 require_command codex
+require_command jq
 require_command lsof
+require_command awk
+require_command pgrep
+require_command sed
 
 is_positive_integer() {
   [[ "$1" =~ ^[0-9]+$ ]] && [ "$1" -gt 0 ]
@@ -133,7 +137,7 @@ discover_session_artifacts() {
 
   if [ -z "$active_exec_pid" ]; then
     active_exec_pid="$(
-      rtk pgrep -P "$active_launcher_pid" 2>/dev/null | rtk sed -n '1p' || true
+      pgrep -P "$active_launcher_pid" 2>/dev/null | sed -n '1p' || true
     )"
     if [ -n "$active_exec_pid" ]; then
       log_status "attempt=${attempt_number} discovered_exec_pid=${active_exec_pid}"
@@ -143,8 +147,8 @@ discover_session_artifacts() {
   [ -n "$active_exec_pid" ] || return 0
 
   discovered_file="$(
-    rtk lsof -p "$active_exec_pid" 2>/dev/null \
-      | rtk awk '/\/\.codex\/sessions\/.*\.jsonl$/ { print $NF; exit }' \
+    lsof -p "$active_exec_pid" 2>/dev/null \
+      | awk '/\/\.codex\/sessions\/.*\.jsonl$/ { print $NF; exit }' \
       || true
   )"
 
@@ -158,9 +162,9 @@ discover_session_artifacts() {
   fi
 
   discovered_id="$(
-    rtk sed -n '1p' "$active_session_file" 2>/dev/null \
+    sed -n '1p' "$active_session_file" 2>/dev/null \
       | jq -r 'select(.type == "session_meta") | .payload.id // empty' 2>/dev/null \
-      | rtk sed -n '1p' \
+      | sed -n '1p' \
       || true
   )"
 
@@ -235,7 +239,7 @@ start_exec_attempt() {
 
   if [ "$mode" = "initial" ]; then
     log_status "attempt=${attempt_number} mode=exec started"
-    rtk codex exec \
+    codex exec \
       --dangerously-bypass-approvals-and-sandbox \
       --color never \
       -C "$repo" \
@@ -252,7 +256,7 @@ Do not restart from scratch or discard prior work.
 Finish the task and produce the required final response in the requested format.
 PROMPT
     log_status "attempt=${attempt_number} mode=resume session_id=${active_session_id} started"
-    rtk codex exec resume \
+    codex exec resume \
       --dangerously-bypass-approvals-and-sandbox \
       --model "$model" \
       -c "model_reasoning_effort=\"$reasoning\"" \
