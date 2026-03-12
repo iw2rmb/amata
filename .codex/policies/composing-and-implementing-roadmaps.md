@@ -16,7 +16,7 @@
 - For each next open item in that document:
   - Implement it.
   - Call Codex agent to review the resulting diff for architectural sanity, correctness, completness; check for redundancy, overengineering, options to simplify; address findings if any.
-  - Mark the item complete and replace it's content with a summarized key takeaways over implementation; commit.
+  - Mark the item complete and replace all of it except title with a summarized key takeaways over implementation; commit.
 - After completing all items:
   - Order Codex subagent with `gpt-5.4` model and `xhigh` reasoning to confirm by inspecting the codebase that every step from the roadmap is implemented correctly and in full; wired end-to-end; there are no leftovers.
   - Address gaps, if any.
