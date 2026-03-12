@@ -32,6 +32,7 @@ AI execution is explicit:
 - Codex prompt runs persist prompts, logs, session IDs, and final outputs under `${STATE_DIR}/codex-runs/` when a state dir is available.
 - Codex prompt runs watch for session/log inactivity, kill a wedged `codex exec`, and resume the same session once before failing with artifact paths.
 - Claude steps run through `claude -p` so the workflow does not depend on Dagu's generic `type: agent` abstraction.
+- Agent wrappers normalize fenced or noisy model output down to the first valid JSON payload before phase scripts validate it with `jq`.
 - Commit steps exclude the workflow `STATE_DIR` so `.amata/` runtime files never leak into repository commits.
 - Script helper paths accept absolute paths, repo-relative paths, and `~/...` home-relative paths.
 - Roadmap file arguments accept repo-relative paths and fail fast with a direct missing-file error when the target path is wrong.

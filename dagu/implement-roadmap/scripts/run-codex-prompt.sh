@@ -342,5 +342,6 @@ if [ "$exit_status" -ne 0 ]; then
 fi
 
 [ -s "$out_file" ] || die "codex exec did not write a final message; artifacts: $run_dir"
+extract_first_json_file "$out_file"
 log_status "completed attempts=${attempt_number} recoveries=${recovery_count}"
 cat "$out_file"

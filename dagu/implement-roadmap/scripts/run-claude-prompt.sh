@@ -61,3 +61,5 @@ fi
 
 [ -s "$out_file" ] || die "claude -p did not produce output"
 normalize_markdown_fence_file "$out_file"
+extract_first_json_file "$out_file"
+cat "$out_file"

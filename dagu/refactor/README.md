@@ -23,6 +23,8 @@ Runtime helpers live in `./scripts/`:
 - `run-codex-prompt.sh`
 - `refactor-loop.sh`
 
+The agent wrappers normalize fenced or noisy model output down to the first valid JSON payload before follow-up shell steps validate it with `jq`.
+
 Example run:
 
 ```bash

@@ -112,11 +112,10 @@ prompt="$(cat)"
 case "$prompt" in
   *"Review the codebase related to the implemented roadmap items."*)
     printf 'refactor\n' > refactor.txt
-    cat <<'JSON'
-```json
+    cat <<'TEXT'
+Refactor review complete.
 {"approved":true,"notes":"refactor applied and checked"}
-```
-JSON
+TEXT
     ;;
   *)
     printf 'unexpected claude prompt\n' >&2
@@ -131,7 +130,7 @@ git -C "$repo_dir" init -q
 git -C "$repo_dir" config user.email smoke@example.com
 git -C "$repo_dir" config user.name smoke
 
-PATH="${bin_dir}:$PATH" rtk dagu start "$DAG_FILE" -- \
+PATH="${bin_dir}:$PATH" dagu start "$DAG_FILE" -- \
   REPO_DIR="$repo_dir" \
   ROADMAP_FILE=roadmap/sample/index.md \
   STATE_DIR=.amata \

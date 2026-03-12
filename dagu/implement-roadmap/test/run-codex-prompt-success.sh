@@ -52,9 +52,10 @@ else
 fi
 
 printf '%s\n' "$prompt" >"${out_file}.prompt"
-cat >"$out_file" <<'JSON'
+cat >"$out_file" <<'TEXT'
+Review completed successfully.
 {"approved":"true","notes":"completed without recovery"}
-JSON
+TEXT
 EOF
 
 chmod +x "${bin_dir}/codex"
@@ -87,6 +88,6 @@ done
 [ -f "${run_dir}/watchdog.log" ]
 [ -f "${run_dir}/last-message.txt.prompt" ]
 [ "$(cat "${run_dir}/last-message.txt.prompt")" = "Return ONLY valid JSON." ]
-rtk rg -q 'completed attempts=1 recoveries=0' "${run_dir}/watchdog.log"
+rg -q 'completed attempts=1 recoveries=0' "${run_dir}/watchdog.log"
 
 printf 'run-codex-prompt success test passed\n'

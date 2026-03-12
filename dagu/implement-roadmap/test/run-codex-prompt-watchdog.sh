@@ -121,7 +121,7 @@ done
 [ -f "${run_dir}/session-id.txt" ]
 [ -f "${run_dir}/session-file.txt" ]
 [ "$(cat "${run_dir}/session-id.txt")" = "019cda4a-7a02-7563-bb03-03d9f7f8e87d" ]
-rtk rg -q 'stalled' "${run_dir}/watchdog.log"
-rtk rg -q 'completed attempts=2 recoveries=1' "${run_dir}/watchdog.log"
+rg -q 'stalled' "${run_dir}/watchdog.log"
+rg -q 'completed attempts=2 recoveries=1' "${run_dir}/watchdog.log"
 
 printf 'watchdog recovery test passed\n'

@@ -52,14 +52,71 @@ resolve_path_from() {
 
 normalize_markdown_fence_file() {
   local file="$1"
+  local normalized
 
   require_file "$file"
 
-  perl -0pe '
-    if (/\A\s*```[^\n]*\n(.*)\n```\s*\z/s) {
-      $_ = $1;
-    }
-  ' "$file"
+  normalized="$(
+    perl -0pe '
+      if (/\A\s*```[^\n]*\n(.*)\n```\s*\z/s) {
+        $_ = $1;
+      }
+    ' "$file"
+  )"
+
+  printf '%s' "$normalized" >"$file"
+}
+
+extract_first_json_file() {
+  local file="$1"
+  local extracted
+
+  require_command perl
+  require_file "$file"
+
+  if ! extracted="$(
+    perl -MJSON::PP -0ne '
+      use strict;
+      use warnings;
+
+      sub decode_candidate {
+        my ($candidate) = @_;
+        return undef if !defined $candidate || $candidate eq q{};
+
+        my $decoder = JSON::PP->new->allow_nonref;
+        my ($value, $consumed);
+        my $ok = eval { ($value, $consumed) = $decoder->decode_prefix($candidate); 1 };
+        return undef if !$ok || !defined $consumed || $consumed <= 0;
+
+        return JSON::PP->new->canonical->encode($value);
+      }
+
+      my $text = $_;
+      my $trimmed = $text;
+      $trimmed =~ s/\A\s+//s;
+      $trimmed =~ s/\s+\z//s;
+
+      my $decoded = decode_candidate($trimmed);
+      if (defined $decoded) {
+        print $decoded;
+        exit 0;
+      }
+
+      while ($text =~ /[\{\[]/g) {
+        my $start = pos($text) - 1;
+        $decoded = decode_candidate(substr($text, $start));
+        next if !defined $decoded;
+        print $decoded;
+        exit 0;
+      }
+
+      exit 1;
+    ' "$file"
+  )"; then
+    die "failed to extract JSON from $file"
+  fi
+
+  printf '%s\n' "$extracted" >"$file"
 }
 
 ensure_git_repo() {
