@@ -68,11 +68,7 @@ if [ "$path" = "pkg/util/nested" ]; then
   printf '\n// refactored\n' >>"${repo}/pkg/util/nested/module.go"
 fi
 
-cat <<'JSON'
-```json
-{"status":"ok"}
-```
-JSON
+printf 'inspected %s\n' "$path"
 EOF
 
 cat >"${bin_dir}/codex" <<'EOF'

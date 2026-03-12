@@ -23,7 +23,9 @@ Runtime helpers live in `./scripts/`:
 - `run-codex-prompt.sh`
 - `refactor-loop.sh`
 
-The agent wrappers normalize fenced or noisy model output down to the first valid JSON payload before follow-up shell steps validate it with `jq`.
+The agent wrappers accept normal text output. If a model wraps a JSON payload in
+fences or extra prose, the wrappers normalize that down to the first valid JSON
+payload when one is present; otherwise they preserve the plain text output.
 
 Example run:
 

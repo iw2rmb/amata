@@ -67,56 +67,74 @@ normalize_markdown_fence_file() {
   printf '%s' "$normalized" >"$file"
 }
 
-extract_first_json_file() {
+extract_first_json_payload() {
   local file="$1"
-  local extracted
 
   require_command perl
   require_file "$file"
 
-  if ! extracted="$(
-    perl -MJSON::PP -0ne '
-      use strict;
-      use warnings;
+  perl -MJSON::PP -0ne '
+    use strict;
+    use warnings;
 
-      sub decode_candidate {
-        my ($candidate) = @_;
-        return undef if !defined $candidate || $candidate eq q{};
+    sub decode_candidate {
+      my ($candidate) = @_;
+      return undef if !defined $candidate || $candidate eq q{};
 
-        my $decoder = JSON::PP->new->allow_nonref;
-        my ($value, $consumed);
-        my $ok = eval { ($value, $consumed) = $decoder->decode_prefix($candidate); 1 };
-        return undef if !$ok || !defined $consumed || $consumed <= 0;
+      my $decoder = JSON::PP->new->allow_nonref;
+      my ($value, $consumed);
+      my $ok = eval { ($value, $consumed) = $decoder->decode_prefix($candidate); 1 };
+      return undef if !$ok || !defined $consumed || $consumed <= 0;
 
-        return JSON::PP->new->canonical->encode($value);
-      }
+      return JSON::PP->new->canonical->encode($value);
+    }
 
-      my $text = $_;
-      my $trimmed = $text;
-      $trimmed =~ s/\A\s+//s;
-      $trimmed =~ s/\s+\z//s;
+    my $text = $_;
+    my $trimmed = $text;
+    $trimmed =~ s/\A\s+//s;
+    $trimmed =~ s/\s+\z//s;
 
-      my $decoded = decode_candidate($trimmed);
-      if (defined $decoded) {
-        print $decoded;
-        exit 0;
-      }
+    my $decoded = decode_candidate($trimmed);
+    if (defined $decoded) {
+      print $decoded;
+      exit 0;
+    }
 
-      while ($text =~ /[\{\[]/g) {
-        my $start = pos($text) - 1;
-        $decoded = decode_candidate(substr($text, $start));
-        next if !defined $decoded;
-        print $decoded;
-        exit 0;
-      }
+    while ($text =~ /[\{\[]/g) {
+      my $start = pos($text) - 1;
+      $decoded = decode_candidate(substr($text, $start));
+      next if !defined $decoded;
+      print $decoded;
+      exit 0;
+    }
 
-      exit 1;
-    ' "$file"
-  )"; then
+    exit 1;
+  ' "$file"
+}
+
+extract_first_json_file() {
+  local file="$1"
+  local extracted
+
+  if ! extracted="$(extract_first_json_payload "$file")"; then
     die "failed to extract JSON from $file"
   fi
 
   printf '%s\n' "$extracted" >"$file"
+}
+
+extract_first_json_file_if_present() {
+  local file="$1"
+  local extracted
+
+  require_file "$file"
+
+  if ! extracted="$(extract_first_json_payload "$file" 2>/dev/null)"; then
+    return 1
+  fi
+
+  printf '%s\n' "$extracted" >"$file"
+  return 0
 }
 
 ensure_git_repo() {

@@ -144,8 +144,11 @@ PROMPT
     --model "$codex_model" \
     --reasoning "$codex_reasoning" >/dev/null
 Repository root: ${repo}
+Focus path: ${path}
+Focus files:
+${path_files}
 
-Review the current diff for ${repo} for sanity and correctness. Commit.
+Review the current diff for ${path} in ${repo} for sanity and correctness. Stay within this refactor unit. Commit.
 PROMPT
 
   after_head="$(current_head)"

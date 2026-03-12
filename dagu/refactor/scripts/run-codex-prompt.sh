@@ -60,5 +60,6 @@ if ! codex exec \
 fi
 
 [ -s "$out_file" ] || die "codex exec did not write a final message"
-extract_first_json_file "$out_file"
+normalize_markdown_fence_file "$out_file"
+extract_first_json_file_if_present "$out_file" || true
 cat "$out_file"
