@@ -20,8 +20,6 @@ Built-in runtime assumptions from the engine design:
 - `claude`
 
 Plugin steps in this example are wired through `plugins.yaml`:
-- `roadmap.items`
-- `roadmap.mark_done`
 - `git.commit`
 
 Example operator flow:
@@ -32,9 +30,9 @@ Example operator flow:
 
 Notes:
 - `plugins.yaml` is a concrete example of registry wiring, not a normative part of the engine spec.
-- `plugins.yaml` also shows plugin-side config schemas so the engine can validate config before spawning a script.
+- `plugins.yaml` shows plugin-side config schemas so the engine can validate config before spawning a script.
 - `sdk/python.py` contains only protocol-level helpers shared across plugins.
-- The example scripts rely on engine-side config validation rather than re-validating every request field locally.
 - Script paths in `plugins.yaml` are resolved relative to the registry file.
-- The fixture roadmap format matches the current parser behavior in `dagu/implement-roadmap/scripts/common.sh`.
-- `implement-roadmap.yaml` uses `$.` for whole-scalar expressions, `expect:` for direct step postconditions, `assert:` for standalone assertions, and `{{ ctx... }}` for string interpolation.
+- Repo-facing relative paths in `implement-roadmap.yaml` resolve from `workspace.root`.
+- The workflow carries data forward through `ctx.prev` instead of referencing earlier steps by `id`.
+- Codex picks the next open roadmap item directly from the roadmap file in this first-version example.

@@ -2,65 +2,73 @@
 
 ## Summary
 
-Define a local-first workflow engine for coding-agent-driven development flows. The engine must replace stringly typed orchestration and shell-script control loops with typed step results, built-in control-flow blocks, resumable run state, and pluggable executors for shell, agents, git, and domain-specific helpers.
+Define a local-first workflow engine for coding-agent-driven development flows.
 
-The reference outcome is that the current `implement-roadmap` workflow can be expressed mostly in YAML, with shell used only for true leaf commands or small executor plugins, not for queue management, iteration, routing, or state persistence.
+`amata/v1` is intentionally small. It should replace stringly typed shell orchestration with typed step results, simple built-in control flow, straightforward folder handling, durable on-disk run state, and leaf executors for shell, Codex, Claude, git, and small domain helpers.
 
-See the reference example bundle in `design/engine/example/`, especially `implement-roadmap.yaml` and `plugins.yaml`.
+The reference outcome is that the current `implement-roadmap` workflow can be expressed mostly in YAML, with Codex selecting the next open roadmap item directly from the roadmap file and shell used only for true leaf commands or small plugins such as `git.commit`.
+
+See the reference example bundle in `design/engine/example/`, especially `example/implement-roadmap.yaml`, `example/plugins.yaml`, and `example/README.md`.
 
 ## Scope
 
 In scope:
 - A single-machine CLI runner for local development workflows.
-- YAML workflow spec format.
-- Persistent run state and `resume <run-id>` semantics.
+- A YAML workflow spec format.
+- Explicit workspace and state-directory handling.
+- Persistent run state and basic `resume <run-id>` semantics for completed steps.
 - Typed step outputs with schema validation.
-- Built-in control-flow blocks for sequence, branching, iteration, subflow calls, assertions, and parallel work.
-- Built-in shell and agent executors.
-- Pluggable step executors and pluggable expression languages.
-- A reference shape for the `implement-roadmap` workflow.
+- Built-in control-flow blocks for sequence, branching, iteration, subflow calls, and assertions.
+- Built-in `shell`, `codex`, and `claude` executors.
+- Pluggable step executors.
+- A reference shape for the `implement-roadmap` workflow where Codex picks the next open item directly from the roadmap file.
 
 Out of scope:
 - Distributed scheduling, worker pools, or remote queues.
-- Multi-tenant service concerns.
+- Automatic retry or attempt policy.
+- Provider-session recovery such as `codex exec resume` or `claude` resume.
+- Parallel execution.
+- Human-in-the-loop approval gates.
+- Pause and continue semantics.
 - Full sandboxing or container orchestration as a mandatory runtime.
-- Replacing every external tool with a built-in primitive.
 - UI work beyond a CLI.
+
+Deferred design work for those topics lives in [research/hardcore.md](../../research/hardcore.md).
 
 ## Why This Is Needed
 
 The current Dagu-based flow works only after pushing most orchestration into shell helpers, which defeats the purpose of a declarative workflow layer.
 
 Concrete pressures:
-- `dagu/implement-roadmap/implement-roadmap.yaml` now sequences only coarse phases; real iteration and routing live elsewhere.
-- `dagu/implement-roadmap/scripts/implement-open-items-loop.sh`, `correct-phase.sh`, `refactor-phase.sh`, and `sanity-phase.sh` own loops, temp files, JSON parsing, and commit boundaries.
-- `dagu/implement-roadmap/scripts/common.sh` parses roadmap markdown with bash and `jq`, then shell code passes that state around via stdout files.
-- `dagu/implement-roadmap/scripts/run-codex-prompt.sh` wraps agent execution in temp files because agent outputs are not first-class workflow values.
-- `dagu/implement-roadmap/scripts/commit-if-changed.sh` has to manually exclude workflow state from commits because the workflow engine does not understand operational state vs repo state.
-- Prior iterations of this design already identified the missing primitives: typed responses, resume support, explicit control flow, and expression evaluation over run history.
+- `dagu/implement-roadmap/implement-roadmap.yaml` sequences only coarse phases; real iteration and routing live elsewhere.
+- `dagu/implement-roadmap/scripts/implement-open-items-loop.sh` owns the roadmap loop, item selection, JSON validation, and commit boundaries.
+- `dagu/implement-roadmap/scripts/common.sh` carries path expansion and path resolution helpers because the workflow layer does not own folder semantics directly.
+- `dagu/implement-roadmap/scripts/run-codex-prompt.sh` persists prompt/output artifacts and session metadata because agent outputs are not first-class workflow values.
+- `dagu/implement-roadmap/scripts/commit-if-changed.sh` has to manually exclude workflow state from commits because operational state is not part of the engine contract.
+- The current repo already contains a smoke test for the Dagu workflow because correctness depends on behavior that the orchestrator itself does not enforce: `dagu/implement-roadmap/test/smoke.sh`.
 
-The core failure to avoid is silent misrouting when structured outputs are treated like raw strings. The engine must own structured state directly.
+The first engine version should fix the core failure mode, not solve every advanced orchestration problem at once. The core failure to avoid is silent misrouting caused by raw stdout strings, ad hoc shell loops, and ambiguous folder resolution.
 
 ## Goals
 
 - Make YAML the owner of orchestration logic.
 - Keep shell as a leaf executor, not the control plane.
+- Make folder resolution boring and explicit.
+- Use adjacent data flow through `ctx.prev` and `ctx.next`, not global step-id lookup.
 - Make every step produce a typed `value` validated against a declared schema when requested.
 - Keep raw process and agent artifacts available without making them the main data model.
-- Support repeated steps without ambiguous references.
-- Make run history explicit through `path[]`, while also providing ergonomic indexed refs.
-- Use Starlark as the default expression language.
-- Allow expression engines to be plugged in by name, including JavaScript when needed.
-- Support resumable runs from durable state on disk.
-- Support subflows so common loops do not require external shell drivers.
-- Support executor plugins so domain helpers such as roadmap parsing or git commits do not require ad hoc wrapper scripts.
+- Persist completed-step results so interrupted runs can continue without rerunning already completed work.
+- Let agents operate directly on roadmap files in `amata/v1`.
+- Keep the first version small enough to implement and verify quickly.
 
 ## Non-goals
 
 - Becoming a general-purpose distributed workflow platform.
-- Making JavaScript the mandatory expression language.
-- Embedding large domain-specific features directly into the core runner.
-- Guaranteeing deterministic agent behavior.
+- Designing a full recovery framework in `amata/v1`.
+- Supporting provider-session continuation in `amata/v1`.
+- Supporting parallel fan-out in `amata/v1`.
+- Supporting human approval checkpoints in `amata/v1`.
+- Supporting pause and continue in `amata/v1`.
 - Replacing normal shell access when shell is the right tool.
 
 ## Current Baseline (Observed)
@@ -74,38 +82,48 @@ The core failure to avoid is silent misrouting when structured outputs are treat
   - commit
   - re-read roadmap
   This logic lives in `dagu/implement-roadmap/scripts/implement-open-items-loop.sh`.
-- Correctness, refactor, and sanity still live in shell phase scripts with handwritten prompts, JSON validation, and manual commit boundaries.
-- Markdown roadmap parsing is implemented as a reusable bash function with regex matching in `dagu/implement-roadmap/scripts/common.sh`.
-- Workflow runtime state is still managed by shell wrappers under `.amata/`, and commit exclusion is still manual.
+- Markdown roadmap parsing is implemented as shell helpers with regex matching in `dagu/implement-roadmap/scripts/common.sh`.
+- Folder handling is also implemented as shell helpers:
+  - `expand_home_path`
+  - `resolve_path_from`
+  That logic currently lives in `dagu/implement-roadmap/scripts/common.sh`.
+- Workflow runtime state is managed by shell wrappers under `.amata/`, and commit exclusion is still manual.
 - Agent execution is shell-wrapped in `dagu/implement-roadmap/scripts/run-codex-prompt.sh`.
-- The current repo already contains a smoke test for the Dagu workflow because correctness depends on behavior that the orchestrator itself does not enforce: `dagu/implement-roadmap/test/smoke.sh`.
-- Earlier design iterations already pointed toward a structured engine with typed responses, control flow, and resume support, but they still needed a tighter runtime contract.
+- The current workflow already uses the simpler prompt shape that the engine should preserve for v1: `implement next open item from the <roadmap-file-path>`. See `dagu/implement-roadmap/README.md`.
 
 ## Target Contract or Target Architecture
 
-### 1. Runtime Model
+### 1. Workspace and Runtime Model
 
-The engine executes a normalized workflow spec and persists an append-only event log for each run under a stable run directory.
+Every run has one workspace root and one state directory.
 
 Required runtime invariants:
-- Every logical step execution gets a unique execution reference: `<step-id>#<ordinal>`.
-- Every execution produces a structured result object, even on failure.
-- Step outputs are stored as typed `value` plus raw artifacts.
-- Resume reconstructs state from persisted events, not from recomputing shell helpers.
-- Workflow operational state is kept outside the target repository tree by default, even when the workflow runs inside a repo.
+- `workspace.root` is the base directory for repo-facing relative paths.
+- `workspace.state_dir` defaults to `.amata`.
+- If `workspace.state_dir` is relative, it resolves from `workspace.root`.
+- Relative paths in imported specs or plugin registries resolve from the declaring file.
+- The engine normalizes declared filesystem paths before step execution and passes absolute paths to plugins.
+- Every completed, failed, or skipped step execution produces a structured result object.
+- Completed step results are durably recorded before later steps can consume them.
 
 Suggested run-state layout:
-- `.amata/runs/<run-id>/spec.yaml`
-- `.amata/runs/<run-id>/events.ndjson`
-- `.amata/runs/<run-id>/snapshot.json`
-- `.amata/runs/<run-id>/artifacts/...`
+- `<workspace.root>/<workspace.state_dir>/runs/<run-id>/spec.yaml`
+- `<workspace.root>/<workspace.state_dir>/runs/<run-id>/events.ndjson`
+- `<workspace.root>/<workspace.state_dir>/runs/<run-id>/snapshot.json`
+- `<workspace.root>/<workspace.state_dir>/runs/<run-id>/artifacts/...`
+
+Rules:
+- Repo-facing step paths such as roadmap files, output files, and plugin config paths resolve from `workspace.root` unless they are already absolute.
+- Registry-facing paths such as `plugins.<type>.exec` resolve from the registry file that declared them.
+- `git.commit` should exclude `workspace.state_dir` by default when that directory is inside the target repository tree.
+- `amata/v1` does not attempt provider-session continuation. If the process stops during an in-flight step, `resume` reruns that step from its last durable boundary.
 
 ### 2. CLI
 
 Minimum CLI surface:
 
 ```text
-amata run <spec.yaml> [--set key=value ...] [--run-id <id>]
+amata run <spec.yaml> [--workspace <dir>] [--set key=value ...] [--run-id <id>]
 amata resume <run-id>
 ```
 
@@ -116,20 +134,19 @@ amata show <run-id> [--json]
 ```
 
 Contract:
-- `run` copies the resolved spec into the run directory and records a spec digest.
-- `resume` refuses to continue if the stored spec digest and current requested spec differ, unless an explicit override is given.
-- Step retries and loop progress must survive process interruption.
+- `run` copies the resolved spec into the run directory and records the normalized workspace settings used for the run.
+- `--workspace` overrides `workspace.root` for the launched run.
+- `resume` always uses the stored spec and stored workspace from the existing run.
+- `amata/v1` does not support resuming a run against a different spec.
 
 ### 3. Execution Context
 
-`path[]` is the authoritative execution history. It records every completed or failed step execution in order.
+`ctx.path` is the append-only execution history. It is available for inspection and debugging, not as the primary data-flow mechanism.
 
-Each `path[]` entry contains at least:
+Each `ctx.path` entry contains at least:
 - `ref`
-- `step_id`
 - `flow`
 - `status`
-- `attempt`
 - `started_at`
 - `finished_at`
 - `inputs`
@@ -137,27 +154,24 @@ Each `path[]` entry contains at least:
 - `error`
 - `artifacts`
 
-To avoid ambiguity for repeated steps, the engine also exposes indexed views:
-- `ctx.path`
-- `ctx.steps.<id>.all`
-- `ctx.steps.<id>.last`
-- `ctx.steps.<id>.count`
-
-Loop and call scopes add stable relative refs:
-- `ctx.this`
-  - current loop item or current subflow input
+Primary runtime references:
 - `ctx.prev`
-  - previous sibling iteration result in the current repeated scope, if any
+  - the previous completed step result in the current flow frame, if any
 - `ctx.next`
-  - next input item in the current repeated scope, if any
+  - the next input item in the current repeated scope, if any
+- `ctx.this`
+  - the current loop item or current subflow input
 - `ctx.inputs`
-  - subflow inputs when evaluating inside a called flow
+  - the explicit inputs for the current called flow
+- `ctx.path`
+  - global execution history for diagnostics
 
 Rules:
-- `ctx.path` is the source of truth for global history.
-- `ctx.steps.<id>.last` is a convenience index, not an alternative data model.
-- `ctx.next` never points to a future execution result. It only exposes the next input item in collection-aware scopes.
-- Expressions must not depend on undeclared external state.
+- `ctx.prev` is the primary way to consume upstream data in `amata/v1`.
+- Expressions must not reference earlier steps by declared step `id`.
+- If a later step needs older data, the previous step should carry that data forward in its own `value`.
+- `ctx.next` never points to a future step result. It only exposes the next input item in collection-aware scopes.
+- `ctx.path` is for inspection, not normal orchestration.
 
 ### 4. Expressions
 
@@ -172,7 +186,7 @@ Default-language expression object:
 
 ```yaml
 when:
-  expr: ctx.steps.scan.last.value.open_count > 0
+  expr: ctx.prev.value["hasOpenItem"]
 ```
 
 Explicit engine selection:
@@ -181,7 +195,7 @@ Explicit engine selection:
 when:
   lang: js
   expr: |
-    return ctx.steps.scan.last.value.open_count > 0;
+    return ctx.prev.value["hasOpenItem"];
 ```
 
 Rules:
@@ -191,7 +205,7 @@ Rules:
 - Fields that may hold either a literal value or a computed value use the object form to distinguish expressions from literals by default.
 - In `amata/v1`, any expression-accepting scalar position may also use whole-scalar root-context shorthand. A scalar whose entire value starts with `$.` desugars to `{ expr: <same expression with `$` replaced by `ctx`> }`.
 - Root-context shorthand is valid only when the entire YAML scalar is the expression. It does not perform string interpolation inside larger strings.
-- Templates keep `{{ ... }}` syntax. For example, `prompt: "repo={{ ctx.params.repo_dir }}"` is interpolation, while `cwd: $.params.repo_dir` is whole-scalar expression sugar.
+- Templates keep `{{ ... }}` syntax.
 - In literal-or-expression positions, a whole scalar starting with `$$` escapes the shorthand and becomes a literal string with one leading `$`.
 - Expression-only positions may define shorthand syntax. In `amata/v1`, the required shorthand is the `expr` step form described below.
 - Executor-specific shorthand may omit `type` when exactly one built-in executor is implied by the step's fields. In `amata/v1`, this applies to `expr` via `expr:`, to `assert` via `assert:`, and to `shell` via `command:`.
@@ -229,11 +243,32 @@ Artifact rules:
 version: amata/v1
 name: <workflow-name>
 entry: <flow-name>
+workspace:
+  root: .
+  state_dir: .amata
 params: {}
 defaults: {}
 schemas: {}
 flows: {}
 ```
+
+#### Workspace
+
+`workspace` declares the run's working root and the engine-owned state directory.
+
+Example:
+
+```yaml
+workspace:
+  root: design/engine/example/fixture-repo
+  state_dir: .amata
+```
+
+Rules:
+- `workspace.root` is required after normalization.
+- `workspace.state_dir` defaults to `.amata` when omitted.
+- Both values may be absolute or relative before normalization.
+- Relative `workspace.root` resolves from the spec file's directory or from `--workspace` when the CLI override is used.
 
 #### Params
 
@@ -243,9 +278,8 @@ Scalar shorthand is allowed for simple typed defaults:
 
 ```yaml
 params:
-  repo_dir: "design/engine/example/fixture-repo"
+  roadmap_file: "roadmap/index.md"
   codex_model: "gpt-5.4"
-  max_attempts: 3
   dry_run: false
 ```
 
@@ -253,15 +287,12 @@ This normalizes to:
 
 ```yaml
 params:
-  repo_dir:
+  roadmap_file:
     type: string
-    default: "design/engine/example/fixture-repo"
+    default: "roadmap/index.md"
   codex_model:
     type: string
     default: "gpt-5.4"
-  max_attempts:
-    type: number
-    default: 3
   dry_run:
     type: boolean
     default: false
@@ -280,7 +311,7 @@ Example:
 
 ```yaml
 defaults:
-  cwd: $.params.repo_dir
+  cwd: $.workspace.root
   expr_lang: starlark
   executors:
     codex:
@@ -289,14 +320,13 @@ defaults:
       model: $.params.claude_model
     git.commit:
       exclude_paths:
-        - $.params.state_dir
+        - $.workspace.state_dir
 ```
 
 Rules:
 - `defaults.executors.<type>` applies to steps whose declared `type` is `<type>`.
 - Mapping values are deep-merged. Scalar values and arrays are replaced by the step-local value.
-- Executor defaults are resolved after param defaults and before step execution.
-- Aliases such as `codex` and `claude` may define defaults independently of the provider-neutral `agent` type.
+- Executor defaults are resolved after workspace and param defaults and before step execution.
 - The `$.` shorthand applies after YAML parsing, so quoted and unquoted whole scalars behave the same.
 
 #### Flow
@@ -311,55 +341,54 @@ flows:
 #### Common step fields
 
 ```yaml
-- id: <unique-within-flow>
+- id: <optional-diagnostic-label>
   type: <built-in-or-plugin-type>
   when: <expression-or-null>
   expect: <expression-or-null>
   timeout: 10m
-  retry:
-    max_attempts: 3
-    backoff: 5s
-  on_error:
-    action: stop | continue | call
-    flow: <flow-name-when-action-is-call>
   response:
     from: value | stdout | stderr | artifact:<name>
     schema: <json-schema-object-or-ref>
 ```
 
-Sequential order is implicit in the `steps:` list. Non-linear routing comes from explicit control blocks, not a generic `then` pointer on every leaf step.
+Sequential order is implicit in the `steps:` list.
 
 Rules:
+- `id` exists for diagnostics and artifacts. It is not a data-flow reference target.
+- `when` is evaluated before step execution. When it evaluates to false, the engine records a `skipped` result and continues.
 - `expect` is evaluated after the step produces its result and after `response.schema` validation succeeds.
 - `expect` runs in the normal runtime context extended with the current step result at `ctx.status`, `ctx.value`, `ctx.error`, and `ctx.artifacts`.
 - If `expect` evaluates to false, the step itself fails with an expectation error.
-- Use `expect` for direct postconditions on the same step. Use a standalone `assert` step for cross-step invariants or multi-step checks.
+- Use `expect` for direct postconditions on the same step. Use a standalone `assert` step for broader invariants.
+- Failure handling in `amata/v1` is stop-on-failure. Richer retry and recovery semantics are deferred to [research/hardcore.md](../../research/hardcore.md).
 
 #### Built-in step types
 
 - `shell`
   - Runs a command.
   - Can capture `stdout`, `stderr`, exit code, and parsed `value`.
-  - Can optionally run under a container image.
   - A step may omit `type: shell` when `command` is the only executor-specific field.
   - Example:
 
 ```yaml
-- id: init_state
-  command:
+- command:
     - mkdir
     - -p
-    - $.params.state_dir
+    - $.workspace.state_dir
 ```
 
-- `agent`
-  - Provider-neutral agent invocation.
-  - Required fields: `provider`, `prompt`, `model`.
+- `codex`
+  - Runs a Codex step.
+  - Required fields: `prompt`, `model`.
   - Optional fields: `reasoning`, `cwd`, `env`.
-  - Aliases such as `codex` and `claude` are allowed as sugar over `agent`.
   - When `response.schema` is declared and `response.from` is omitted or set to `value`, the executor must request structured JSON output for `value`.
-  - Provider-native structured-output features should be preferred. Prompt-only formatting instructions are a fallback, not the primary contract.
   - Prompts should describe task semantics, not restate JSON wrappers already implied by `response.schema`.
+
+- `claude`
+  - Runs a Claude step.
+  - Required fields: `prompt`, `model`.
+  - Optional fields: `reasoning`, `cwd`, `env`.
+  - When `response.schema` is declared and `response.from` is omitted or set to `value`, the executor should request structured JSON output when the provider supports it, or normalize the provider output before schema validation.
 
 - `expr`
   - Evaluates an expression and returns its value.
@@ -367,13 +396,7 @@ Rules:
   - Example:
 
 ```yaml
-- id: open_items
-  expr: |
-    [
-      item
-      for item in ctx.steps.roadmap.last.value["items"]
-      if not item["checked"]
-    ]
+- expr: $.prev.value
 ```
 
 - `assert`
@@ -383,14 +406,12 @@ Rules:
   - Example:
 
 ```yaml
-- id: assert_correct_approved
-  assert: $.steps.correct.last.value["approved"]
+- assert: $.prev.value["approved"]
 ```
 
 - `foreach`
   - Iterates over an input collection.
   - `items` may be supplied as a literal collection, an expression object, or whole-scalar `$.` shorthand.
-  - Supports `order: seq | parallel`.
   - Child steps execute with `ctx.this`, `ctx.prev`, and `ctx.next`.
   - Returns an array of child flow results.
 
@@ -400,22 +421,16 @@ Rules:
 - `call`
   - Invokes a named subflow with explicit inputs.
 
-- `parallel`
-  - Runs named child branches concurrently and returns their collected results.
-
 #### Plugin step types
 
-Any non-built-in `type` is resolved through the executor registry. Example categories:
-- `roadmap.items`
-- `roadmap.mark_done`
-- `git.commit`
+Any non-built-in `type` is resolved through the executor registry.
 
 The plugin contract is:
 - receive validated step config
 - receive engine-managed execution metadata appropriate to the runtime boundary
 - return a standard step result object
 
-The example bundle in [example/README.md](example/README.md) includes a concrete, non-normative plugin registry file at [example/plugins.yaml](example/plugins.yaml). That registry resolves plugin executables relative to the registry file so the example remains self-contained.
+The example bundle in [example/README.md](example/README.md) includes a concrete, non-normative plugin registry file at [example/plugins.yaml](example/plugins.yaml).
 
 Plugin registry entries may declare `config_schema` so the engine can validate plugin config before launching the external process.
 
@@ -423,18 +438,22 @@ Example:
 
 ```yaml
 plugins:
-  roadmap.items:
+  git.commit:
     exec:
       - python3
-      - scripts/roadmap_items.py
+      - scripts/git_commit.py
     config_schema:
       type: object
-      required: [file]
+      required: [message]
       additionalProperties: false
       properties:
-        file:
+        message:
           type: string
-          format: path
+        exclude_paths:
+          type: array
+          items:
+            type: string
+            format: path
 ```
 
 Rules:
@@ -452,19 +471,21 @@ Minimum request shape:
 ```json
 {
   "run": {
-    "id": "run-20260311-001",
-    "dir": "/abs/.amata/runs/run-20260311-001"
+    "id": "run-20260312-001",
+    "dir": "/abs/repo/.amata/runs/run-20260312-001"
   },
   "step": {
-    "id": "roadmap",
-    "ref": "roadmap#1",
-    "artifacts_dir": "/abs/.amata/runs/run-20260311-001/artifacts/roadmap#1"
+    "id": "commit_item",
+    "ref": "step-7",
+    "artifacts_dir": "/abs/repo/.amata/runs/run-20260312-001/artifacts/step-7"
   },
   "workspace": {
-    "cwd": "/abs/repo"
+    "root": "/abs/repo",
+    "cwd": "/abs/repo",
+    "state_dir": "/abs/repo/.amata"
   },
   "config": {
-    "file": "/abs/repo/roadmap/index.md"
+    "message": "feat: implement sample feature"
   }
 }
 ```
@@ -489,45 +510,40 @@ Example:
 
 ```yaml
 prompt: |
-  Repository root: {{ ctx.params.repo_dir }}
-  Selected item:
-  {{ to_json(ctx.this.value) }}
+  Implement next open item from the {{ ctx.params.roadmap_file }}.
 ```
 
 ### 8. Failure and Resume Semantics
 
 Rules:
-- A failed step records its structured error and artifacts before the run stops or enters `on_error`.
-- `resume` continues from the next incomplete execution point using persisted events and loop cursors.
-- Completed step results are not recomputed during resume unless a policy explicitly says they are volatile.
-- A repeated step keeps its historical refs on resume; ordinals do not get renumbered.
+- A failed or skipped step records its structured result and artifacts before the run stops or advances.
+- `resume` continues from the first step that does not yet have a durable result in the stored run state.
+- Completed step results are not recomputed during `resume`.
+- `amata/v1` does not define attempts separately from retries because neither feature is part of the first-version contract.
+- Automatic provider-session recovery, pause/continue behavior, and human intervention are deferred to [research/hardcore.md](../../research/hardcore.md).
 
 ### 9. Minimal Standard Plugin Set
 
-The core engine should stay small, but a standard local-development plugin pack is expected.
-
-Priority plugins:
+The core engine should stay small. The only required standard plugin in `amata/v1` is:
 - `git.commit`
-- `git.status`
-- `roadmap.items`
-- `roadmap.mark_done`
 
-These are intentionally outside the core runner so that domain-specific logic does not leak into the base execution engine.
+Other plugin categories may be added later without growing the first-version contract.
 
 ## Implementation Notes
 
 Suggested internal boundaries:
 - Spec loader and schema validator.
+- Workspace resolver and path normalizer.
 - Workflow planner and execution context builder.
 - Event store and snapshot writer.
 - Built-in executor implementations.
 - Expression engine registry.
 - Plugin registry for executor types.
-- CLI layer for `run` and `resume`.
+- CLI layer for `run`, `resume`, and `show`.
 
 Important implementation notes:
+- Resolve folder semantics in the engine, not in ad hoc shell helpers.
 - Do not model downstream state as shell-expanded environment variables.
-- Do not require every executor to serialize intermediate values to temp files.
 - Keep execution records immutable after they are appended.
 - Make template rendering and expression evaluation use the same type system.
 - Treat plugin executors and built-in executors uniformly at the runtime boundary.
@@ -536,63 +552,68 @@ Important implementation notes:
 
 ## Milestones
 
-### Milestone 1: Core runner and durable state
+### Milestone 1: Core runner, workspace model, and durable state
 
 Scope:
 - Spec parser.
+- Workspace root and state-dir normalization.
 - Flow and step model.
 - Event log and snapshot state.
-- `run` and `resume`.
+- `run`, `resume`, and `show`.
 
 Expected results:
-- Simple sequential flows execute and resume correctly.
+- Simple sequential flows execute with durable completed-step state.
+- Relative paths behave predictably.
 
 Testable outcome:
-- A workflow with `shell`, `expr`, and `assert` can be interrupted and resumed without rerunning completed steps.
+- A workflow with `shell`, `expr`, and `assert` can be interrupted after a completed step and resumed without rerunning already completed steps.
+- A workflow launched from outside the repo still resolves repo-facing relative paths from `workspace.root`.
 
-### Milestone 2: Expressions and control blocks
+### Milestone 2: Expressions and first-version control blocks
 
 Scope:
 - Starlark engine.
-- `foreach`, `switch`, `call`, and `parallel`.
-- `ctx.path`, `ctx.steps.<id>.all`, `ctx.steps.<id>.last`, `ctx.prev`, `ctx.next`.
+- `switch`, `call`, and `foreach`.
+- `ctx.prev`, `ctx.next`, `ctx.this`, `ctx.inputs`, and `ctx.path`.
 
 Expected results:
-- Repeated steps become unambiguous without shell-managed loop state.
+- Adjacent-step data flow becomes explicit without step-id lookups.
 
 Testable outcome:
-- A workflow with nested loops can reference prior iterations and global history through typed refs only.
+- A workflow with subflows and loops can pass data forward through `ctx.prev` and `ctx.this` only.
 
-### Milestone 3: Agent and plugin execution
+### Milestone 3: Codex, Claude, plugins, and the roadmap example
 
 Scope:
-- `agent` executor with provider adapters.
+- `codex` executor.
+- `claude` executor.
 - Plugin registry.
-- Standard plugins for git, docs, and roadmap helpers.
+- `git.commit` plugin.
+- Reference `implement-roadmap` workflow.
 
 Expected results:
-- The `implement-roadmap` example can be represented mostly in YAML with no shell loop scripts.
+- The `implement-roadmap` example executes mostly in YAML with Codex selecting the next open item from the roadmap file.
 
 Testable outcome:
-- A smoke workflow equivalent to `implement-roadmap` executes with built-in control flow and plugin leaf steps only.
+- A smoke workflow equivalent to `implement-roadmap` executes with built-in control flow and the `git.commit` plugin only.
 
 ## Acceptance Criteria
 
-- The engine can express the reference `implement-roadmap` flow without external shell drivers for iteration, queue management, or routing.
-- Step outputs are consumed through typed `value`, not by reparsing raw stdout in downstream logic.
-- Resume works after interruption in the middle of a `foreach` loop.
-- Repeated step references are unambiguous through `ctx.path` and `ctx.steps.<id>.all/last`.
-- Starlark is the default expression engine.
-- At least one non-Starlark expression engine can be registered without changing the core workflow format.
-- Plugin step types can participate in the same validation, persistence, and resume model as built-in step types.
+- The engine can express the reference `implement-roadmap` flow without external shell drivers for queue management or routing.
+- The reference workflow uses the prompt shape `Implement next open item from the <file>`.
+- Step outputs are consumed through `ctx.prev`, `ctx.this`, and templates, not by referencing earlier steps by `id`.
+- Relative repo-facing paths resolve from `workspace.root`.
+- Registry-side executable paths resolve from the declaring registry file.
+- Completed steps do not rerun after interruption and `resume`.
+- The example uses only `git.commit` as a plugin dependency.
+- Deferred features are tracked in [research/hardcore.md](../../research/hardcore.md).
 
 ## Risks
 
-- The engine can grow into an overgeneralized orchestration platform if the core surface is not kept small.
-- Plugin APIs can become unstable if step configs are not validated strictly.
-- Starlark may need helper functions for ergonomic JSON-like access and template rendering.
-- Agent outputs remain nondeterministic; strict schema validation reduces but does not remove this risk.
-- Resume semantics become fragile if executors perform hidden side effects without reporting them.
+- Letting Codex pick the next open roadmap item is less deterministic than a dedicated roadmap parser.
+- Without advanced recovery, long-running agent steps may still need a full rerun after interruption.
+- Repo-local state under `.amata/` still requires commit exclusion discipline.
+- The first version may need richer data-passing helpers later if adjacent `prev`-based flow proves too restrictive.
 
 ## References
 
@@ -602,9 +623,7 @@ Testable outcome:
   - `dagu/implement-roadmap/implement-roadmap.yaml`
   - `dagu/implement-roadmap/scripts/common.sh`
   - `dagu/implement-roadmap/scripts/implement-open-items-loop.sh`
-  - `dagu/implement-roadmap/scripts/correct-phase.sh`
-  - `dagu/implement-roadmap/scripts/refactor-phase.sh`
-  - `dagu/implement-roadmap/scripts/sanity-phase.sh`
   - `dagu/implement-roadmap/scripts/run-codex-prompt.sh`
   - `dagu/implement-roadmap/scripts/commit-if-changed.sh`
   - `dagu/implement-roadmap/test/smoke.sh`
+- Deferred design research: [research/hardcore.md](../../research/hardcore.md)

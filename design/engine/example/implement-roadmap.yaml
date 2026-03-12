@@ -2,10 +2,12 @@ version: amata/v1
 name: implement-roadmap
 entry: main
 
-params:
-  repo_dir: "design/engine/example/fixture-repo"
-  roadmap_file: "roadmap/index.md"
+workspace:
+  root: "design/engine/example/fixture-repo"
   state_dir: ".amata"
+
+params:
+  roadmap_file: "roadmap/index.md"
   codex_model: "gpt-5.4"
   codex_correctness_reasoning: "xhigh"
   codex_docs_reasoning: "high"
@@ -13,7 +15,7 @@ params:
   claude_refactor_reasoning: "high"
 
 defaults:
-  cwd: $.params.repo_dir
+  cwd: $.workspace.root
   expr_lang: starlark
   executors:
     codex:
@@ -22,50 +24,29 @@ defaults:
       model: $.params.claude_model
     git.commit:
       exclude_paths:
-        - $.params.state_dir
+        - $.workspace.state_dir
 
 schemas:
-  roadmap_item:
-    type: object
-    required:
-      - title
-      - label
-      - checked
-      - reasoning
-    properties:
-      title: {type: string}
-      label: {type: string}
-      checked: {type: boolean}
-      reasoning: {type: string}
-      verification: {type: string}
-      actions:
-        type: array
-        items: {type: string}
-  roadmap_items:
-    type: object
-    required: [items]
-    properties:
-      items:
-        type: array
-        items:
-          $ref: "#/schemas/roadmap_item"
   implement_result:
     type: object
-    required: [itemTitle, commitMessage, reviewReasoning, summary]
+    required: [hasOpenItem, summary]
+    additionalProperties: false
     properties:
-      itemTitle: {type: string}
+      hasOpenItem: {type: boolean}
+      summary: {type: string}
       commitMessage: {type: string}
       reviewReasoning: {type: string}
-      summary: {type: string}
   review_result:
     type: object
     required: [approved, notes]
+    additionalProperties: false
     properties:
       approved: {type: boolean}
       notes: {type: string}
-  sanity_result:
+  review_commit_result:
     type: object
     required: [approved, notes, commitMessage]
+    additionalProperties: false
     properties:
       approved: {type: boolean}
       notes: {type: string}
@@ -73,168 +54,96 @@ schemas:
   docs_result:
     type: object
     required: [commitMessage]
+    additionalProperties: false
     properties:
       commitMessage: {type: string}
 
 flows:
   main:
     steps:
-      - id: roadmap
-        type: roadmap.items
-        file: $.params.roadmap_file
-        response:
-          schema:
-            $ref: "#/schemas/roadmap_items"
+      - type: call
+        flow: implement_loop
 
-      - id: open_items
-        expr: |
-          [
-            item
-            for item in ctx.steps.roadmap.last.value["items"]
-            if not item["checked"]
-          ]
-
-      - id: implement_all_open_items
-        type: foreach
-        items: $.steps.open_items.last.value
-        as: roadmap_item
-        order: seq
-        steps:
-          - id: implement_item
-            type: codex
-            reasoning: $.this.value["reasoning"]
-            prompt: |
-              Repository root: {{ ctx.params.repo_dir }}
-              Roadmap file: {{ ctx.params.roadmap_file }}
-
-              Implement ONLY the selected open roadmap item below.
-
-              Requirements:
-              1. Change code and tests as needed.
-              2. Run the checks described in the roadmap item. If no checks are listed, run the most relevant focused validation.
-              3. Update the roadmap file and mark only this item done.
-              4. Do not start later roadmap items.
-              5. Leave everything uncommitted.
-              Return the selected item title, a commit message, the requested review reasoning level, and a short summary.
-
-              Selected open roadmap item JSON:
-              {{ to_json(ctx.this.value) }}
-            response:
-              schema:
-                $ref: "#/schemas/implement_result"
-
-          - id: review_item
-            type: codex
-            reasoning: $.steps.implement_item.last.value["reviewReasoning"]
-            prompt: |
-              Repository root: {{ ctx.params.repo_dir }}
-              Roadmap file: {{ ctx.params.roadmap_file }}
-              Requested review reasoning: {{ ctx.steps.implement_item.last.value["reviewReasoning"] }}
-
-              Review the current uncommitted diff for the selected roadmap item.
-              Stay within the selected item's scope.
-              You may patch the code directly if you find issues, then rerun any checks needed for confidence.
-              When the diff is ready to commit, return approval as a boolean and a short review note.
-
-              Selected roadmap item JSON:
-              {{ to_json(ctx.this.value) }}
-
-              Proposed commit message:
-              {{ ctx.steps.implement_item.last.value["commitMessage"] }}
-            response:
-              schema:
-                $ref: "#/schemas/review_result"
-            expect: $.value["approved"]
-
-          - id: mark_item_done
-            type: roadmap.mark_done
-            file: $.params.roadmap_file
-            match:
-              label: $.this.value["label"]
-
-          - id: commit_item
-            type: git.commit
-            message: $.steps.implement_item.last.value["commitMessage"]
-
-      - id: correct
-        type: codex
+      - type: codex
         reasoning: $.params.codex_correctness_reasoning
         prompt: |
-          Repository root: {{ ctx.params.repo_dir }}
-          Roadmap file: {{ ctx.params.roadmap_file }}
-
-          Confirm by inspecting the codebase, tests, and current documentation that the roadmap work is wired end-to-end,
-          implemented correctly and in full, and leaves no leftover or partially applied work.
-          If you find gaps, patch the repository directly and rerun the relevant checks.
-          Stay within the scope of the implemented roadmap work.
-          Do not do discretionary refactors or docs cleanup in this step.
-          Leave changes uncommitted.
+          Confirm the roadmap work is wired end-to-end.
+          Address findings, if any.
           Return approval as a boolean and a short review note.
         response:
           schema:
             $ref: "#/schemas/review_result"
         expect: $.value["approved"]
 
-      - id: refactor
-        type: claude
+      - type: claude
         reasoning: $.params.claude_refactor_reasoning
         prompt: |
-          Repository root: {{ ctx.params.repo_dir }}
-          Roadmap file: {{ ctx.params.roadmap_file }}
-
-          Review the codebase related to the implemented roadmap items.
-          Find real refactoring targets for redundancy, overengineering, dead code, unnecessary boilerplate,
-          or files that should be split because they mix domains or grew too large.
-          Apply the refactors directly when they materially improve the implementation, then rerun relevant checks.
-          Keep behavior and scope intact. Do not start new feature work or docs cleanup.
-          Leave changes uncommitted.
+          Review the implemented roadmap work for material refactors.
+          Address findings, if any.
           Return approval as a boolean and a short review note.
         response:
           schema:
             $ref: "#/schemas/review_result"
         expect: $.value["approved"]
 
-      - id: sanity
-        type: codex
+      - type: codex
         reasoning: $.params.codex_correctness_reasoning
         prompt: |
-          Repository root: {{ ctx.params.repo_dir }}
-          Roadmap file: {{ ctx.params.roadmap_file }}
-
-          Review the current uncommitted diff after the correctness and refactor passes.
-          Check for scope drift, regressions, half-applied edits, or architectural mistakes.
-          You may patch the repository directly if you find issues, then rerun any checks needed for confidence.
-          Leave changes uncommitted.
-          Return approval as a boolean, a short review note, and a commit message for any follow-up code changes.
+          Review the current uncommitted diff after correctness and refactor.
+          Address findings, if any.
+          Return approval as a boolean, a short review note, and a commit message for any follow-up changes.
         response:
           schema:
-            $ref: "#/schemas/sanity_result"
+            $ref: "#/schemas/review_commit_result"
         expect: $.value["approved"]
 
-      - id: commit_followups
-        type: git.commit
-        message: $.steps.sanity.last.value["commitMessage"]
+      - type: git.commit
+        message: $.prev.value["commitMessage"]
 
-      - id: update_docs
-        type: codex
+      - type: codex
         reasoning: $.params.codex_docs_reasoning
         prompt: |
-          Repository root: {{ ctx.params.repo_dir }}
-          Completed roadmap file: {{ ctx.params.roadmap_file }}
-
           Update documentation for the completed roadmap work.
-
-          Requirements:
-          1. If the roadmap is fully complete, delete the completed roadmap file.
-          2. Delete the corresponding design doc only when no unfinished roadmap or design doc still depends on it.
-          3. Ensure durable current-state explanations live in docs/**, not in completed roadmap/design files.
-          4. Keep docs/, roadmap/, design/, and research/ within their intended domains.
-          5. Leave changes uncommitted.
           Return the commit message for the docs cleanup.
         response:
           schema:
             $ref: "#/schemas/docs_result"
 
-      - id: commit_docs
-        type: git.commit
-        message: $.steps.update_docs.last.value["commitMessage"]
+      - type: git.commit
+        message: $.prev.value["commitMessage"]
+
+  implement_loop:
+    steps:
+      - type: codex
+        prompt: |
+          Implement next open item from the {{ ctx.params.roadmap_file }}.
+        response:
+          schema:
+            $ref: "#/schemas/implement_result"
+
+      - type: switch
+        cases:
+          - when:
+              expr: not ctx.prev.value["hasOpenItem"]
+            steps:
+              - expr: $.prev.value
+
+          - when:
+              expr: ctx.prev.value["hasOpenItem"]
+            steps:
+              - type: codex
+                reasoning: $.prev.value["reviewReasoning"]
+                prompt: |
+                  Review the current uncommitted diff for the selected roadmap item.
+                  Address findings, if any.
+                  Return approval as a boolean, a short review note, and the commit message to use.
+                response:
+                  schema:
+                    $ref: "#/schemas/review_commit_result"
+                expect: $.value["approved"]
+
+              - type: git.commit
+                message: $.prev.value["commitMessage"]
+
+              - type: call
+                flow: implement_loop
