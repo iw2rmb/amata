@@ -132,7 +132,6 @@ git -C "$repo_dir" commit -m "chore: seed repository" >/dev/null
 
 PATH="${bin_dir}:$PATH" TRACE_DIR="${trace_dir}" dagu start "$DAG_FILE" -- \
   REPO_DIR="$repo_dir" \
-  SCRIPTS_DIR="$SCRIPTS_DIR" \
   CLAUDE_MODEL=fake-claude \
   CLAUDE_REFACTOR_REASONING=low \
   CODEX_MODEL=fake-codex \

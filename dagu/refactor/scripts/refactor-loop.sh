@@ -58,7 +58,17 @@ done
 require_command bash
 require_command git
 
-repo="$(CDPATH= cd -- "$repo" && pwd)"
+workflow_root="$(CDPATH= cd -- "${SCRIPT_DIR}/../../.." && pwd)"
+
+case "$repo" in
+  /*)
+    repo="$(CDPATH= cd -- "$repo" && pwd)"
+    ;;
+  *)
+    repo="$(CDPATH= cd -- "${workflow_root}/${repo}" && pwd)"
+    ;;
+esac
+
 cd "$repo"
 require_clean_worktree
 
@@ -112,16 +122,16 @@ Focus path: ${path}
 Review diff in ${path} for sanity and correctness. Commit.
 PROMPT
 
-  # after_head="$(current_head)"
-  # if [ "$before_head" = "$after_head" ]; then
-  #   die "codex review did not create a commit for ${path}"
-  # fi
+  after_head="$(current_head)"
+  if [ "$before_head" = "$after_head" ]; then
+    die "codex review did not create a commit for ${path}"
+  fi
 
-  # if git_has_changes; then
-  #   die "repository still has uncommitted changes after codex review for ${path}"
-  # fi
+  if git_has_changes; then
+    die "repository still has uncommitted changes after codex review for ${path}"
+  fi
 
-  # committed_count=$((committed_count + 1))
+  committed_count=$((committed_count + 1))
   printf 'committed path: %s (%s)\n' "$path" "$after_head"
 done <"$paths_file"
 

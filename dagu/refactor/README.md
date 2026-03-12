@@ -12,6 +12,9 @@ The workflow expects a clean git worktree before it starts. Each Codex review is
 required to leave the repository clean with one new commit for the path it
 reviewed.
 
+`REPO_DIR` may be absolute or relative to this workflow repository root
+(`/Users/vk/@iw2rmb/auto`).
+
 Runtime helpers live in `./scripts/`:
 
 - `list-target-paths.sh`
@@ -27,3 +30,8 @@ dagu start dagu/refactor/refactor.yaml -- \
   CLAUDE_MODEL=sonnet \
   CODEX_MODEL=gpt-5.4
 ```
+
+By default `SCRIPTS_DIR` points at this repository's
+`/Users/vk/@iw2rmb/auto/dagu/refactor/scripts` directory so the workflow can run
+against a separate `REPO_DIR`. Override it only if you intentionally move the
+workflow helpers.
