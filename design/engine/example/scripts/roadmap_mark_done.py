@@ -37,46 +37,29 @@ def main() -> int:
 
         path = pathlib.Path(file_value)
         lines = path.read_text(encoding="utf-8").splitlines()
-        match_indexes: list[int] = []
+        hits: list[tuple[int, re.Match, str]] = []
 
         for index, line in enumerate(lines):
-            checklist = CHECKLIST_RE.match(line)
-            if not checklist:
+            m = CHECKLIST_RE.match(line)
+            if not m:
                 continue
+            title = m.group("title")
+            label_m = TITLE_LABEL_RE.match(title)
+            label = label_m.group("label") if label_m else ""
+            if (expected_label and label == expected_label) or (expected_title and title == expected_title):
+                hits.append((index, m, label))
 
-            title = checklist.group("title")
-            label = ""
-            label_match = TITLE_LABEL_RE.match(title)
-            if label_match:
-                label = label_match.group("label")
-
-            if expected_label and label == expected_label:
-                match_indexes.append(index)
-            elif expected_title and title == expected_title:
-                match_indexes.append(index)
-
-        if not match_indexes:
+        if not hits:
             emit(fail("not_found", "no matching roadmap item"))
             return 0
-        if len(match_indexes) > 1:
+        if len(hits) > 1:
             emit(fail("ambiguous_match", "multiple roadmap items matched"))
             return 0
 
-        target = match_indexes[0]
-        checklist = CHECKLIST_RE.match(lines[target])
-        assert checklist is not None
-        lines[target] = f"{checklist.group('prefix')}x{checklist.group('suffix')}{checklist.group('title')}"
+        target, m, found_label = hits[0]
+        lines[target] = f"{m.group('prefix')}x{m.group('suffix')}{m.group('title')}"
         write_text_atomic(path, "\n".join(lines) + "\n")
-        emit(
-            ok(
-                {
-                    "lineNumber": target + 1,
-                    "label": expected_label or "",
-                    "title": checklist.group("title"),
-                    "checked": True,
-                }
-            )
-        )
+        emit(ok({"lineNumber": target + 1, "label": found_label, "title": m.group("title"), "checked": True}))
         return 0
     except FileNotFoundError as exc:
         emit(fail("missing_file", str(exc)))
