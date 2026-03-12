@@ -24,6 +24,7 @@ require_command sed
 require_command awk
 require_command sort
 require_command cut
+require_command uniq
 
 cd "$repo"
 
@@ -33,6 +34,20 @@ LC_ALL=C find . \
   \( -type d \( \( -name '.*' -a ! -path '.' \) -o -name target -o -name build \) -prune \) -o \
   \( -type f \( -name '*.rs' -o -name '*.swift' -o -name '*.py' -o -name '*.go' \) -print \) \
   | sed 's#^\./##' \
-  | awk -F/ '{print NF "\t" $0}' \
+  | awk -F/ '
+      {
+        if (NF == 1) {
+          dir="."
+        } else {
+          dir=$1
+          for (i = 2; i < NF; i++) {
+            dir = dir "/" $i
+          }
+        }
+        depth = split(dir, parts, "/")
+        print depth "\t" dir
+      }
+    ' \
   | LC_ALL=C sort -t "$tab" -k1,1nr -k2,2 \
-  | cut -f2-
+  | cut -f2- \
+  | uniq

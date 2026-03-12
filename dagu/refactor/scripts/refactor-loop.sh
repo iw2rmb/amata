@@ -81,20 +81,43 @@ scanned_count=0
 changed_count=0
 committed_count=0
 missing_count=0
+path_root=""
+path_files=""
+path_file_count=0
 
 while IFS= read -r path || [ -n "$path" ]; do
   [ -n "$path" ] || continue
   scanned_count=$((scanned_count + 1))
+  if [ "$path" = "." ]; then
+    path_root="$repo"
+  else
+    path_root="${repo}/${path}"
+  fi
 
-  if [ ! -f "$path" ]; then
+  if [ ! -d "$path_root" ]; then
     printf 'skip missing path: %s\n' "$path"
     missing_count=$((missing_count + 1))
     continue
   fi
 
+  path_files="$(
+    LC_ALL=C find "$path_root" -maxdepth 1 -type f \
+      \( -name '*.rs' -o -name '*.swift' -o -name '*.py' -o -name '*.go' \) \
+      | sed "s#^${repo}/##" \
+      | LC_ALL=C sort
+  )"
+
+  if [ -z "$path_files" ]; then
+    printf 'skip empty path: %s\n' "$path"
+    missing_count=$((missing_count + 1))
+    continue
+  fi
+
+  path_file_count="$(printf '%s\n' "$path_files" | awk 'NF { count += 1 } END { print count + 0 }')"
+
   printf 'inspect path: %s\n' "$path"
   before_head="$(current_head)"
-  printf 'in-progress step=claude path=%s\n' "$path"
+  printf 'in-progress step=claude path=%s files=%s\n' "$path" "$path_file_count"
 
   cat <<PROMPT | bash "${scripts_dir}/run-claude-prompt.sh" \
     --repo "$repo" \
@@ -102,8 +125,10 @@ while IFS= read -r path || [ -n "$path" ]; do
     --reasoning "$claude_reasoning" >/dev/null
 Repository root: ${repo}
 Focus path: ${path}
+Focus files:
+${path_files}
 
-Inspect ${path} for redundancy, overengineering, dead code; check for options to streamline logic, extract helpers to reduce boilerplate, split for clear and distinctive domains. Address most valuable findings. Do not commit.
+Inspect all supported source files directly under ${path}. Treat this path as one refactor unit. Check for redundancy, overengineering, dead code; check for options to streamline logic, extract helpers to reduce boilerplate, split for clear and distinctive domains across these files. Address most valuable findings. Do not commit.
 PROMPT
 
   if ! git_has_changes; then
@@ -112,7 +137,7 @@ PROMPT
   fi
 
   changed_count=$((changed_count + 1))
-  printf 'in-progress step=codex path=%s\n' "$path"
+  printf 'in-progress step=codex path=%s files=%s\n' "$path" "$path_file_count"
 
   cat <<PROMPT | bash "${scripts_dir}/run-codex-prompt.sh" \
     --repo "$repo" \
@@ -120,8 +145,10 @@ PROMPT
     --reasoning "$codex_reasoning" >/dev/null
 Repository root: ${repo}
 Focus path: ${path}
+Focus files:
+${path_files}
 
-Review diff in ${path} for sanity and correctness. Commit.
+Review the current diff for ${path} across the listed files for sanity and correctness. Commit.
 PROMPT
 
   after_head="$(current_head)"

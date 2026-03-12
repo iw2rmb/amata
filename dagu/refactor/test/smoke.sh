@@ -53,14 +53,19 @@ repo="$(
 path="$(
   printf '%s' "$prompt" | perl -ne 'if (/^Focus path: (.+)$/m) { print "$1\n"; exit }'
 )"
+files="$(
+  printf '%s' "$prompt" | perl -0ne 'if (/^Focus files:\n(.*?)(?:\n\n|\z)/ms) { print "$1"; exit }'
+)"
 
 [ -n "$repo" ] || exit 3
 [ -n "$path" ] || exit 4
+[ -n "$files" ] || exit 5
 
 printf '%s\n' "$path" >>"${TRACE_DIR}/claude-paths.log"
+printf '%s\n---\n' "$files" >>"${TRACE_DIR}/claude-files.log"
 
-if [ "$path" = "pkg/util/nested/module.go" ]; then
-  printf '\n// refactored\n' >>"${repo}/${path}"
+if [ "$path" = "pkg/util/nested" ]; then
+  printf '\n// refactored\n' >>"${repo}/pkg/util/nested/module.go"
 fi
 
 cat <<'JSON'
@@ -112,9 +117,14 @@ done
 path="$(
   printf '%s' "$prompt" | perl -ne 'if (/^Focus path: (.+)$/m) { print "$1\n"; exit }'
 )"
+files="$(
+  printf '%s' "$prompt" | perl -0ne 'if (/^Focus files:\n(.*?)(?:\n\n|\z)/ms) { print "$1"; exit }'
+)"
 [ -n "$path" ] || exit 4
+[ -n "$files" ] || exit 5
 
 printf '%s\n' "$path" >>"${TRACE_DIR}/codex-paths.log"
+printf '%s\n---\n' "$files" >>"${TRACE_DIR}/codex-files.log"
 
 git -C "$repo" add -A
 git -C "$repo" commit -m "refactor: ${path}" >/dev/null
@@ -138,21 +148,40 @@ PATH="${bin_dir}:$PATH" TRACE_DIR="${trace_dir}" dagu start "$DAG_FILE" -- \
   CODEX_REVIEW_REASONING=low >"${trace_dir}/run-absolute.out"
 
 cat >"${trace_dir}/expected-claude-paths.txt" <<'EOF'
-pkg/util/nested/module.go
-pkg/util/helpers.py
-app.rs
+pkg/util/nested
+pkg/util
+.
 EOF
 
 cmp "${trace_dir}/expected-claude-paths.txt" "${trace_dir}/claude-paths.log"
 
 cat >"${trace_dir}/expected-codex-paths.txt" <<'EOF'
-pkg/util/nested/module.go
+pkg/util/nested
 EOF
 
 cmp "${trace_dir}/expected-codex-paths.txt" "${trace_dir}/codex-paths.log"
 
-grep -q 'in-progress step=claude path=pkg/util/nested/module.go' "${trace_dir}/run-absolute.out"
-grep -q 'in-progress step=codex path=pkg/util/nested/module.go' "${trace_dir}/run-absolute.out"
+cat >"${trace_dir}/expected-claude-files.txt" <<'EOF'
+pkg/util/nested/module.go
+---
+pkg/util/helpers.py
+---
+app.rs
+---
+EOF
+
+cmp "${trace_dir}/expected-claude-files.txt" "${trace_dir}/claude-files.log"
+cmp "${trace_dir}/expected-codex-paths.txt" "${trace_dir}/codex-paths.log"
+
+cat >"${trace_dir}/expected-codex-files.txt" <<'EOF'
+pkg/util/nested/module.go
+---
+EOF
+
+cmp "${trace_dir}/expected-codex-files.txt" "${trace_dir}/codex-files.log"
+
+grep -q 'in-progress step=claude path=pkg/util/nested files=1' "${trace_dir}/run-absolute.out"
+grep -q 'in-progress step=codex path=pkg/util/nested files=1' "${trace_dir}/run-absolute.out"
 
 commit_count="$(git -C "$repo_dir" rev-list --count HEAD)"
 [ "$commit_count" = "2" ]
@@ -161,7 +190,7 @@ git -C "$repo_dir" diff --quiet --exit-code
 git -C "$repo_dir" diff --cached --quiet --exit-code
 [ -z "$(git -C "$repo_dir" ls-files --others --exclude-standard)" ]
 
-rm -f "${trace_dir}/claude-paths.log" "${trace_dir}/codex-paths.log"
+rm -f "${trace_dir}/claude-paths.log" "${trace_dir}/codex-paths.log" "${trace_dir}/claude-files.log" "${trace_dir}/codex-files.log"
 
 ( cd "$repo_dir" && PATH="${bin_dir}:$PATH" TRACE_DIR="${trace_dir}" dagu start "$DAG_FILE" -- \
   REPO_DIR="$repo_dir" \
@@ -173,9 +202,11 @@ rm -f "${trace_dir}/claude-paths.log" "${trace_dir}/codex-paths.log"
 
 cmp "${trace_dir}/expected-claude-paths.txt" "${trace_dir}/claude-paths.log"
 cmp "${trace_dir}/expected-codex-paths.txt" "${trace_dir}/codex-paths.log"
+cmp "${trace_dir}/expected-claude-files.txt" "${trace_dir}/claude-files.log"
+cmp "${trace_dir}/expected-codex-files.txt" "${trace_dir}/codex-files.log"
 
-grep -q 'in-progress step=claude path=pkg/util/nested/module.go' "${trace_dir}/run-home-scripts.out"
-grep -q 'in-progress step=codex path=pkg/util/nested/module.go' "${trace_dir}/run-home-scripts.out"
+grep -q 'in-progress step=claude path=pkg/util/nested files=1' "${trace_dir}/run-home-scripts.out"
+grep -q 'in-progress step=codex path=pkg/util/nested files=1' "${trace_dir}/run-home-scripts.out"
 
 if ( cd "$repo_dir" && PATH="${bin_dir}:$PATH" TRACE_DIR="${trace_dir}" dagu start "$DAG_FILE" -- \
   REPO_DIR=. \

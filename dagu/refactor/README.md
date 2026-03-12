@@ -1,12 +1,12 @@
 # Refactor Dagu workflow
 
-This workflow walks a repository tree from deepest matching source paths to
+This workflow walks a repository tree from deepest matching source directories to
 shallowest and runs a per-path refactor pass:
 
-- find `*.rs`, `*.swift`, `*.py`, and `*.go`
+- find directories containing `*.rs`, `*.swift`, `*.py`, and `*.go`
 - skip directories that start with `.`, plus `target` and `build`
-- run Claude on each path with a focused refactor prompt
-- if the Claude pass produced a diff, run Codex to review that diff and commit it
+- run Claude once per directory path across all supported files directly in that path
+- if the Claude pass produced a diff, run Codex to review that path diff and commit it
 
 The workflow expects a clean git worktree before it starts. Each Codex review is
 required to leave the repository clean with one new commit for the path it
