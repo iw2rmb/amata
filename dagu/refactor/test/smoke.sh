@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)"
+DAG_FILE="${ROOT_DIR}/dagu/refactor/refactor.yaml"
+SCRIPTS_DIR="${ROOT_DIR}/dagu/refactor/scripts"
+
+tmp_dir="$(mktemp -d)"
+trap 'rm -rf "$tmp_dir"' EXIT
+
+repo_dir="${tmp_dir}/repo"
+bin_dir="${tmp_dir}/bin"
+trace_dir="${tmp_dir}/trace"
+mkdir -p "${repo_dir}/pkg/util/nested" "${repo_dir}/target" "${repo_dir}/build" "${repo_dir}/.hidden" "${bin_dir}" "${trace_dir}"
+
+cat >"${repo_dir}/app.rs" <<'EOF'
+fn main() {}
+EOF
+
+cat >"${repo_dir}/pkg/util/helpers.py" <<'EOF'
+def helper():
+    return "ok"
+EOF
+
+cat >"${repo_dir}/pkg/util/nested/module.go" <<'EOF'
+package nested
+
+func RefactorMe() string {
+	return "ok"
+}
+EOF
+
+cat >"${repo_dir}/target/ignored.rs" <<'EOF'
+fn ignored() {}
+EOF
+
+cat >"${repo_dir}/build/ignored.go" <<'EOF'
+package build
+EOF
+
+cat >"${repo_dir}/.hidden/ignored.py" <<'EOF'
+print("hidden")
+EOF
+
+cat >"${bin_dir}/claude" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+prompt="$(cat)"
+repo="$(
+  printf '%s' "$prompt" | perl -ne 'if (/^Repository root: (.+)$/m) { print "$1\n"; exit }'
+)"
+path="$(
+  printf '%s' "$prompt" | perl -ne 'if (/^Focus path: (.+)$/m) { print "$1\n"; exit }'
+)"
+
+[ -n "$repo" ] || exit 3
+[ -n "$path" ] || exit 4
+
+printf '%s\n' "$path" >>"${TRACE_DIR}/claude-paths.log"
+
+if [ "$path" = "pkg/util/nested/module.go" ]; then
+  printf '\n// refactored\n' >>"${repo}/${path}"
+fi
+
+cat <<'JSON'
+```json
+{"status":"ok"}
+```
+JSON
+EOF
+
+cat >"${bin_dir}/codex" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+[ "${1:-}" = "exec" ] || exit 2
+shift
+
+out_file=""
+repo="."
+prompt=""
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o)
+      out_file="$2"
+      shift 2
+      ;;
+    -C)
+      repo="$2"
+      shift 2
+      ;;
+    --dangerously-bypass-approvals-and-sandbox)
+      shift
+      ;;
+    --color|--model|-c)
+      shift 2
+      ;;
+    -)
+      shift
+      prompt="$(cat)"
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+
+[ -n "$out_file" ] || exit 3
+
+path="$(
+  printf '%s' "$prompt" | perl -ne 'if (/^Focus path: (.+)$/m) { print "$1\n"; exit }'
+)"
+[ -n "$path" ] || exit 4
+
+printf '%s\n' "$path" >>"${TRACE_DIR}/codex-paths.log"
+
+git -C "$repo" add -A
+git -C "$repo" commit -m "refactor: ${path}" >/dev/null
+
+printf 'committed %s\n' "$path" >"$out_file"
+EOF
+
+chmod +x "${bin_dir}/claude" "${bin_dir}/codex"
+
+git -C "$repo_dir" init -q
+git -C "$repo_dir" config user.email smoke@example.com
+git -C "$repo_dir" config user.name smoke
+git -C "$repo_dir" add -A
+git -C "$repo_dir" commit -m "chore: seed repository" >/dev/null
+
+PATH="${bin_dir}:$PATH" TRACE_DIR="${trace_dir}" dagu start "$DAG_FILE" -- \
+  REPO_DIR="$repo_dir" \
+  SCRIPTS_DIR="$SCRIPTS_DIR" \
+  CLAUDE_MODEL=fake-claude \
+  CLAUDE_REFACTOR_REASONING=low \
+  CODEX_MODEL=fake-codex \
+  CODEX_REVIEW_REASONING=low
+
+cat >"${trace_dir}/expected-claude-paths.txt" <<'EOF'
+pkg/util/nested/module.go
+pkg/util/helpers.py
+app.rs
+EOF
+
+cmp "${trace_dir}/expected-claude-paths.txt" "${trace_dir}/claude-paths.log"
+
+cat >"${trace_dir}/expected-codex-paths.txt" <<'EOF'
+pkg/util/nested/module.go
+EOF
+
+cmp "${trace_dir}/expected-codex-paths.txt" "${trace_dir}/codex-paths.log"
+
+commit_count="$(git -C "$repo_dir" rev-list --count HEAD)"
+[ "$commit_count" = "2" ]
+
+git -C "$repo_dir" diff --quiet --exit-code
+git -C "$repo_dir" diff --cached --quiet --exit-code
+[ -z "$(git -C "$repo_dir" ls-files --others --exclude-standard)" ]
+
+printf 'refactor workflow smoke test passed\n'
