@@ -1,6 +1,15 @@
 version: amata/plugins/v1
 
 plugins:
+  git.inspect:
+    exec:
+      - sh
+      - scripts/git_inspect.sh
+    config_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        include_untracked: boolean
   git.commit:
     exec:
       - python3
@@ -10,8 +19,7 @@ plugins:
       required: [message]
       additionalProperties: false
       properties:
-        message:
-          type: string
+        message: string
         exclude_paths:
           type: array
           items:

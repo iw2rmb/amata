@@ -20,6 +20,7 @@ Built-in runtime assumptions from the engine design:
 - `claude`
 
 Plugin steps in this example are wired through `plugins.yaml`:
+- `git.inspect`
 - `git.commit`
 
 Example operator flow:
@@ -30,9 +31,38 @@ Example operator flow:
 
 Notes:
 - `plugins.yaml` is a concrete example of registry wiring, not a normative part of the engine spec.
+- In the target Go engine, `git.inspect` and `git.commit` should be engine-owned standard executors backed by the typed Git layer. Their script wiring here is transitional and exists to demonstrate the external plugin protocol.
 - `plugins.yaml` shows plugin-side config schemas so the engine can validate config before spawning a script.
 - `sdk/python.py` contains only protocol-level helpers shared across plugins.
 - Script paths in `plugins.yaml` are resolved relative to the registry file.
 - Repo-facing relative paths in `implement-roadmap.yaml` resolve from `workspace.root`.
 - The workflow carries data forward through `ctx.prev` instead of referencing earlier steps by `id`.
 - Codex picks the next open roadmap item directly from the roadmap file in this first-version example.
+- `git.inspect` is a shell-backed plugin that reports `isRepo`, `hasDiff`, and `files` from one repo snapshot.
+- `implement-roadmap.yaml` should not need structural changes when those Git step types move into the Go engine. The workflow contract stays the same; only the executor implementation boundary changes.
+
+Minimal `git.inspect` usage:
+
+```yaml
+schemas:
+  git_inspect_result:
+    type: object
+    required: [isRepo, hasDiff, files]
+    additionalProperties: false
+    properties:
+      isRepo: boolean
+      hasDiff: boolean
+      files:
+        type: array
+        items: string
+
+flows:
+  inspect:
+    steps:
+      - type: git.inspect
+        response:
+          schema:
+            $ref: "#/schemas/git_inspect_result"
+      - assert: $.prev.value["isRepo"]
+      - expr: $.prev.value["files"]
+```

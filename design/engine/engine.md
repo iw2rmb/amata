@@ -6,7 +6,9 @@ Define a local-first workflow engine for coding-agent-driven development flows.
 
 `amata/v1` is intentionally small. It should replace stringly typed shell orchestration with typed step results, simple built-in control flow, straightforward folder handling, durable on-disk run state, and leaf executors for shell, Codex, Claude, git, and small domain helpers.
 
-The reference outcome is that the current `implement-roadmap` workflow can be expressed mostly in YAML, with Codex selecting the next open roadmap item directly from the roadmap file and shell used only for true leaf commands or small plugins such as `git.commit`.
+The implementation stack for the engine itself is Go. The engine should use `go-git` as the typed default Git layer and fall back to the `git` CLI only through narrow internal adapters when exact CLI parity or unsupported behavior is required.
+
+The reference outcome is that the current `implement-roadmap` workflow can be expressed mostly in YAML, with Codex selecting the next open roadmap item directly from the roadmap file and shell used only for true leaf commands or small plugins such as `git.commit` and `git.inspect`.
 
 See the reference example bundle in `design/engine/example/`, especially `example/implement-roadmap.yaml`, `example/plugins.yaml`, and `example/README.md`.
 
@@ -14,6 +16,7 @@ See the reference example bundle in `design/engine/example/`, especially `exampl
 
 In scope:
 - A single-machine CLI runner for local development workflows.
+- A Go implementation for the core engine runtime and CLI.
 - A YAML workflow spec format.
 - Explicit workspace and state-directory handling.
 - Persistent run state and basic `resume <run-id>` semantics for completed steps.
@@ -26,6 +29,7 @@ In scope:
 Out of scope:
 - Distributed scheduling, worker pools, or remote queues.
 - Automatic retry or attempt policy.
+- Supporting multiple implementation-language stacks for the core engine.
 - Provider-session recovery such as `codex exec resume` or `claude` resume.
 - Parallel execution.
 - Human-in-the-loop approval gates.
@@ -116,6 +120,7 @@ Rules:
 - Repo-facing step paths such as roadmap files, output files, and plugin config paths resolve from `workspace.root` unless they are already absolute.
 - Registry-facing paths such as `plugins.<type>.exec` resolve from the registry file that declared them.
 - `git.commit` should exclude `workspace.state_dir` by default when that directory is inside the target repository tree.
+- `git.inspect` should report repo state as typed data instead of requiring workflows to scrape git stdout.
 - `amata/v1` does not attempt provider-session continuation. If the process stops during an in-flight step, `resume` reruns that step from its last durable boundary.
 
 ### 2. CLI
@@ -139,7 +144,19 @@ Contract:
 - `resume` always uses the stored spec and stored workspace from the existing run.
 - `amata/v1` does not support resuming a run against a different spec.
 
-### 3. Execution Context
+### 3. Implementation Stack
+
+The core engine is implemented in Go.
+
+Rules:
+- The CLI, spec loader, schema validator, execution runtime, built-in executors, plugin host, and durable run-state store are Go packages in one engine codebase.
+- Engine-owned Git operations should use `go-git` as the typed default layer for repository inspection and basic local mutations such as status, add, and commit.
+- Engine-facing workflow contracts for Git state should be derived from typed Go models rather than by scraping porcelain text.
+- The engine may invoke the `git` CLI only behind a narrow internal adapter for operations that `go-git` does not support well enough or where exact Git CLI behavior is explicitly required.
+- The fallback adapter must return typed engine data. Raw `git` stdout must not become the workflow contract.
+- The polyglot scripts in `design/engine/example/` are illustrative only. They are not the implementation-language contract for the engine.
+
+### 4. Execution Context
 
 `ctx.path` is the append-only execution history. It is available for inspection and debugging, not as the primary data-flow mechanism.
 
@@ -173,7 +190,7 @@ Rules:
 - `ctx.next` never points to a future step result. It only exposes the next input item in collection-aware scopes.
 - `ctx.path` is for inspection, not normal orchestration.
 
-### 4. Expressions
+### 5. Expressions
 
 Default expression language: Starlark.
 
@@ -210,7 +227,7 @@ Rules:
 - Expression-only positions may define shorthand syntax. In `amata/v1`, the required shorthand is the `expr` step form described below.
 - Executor-specific shorthand may omit `type` when exactly one built-in executor is implied by the step's fields. In `amata/v1`, this applies to `expr` via `expr:`, to `assert` via `assert:`, and to `shell` via `command:`.
 
-### 5. Step Result Contract
+### 6. Step Result Contract
 
 Every step execution returns:
 
@@ -235,7 +252,7 @@ Artifact rules:
 - Shell and agent raw outputs are artifacts first.
 - Downstream expressions should normally use `value`, not parse `stdout`.
 
-### 6. YAML Building Blocks
+### 7. YAML Building Blocks
 
 #### Top-level spec
 
@@ -469,7 +486,9 @@ The plugin contract is:
 - receive engine-managed execution metadata appropriate to the runtime boundary
 - return a standard step result object
 
-The example bundle in [example/README.md](example/README.md) includes a concrete, non-normative plugin registry file at [example/plugins.yaml](example/plugins.yaml).
+In the Go implementation, the standard Git executors `git.inspect` and `git.commit` are engine-owned and backed by the typed Git layer. They are not the preferred use case for the external plugin protocol.
+
+The example bundle in [example/README.md](example/README.md) includes a concrete, non-normative plugin registry file at [example/plugins.yaml](example/plugins.yaml). That registry demonstrates the external plugin process contract and may still show the standard Git step types wired through scripts as a transitional example, but the engine should treat them as first-class built-in capabilities.
 
 Plugin registry entries may declare `config_schema` so the engine can validate plugin config before launching the external process.
 
@@ -477,6 +496,15 @@ Example:
 
 ```yaml
 plugins:
+  git.inspect:
+    exec:
+      - sh
+      - scripts/git_inspect.sh
+    config_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        include_untracked: boolean
   git.commit:
     exec:
       - python3
@@ -499,6 +527,9 @@ Rules:
 - `config_schema` uses JSON Schema plus engine-specific annotations such as `format: path` for filesystem-path normalization.
 - The engine should reject invalid plugin config before process spawn rather than asking the plugin script to repeat structural validation.
 - External plugins may assume `request.config` already conforms to the declared schema.
+- External plugins are for non-core executor types and repo-specific extensions. Standard Git executors remain engine-owned even when the example bundle shows them through the plugin protocol.
+- Check-oriented plugins such as `git.inspect` should succeed for normal negative cases and return typed booleans instead of failing for states like "not a git repo".
+- Related repo facts such as "is repo", "has diff", and "files" should come from one plugin result so workflows do not race across several independent git probes.
 
 #### Plugin process request contract
 
@@ -540,7 +571,7 @@ SDK guidance:
 - Those helpers should focus on request parsing and step-result encoding, not domain-specific behavior.
 - The example bundle includes a Python SDK sketch at [example/sdk/python.py](example/sdk/python.py).
 
-### 7. Templates
+### 8. Templates
 
 Fields such as prompts may be templates. Template expressions use the same engine registry as normal expressions.
 
@@ -551,7 +582,7 @@ prompt: |
   Implement next open item from the {{ ctx.params.roadmap_file }}.
 ```
 
-### 8. Failure and Resume Semantics
+### 9. Failure and Resume Semantics
 
 Rules:
 - A failed or skipped step records its structured result and artifacts before the run stops or advances.
@@ -560,12 +591,27 @@ Rules:
 - `amata/v1` does not define attempts separately from retries because neither feature is part of the first-version contract.
 - Automatic provider-session recovery, pause/continue behavior, and human intervention are deferred to [research/hardcore.md](../../research/hardcore.md).
 
-### 9. Minimal Standard Plugin Set
+### 10. Minimal Standard Plugin Set
 
-The core engine should stay small. The only required standard plugin in `amata/v1` is:
+The core engine should stay small. The required standard plugins in `amata/v1` are:
 - `git.commit`
+- `git.inspect`
 
 Other plugin categories may be added later without growing the first-version contract.
+
+`git.inspect` returns a typed snapshot of the current working tree:
+
+```yaml
+isRepo: <boolean>
+hasDiff: <boolean>
+files: <array of repo-relative paths>
+```
+
+Rules:
+- In the Go engine, `git.inspect` and `git.commit` are standard engine-owned executors backed by the typed Git layer, even though the example bundle may wire them through external scripts to demonstrate the plugin contract.
+- `git.inspect` succeeds with `isRepo: false`, `hasDiff: false`, and `files: []` when the current working directory is not inside a git work tree.
+- `hasDiff` and `files` must be derived from the same plugin execution so later steps observe one consistent repo snapshot.
+- `git.inspect` includes untracked files by default. Plugin config may allow stricter behavior, but the default must be inclusive.
 
 ## Implementation Notes
 
@@ -580,6 +626,7 @@ Suggested internal boundaries:
 - CLI layer for `run`, `resume`, and `show`.
 
 Important implementation notes:
+- Prefer a single statically linked Go CLI over a polyglot runtime mesh for the engine core.
 - Resolve folder semantics in the engine, not in ad hoc shell helpers.
 - Do not model downstream state as shell-expanded environment variables.
 - Keep execution records immutable after they are appended.
@@ -587,6 +634,7 @@ Important implementation notes:
 - Treat plugin executors and built-in executors uniformly at the runtime boundary.
 - Make agent structured-output mode derive from `response.schema` rather than repeated prompt boilerplate.
 - Validate plugin step config in the engine, not ad hoc inside every plugin script.
+- Keep the `go-git` boundary narrow and typed. If the engine has to fall back to the `git` CLI, isolate that code behind one package rather than scattering shell-outs across executors.
 
 ## Milestones
 
@@ -626,6 +674,7 @@ Scope:
 - `codex` executor.
 - `claude` executor.
 - Plugin registry.
+- `git.inspect` plugin.
 - `git.commit` plugin.
 - Reference `implement-roadmap` workflow.
 
@@ -633,7 +682,8 @@ Expected results:
 - The `implement-roadmap` example executes mostly in YAML with Codex selecting the next open item from the roadmap file.
 
 Testable outcome:
-- A smoke workflow equivalent to `implement-roadmap` executes with built-in control flow and the `git.commit` plugin only.
+- A smoke workflow equivalent to `implement-roadmap` executes with built-in control flow and the `git.commit` step only.
+- Engine-owned Git state and commit flows use the Go Git layer by default and do not depend on parsing shell `git status` output in the main runtime.
 
 ## Acceptance Criteria
 
@@ -643,13 +693,16 @@ Testable outcome:
 - Relative repo-facing paths resolve from `workspace.root`.
 - Registry-side executable paths resolve from the declaring registry file.
 - Completed steps do not rerun after interruption and `resume`.
-- The example uses only `git.commit` as a plugin dependency.
+- The core engine implementation is Go.
+- Engine-owned Git inspection uses `go-git` as the default typed layer, with any `git` CLI fallback isolated behind an internal adapter.
+- The reference `implement-roadmap` workflow uses only `git.commit` as its standard Git step dependency, while the example bundle may still expose `git.inspect` and `git.commit` through transitional script wiring for plugin-protocol examples.
 - Deferred features are tracked in [research/hardcore.md](../../research/hardcore.md).
 
 ## Risks
 
 - Letting Codex pick the next open roadmap item is less deterministic than a dedicated roadmap parser.
 - Without advanced recovery, long-running agent steps may still need a full rerun after interruption.
+- `go-git` does not cover every Git behavior with full CLI parity, so the engine will still need a narrow escape hatch for unsupported or parity-sensitive operations.
 - Repo-local state under `.amata/` still requires commit exclusion discipline.
 - The first version may need richer data-passing helpers later if adjacent `prev`-based flow proves too restrictive.
 
