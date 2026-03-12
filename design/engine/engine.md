@@ -329,6 +329,45 @@ Rules:
 - Executor defaults are resolved after workspace and param defaults and before step execution.
 - The `$.` shorthand applies after YAML parsing, so quoted and unquoted whole scalars behave the same.
 
+#### Schemas
+
+`schemas` holds named reusable schemas for `response.schema`, plugin `config_schema`, and local `$ref` targets.
+
+Schema shorthand is allowed in schema-valued positions when the schema node is only a built-in scalar or object type:
+
+```yaml
+schemas:
+  review_result:
+    type: object
+    required: [approved, notes]
+    additionalProperties: false
+    properties:
+      approved: boolean
+      notes: string
+```
+
+This normalizes to:
+
+```yaml
+schemas:
+  review_result:
+    type: object
+    required: [approved, notes]
+    additionalProperties: false
+    properties:
+      approved:
+        type: boolean
+      notes:
+        type: string
+```
+
+Rules:
+- Schema shorthand is valid only for `string`, `number`, `boolean`, and `object`.
+- Schema shorthand may appear anywhere a schema object is expected, including named schemas, `properties.<name>`, and `items`.
+- The shorthand normalizes to `{ type: <keyword> }` before validation and `$ref` resolution.
+- Full object form is required when the schema node uses any other keywords such as `$ref`, `enum`, `format`, `items`, `properties`, `required`, or `additionalProperties`.
+- `object` shorthand means an unconstrained object schema. Constrained object schemas must use the full object form.
+
 #### Flow
 
 ```yaml
@@ -447,8 +486,7 @@ plugins:
       required: [message]
       additionalProperties: false
       properties:
-        message:
-          type: string
+        message: string
         exclude_paths:
           type: array
           items:

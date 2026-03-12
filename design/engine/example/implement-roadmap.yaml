@@ -32,31 +32,31 @@ schemas:
     required: [hasOpenItem, summary]
     additionalProperties: false
     properties:
-      hasOpenItem: {type: boolean}
-      summary: {type: string}
-      commitMessage: {type: string}
-      reviewReasoning: {type: string}
+      hasOpenItem: boolean
+      summary: string
+      commitMessage: string
+      reviewReasoning: string
   review_result:
     type: object
     required: [approved, notes]
     additionalProperties: false
     properties:
-      approved: {type: boolean}
-      notes: {type: string}
+      approved: boolean
+      notes: string
   review_commit_result:
     type: object
     required: [approved, notes, commitMessage]
     additionalProperties: false
     properties:
-      approved: {type: boolean}
-      notes: {type: string}
-      commitMessage: {type: string}
+      approved: boolean
+      notes: string
+      commitMessage: string
   docs_result:
     type: object
     required: [commitMessage]
     additionalProperties: false
     properties:
-      commitMessage: {type: string}
+      commitMessage: string
 
 flows:
   main:
