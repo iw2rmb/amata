@@ -135,7 +135,7 @@ PATH="${bin_dir}:$PATH" TRACE_DIR="${trace_dir}" dagu start "$DAG_FILE" -- \
   CLAUDE_MODEL=fake-claude \
   CLAUDE_REFACTOR_REASONING=low \
   CODEX_MODEL=fake-codex \
-  CODEX_REVIEW_REASONING=low
+  CODEX_REVIEW_REASONING=low >"${trace_dir}/run-absolute.out"
 
 cat >"${trace_dir}/expected-claude-paths.txt" <<'EOF'
 pkg/util/nested/module.go
@@ -150,6 +150,9 @@ pkg/util/nested/module.go
 EOF
 
 cmp "${trace_dir}/expected-codex-paths.txt" "${trace_dir}/codex-paths.log"
+
+grep -q 'in-progress step=claude path=pkg/util/nested/module.go' "${trace_dir}/run-absolute.out"
+grep -q 'in-progress step=codex path=pkg/util/nested/module.go' "${trace_dir}/run-absolute.out"
 
 commit_count="$(git -C "$repo_dir" rev-list --count HEAD)"
 [ "$commit_count" = "2" ]
@@ -166,10 +169,13 @@ rm -f "${trace_dir}/claude-paths.log" "${trace_dir}/codex-paths.log"
   CLAUDE_MODEL=fake-claude \
   CLAUDE_REFACTOR_REASONING=low \
   CODEX_MODEL=fake-codex \
-  CODEX_REVIEW_REASONING=low )
+  CODEX_REVIEW_REASONING=low ) >"${trace_dir}/run-home-scripts.out"
 
 cmp "${trace_dir}/expected-claude-paths.txt" "${trace_dir}/claude-paths.log"
 cmp "${trace_dir}/expected-codex-paths.txt" "${trace_dir}/codex-paths.log"
+
+grep -q 'in-progress step=claude path=pkg/util/nested/module.go' "${trace_dir}/run-home-scripts.out"
+grep -q 'in-progress step=codex path=pkg/util/nested/module.go' "${trace_dir}/run-home-scripts.out"
 
 if ( cd "$repo_dir" && PATH="${bin_dir}:$PATH" TRACE_DIR="${trace_dir}" dagu start "$DAG_FILE" -- \
   REPO_DIR=. \

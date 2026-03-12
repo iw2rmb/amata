@@ -94,6 +94,7 @@ while IFS= read -r path || [ -n "$path" ]; do
 
   printf 'inspect path: %s\n' "$path"
   before_head="$(current_head)"
+  printf 'in-progress step=claude path=%s\n' "$path"
 
   cat <<PROMPT | bash "${scripts_dir}/run-claude-prompt.sh" \
     --repo "$repo" \
@@ -111,6 +112,7 @@ PROMPT
   fi
 
   changed_count=$((changed_count + 1))
+  printf 'in-progress step=codex path=%s\n' "$path"
 
   cat <<PROMPT | bash "${scripts_dir}/run-codex-prompt.sh" \
     --repo "$repo" \
