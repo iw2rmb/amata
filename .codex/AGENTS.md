@@ -11,14 +11,6 @@ Additional policies **MUST** be loaded when naming is literally corresponds the 
 - When **composing or implementing roadmaps**: `~/.codex/policies/composing-and-implementing-roadmaps.md`
 
 
-## Aster
-
-If `~/@iw2rmb/aster/ASTER.md` file exists, then the following is important:
-
-- Aster is a framework for the effective codebase navigation and manipulation.
-- Read and follow instructions at `~/@iw2rmb/aster/ASTER.md`.
-
-
 ## Architecture Patterns Policy
 
 Repetitive boilerplate is the primary source of bugs.
