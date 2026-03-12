@@ -8,6 +8,10 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from sdk.python import emit, fail, ok, read_request
 
 
+class GitError(RuntimeError):
+    pass
+
+
 def run_git(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["git", *args],
@@ -20,7 +24,7 @@ def run_git(*args: str) -> subprocess.CompletedProcess[str]:
 def changed_paths() -> list[str]:
     result = run_git("status", "--porcelain")
     if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or "git status failed")
+        raise GitError(result.stderr.strip() or "git status failed")
 
     paths: list[str] = []
     for raw_line in result.stdout.splitlines():
@@ -37,7 +41,7 @@ def is_excluded(path: str, excluded: list[str]) -> bool:
     return any(path == prefix or path.startswith(prefix.rstrip("/") + "/") for prefix in excluded)
 
 
-def main() -> int:
+def main() -> None:
     try:
         request = read_request()
         config = request["config"]
@@ -46,37 +50,34 @@ def main() -> int:
 
         inside_repo = run_git("rev-parse", "--is-inside-work-tree")
         if inside_repo.returncode != 0 or inside_repo.stdout.strip() != "true":
-            emit(fail("git_error", "current working directory is not a git repository"))
-            return 0
+            raise GitError("current working directory is not a git repository")
 
         included = [path for path in changed_paths() if not is_excluded(path, excluded)]
         if not included:
             emit(ok({"committed": False, "commit": None, "paths": []}))
-            return 0
+            return
 
         add_result = run_git("add", "-A", "--", *included)
         if add_result.returncode != 0:
-            emit(fail("git_error", add_result.stderr.strip() or "git add failed"))
-            return 0
+            raise GitError(add_result.stderr.strip() or "git add failed")
 
         staged_check = run_git("diff", "--cached", "--quiet", "--")
         if staged_check.returncode == 0:
             emit(ok({"committed": False, "commit": None, "paths": included}))
-            return 0
+            return
 
         commit_result = run_git("commit", "-m", message)
         if commit_result.returncode != 0:
-            emit(fail("git_error", commit_result.stderr.strip() or commit_result.stdout.strip() or "git commit failed"))
-            return 0
+            raise GitError(commit_result.stderr.strip() or commit_result.stdout.strip() or "git commit failed")
 
         sha_result = run_git("rev-parse", "HEAD")
         sha = sha_result.stdout.strip() if sha_result.returncode == 0 else None
         emit(ok({"committed": True, "commit": sha, "paths": included}))
-        return 0
+    except GitError as exc:
+        emit(fail("git_error", str(exc)))
     except Exception as exc:
         emit(fail("plugin_error", str(exc)))
-        return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()
