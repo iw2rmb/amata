@@ -95,7 +95,7 @@ output="$(
   CODEX_WATCHDOG_IDLE_SECONDS=2 \
   CODEX_WATCHDOG_POLL_SECONDS=1 \
   CODEX_WATCHDOG_MAX_RECOVERIES=1 \
-  rtk bash "$RUNNER" \
+  bash "$RUNNER" \
     --repo "$repo_dir" \
     --model fake-codex \
     --reasoning low \

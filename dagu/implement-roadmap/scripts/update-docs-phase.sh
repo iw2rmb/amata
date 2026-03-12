@@ -59,7 +59,7 @@ docs_result_file="$(mktemp)"
 commit_result_file="$(mktemp)"
 trap 'rm -f "$docs_result_file" "$commit_result_file"' EXIT
 
-cat <<PROMPT | rtk bash "${scripts_dir}/run-codex-prompt.sh" \
+cat <<PROMPT | bash "${scripts_dir}/run-codex-prompt.sh" \
   --repo "$repo" \
   --model "$model" \
   --state-dir "$state_dir" \
@@ -79,16 +79,16 @@ Output ONLY valid JSON:
   {"commitMessage":"cleanup: remove completed roadmap artifacts and refresh docs"}
 PROMPT
 
-rtk jq -ce \
+jq -ce \
   'if type=="object" and has("commitMessage")
    then .
    else error("expected object with commitMessage")
    end' \
   "$docs_result_file" >/dev/null
 
-commit_message="$(rtk jq -r '.commitMessage' "$docs_result_file")"
+commit_message="$(jq -r '.commitMessage' "$docs_result_file")"
 
-rtk bash "${scripts_dir}/commit-if-changed.sh" \
+bash "${scripts_dir}/commit-if-changed.sh" \
   --exclude-path "$state_dir" \
   "$commit_message" >"$commit_result_file"
 

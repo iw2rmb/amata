@@ -15,7 +15,7 @@ params:
 steps:
   - name: implement-all-open-items
     command: >
-      rtk bash "${SCRIPTS_DIR}/implement-open-items-loop.sh"
+      bash "${SCRIPTS_DIR}/implement-open-items-loop.sh"
       --repo "${REPO_DIR}"
       --doc "${ROADMAP_FILE}"
       --scripts-dir "${SCRIPTS_DIR}"
@@ -24,7 +24,7 @@ steps:
 
   - name: correct
     command: >
-      rtk bash "${SCRIPTS_DIR}/correct-phase.sh"
+      bash "${SCRIPTS_DIR}/correct-phase.sh"
       --repo "${REPO_DIR}"
       --roadmap-file "${ROADMAP_FILE}"
       --scripts-dir "${SCRIPTS_DIR}"
@@ -34,7 +34,7 @@ steps:
 
   - name: refactor
     command: >
-      rtk bash "${SCRIPTS_DIR}/refactor-phase.sh"
+      bash "${SCRIPTS_DIR}/refactor-phase.sh"
       --repo "${REPO_DIR}"
       --roadmap-file "${ROADMAP_FILE}"
       --scripts-dir "${SCRIPTS_DIR}"
@@ -43,7 +43,7 @@ steps:
 
   - name: sanity
     command: >
-      rtk bash "${SCRIPTS_DIR}/sanity-phase.sh"
+      bash "${SCRIPTS_DIR}/sanity-phase.sh"
       --repo "${REPO_DIR}"
       --roadmap-file "${ROADMAP_FILE}"
       --scripts-dir "${SCRIPTS_DIR}"
@@ -53,7 +53,7 @@ steps:
 
   - name: update-docs
     command: >
-      rtk bash "${SCRIPTS_DIR}/update-docs-phase.sh"
+      bash "${SCRIPTS_DIR}/update-docs-phase.sh"
       --repo "${REPO_DIR}"
       --roadmap-file "${ROADMAP_FILE}"
       --scripts-dir "${SCRIPTS_DIR}"

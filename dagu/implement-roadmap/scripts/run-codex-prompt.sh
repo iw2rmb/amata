@@ -159,7 +159,7 @@ discover_session_artifacts() {
 
   discovered_id="$(
     rtk sed -n '1p' "$active_session_file" 2>/dev/null \
-      | rtk jq -r 'select(.type == "session_meta") | .payload.id // empty' 2>/dev/null \
+      | jq -r 'select(.type == "session_meta") | .payload.id // empty' 2>/dev/null \
       | rtk sed -n '1p' \
       || true
   )"

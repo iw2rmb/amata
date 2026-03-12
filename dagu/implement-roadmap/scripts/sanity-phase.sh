@@ -59,7 +59,7 @@ review_file="$(mktemp)"
 commit_result_file="$(mktemp)"
 trap 'rm -f "$review_file" "$commit_result_file"' EXIT
 
-cat <<PROMPT | rtk bash "${scripts_dir}/run-codex-prompt.sh" \
+cat <<PROMPT | bash "${scripts_dir}/run-codex-prompt.sh" \
   --repo "$repo" \
   --model "$model" \
   --state-dir "$state_dir" \
@@ -75,20 +75,20 @@ Output ONLY valid JSON:
   {"approved":true,"notes":"...","commitMessage":"..."}
 PROMPT
 
-rtk jq -ce \
+jq -ce \
   'if type=="object" and .approved == true and has("notes") and has("commitMessage")
    then .
    else error("sanity review not approved")
    end' \
   "$review_file" >/dev/null
 
-commit_message="$(rtk jq -r '.commitMessage' "$review_file")"
+commit_message="$(jq -r '.commitMessage' "$review_file")"
 
-rtk bash "${scripts_dir}/commit-if-changed.sh" \
+bash "${scripts_dir}/commit-if-changed.sh" \
   --exclude-path "$state_dir" \
   "$commit_message" >"$commit_result_file"
 
-rtk jq -n \
+jq -n \
   --slurpfile review "$review_file" \
   --slurpfile commit "$commit_result_file" \
   '{review: $review[0], commit: $commit[0].commit}'

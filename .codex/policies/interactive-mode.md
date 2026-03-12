@@ -2,7 +2,6 @@
 
 ## Running Codex Subagents
 
-- **Always** prefer `rtk codex exec` over `spawn_agent`.
 - Choose model and reasoning level for the subagent out of expected relative complexity of the task.
 - Capture subagent output in a way that is easy to inspect from the parent task, for example via terminal output.
 - Run parallel subagents for read-only investigations or clearly disjointed write scopes **only**.
@@ -14,7 +13,7 @@
 
 ## Calling Codex
 
-- Basic call: `rtk codex exec --yolo --model <gpt-5.3-codex-spark|gpt-5.4> --config model_reasoning_effort="<xhigh|high|medium|low>" "<PROMPT>"`
+- Basic call: `codex exec --yolo --model <gpt-5.3-codex-spark|gpt-5.4> --config model_reasoning_effort="<xhigh|high|medium|low>" "<PROMPT>"`
   - `--cd <DIR>`: Tell the agent to use the specified directory as its working root
   - `--output-schema <FILE>`: Path to a JSON Schema file describing the model's final response shape
 

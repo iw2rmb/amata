@@ -58,7 +58,7 @@ done
 review_file="$(mktemp)"
 trap 'rm -f "$review_file"' EXIT
 
-cat <<PROMPT | rtk bash "${scripts_dir}/run-codex-prompt.sh" \
+cat <<PROMPT | bash "${scripts_dir}/run-codex-prompt.sh" \
   --repo "$repo" \
   --model "$model" \
   --state-dir "$state_dir" \
@@ -76,7 +76,7 @@ Output ONLY valid JSON:
   {"approved":true,"notes":"..."}
 PROMPT
 
-rtk jq -ce \
+jq -ce \
   'if type=="object" and .approved == true and has("notes")
    then .
    else error("review not approved")

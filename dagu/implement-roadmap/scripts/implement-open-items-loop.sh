@@ -55,18 +55,18 @@ phase_file="$(mktemp)"
 trap 'rm -f "$next_item_file" "$implement_result_file" "$review_result_file" "$phase_file"' EXIT
 
 while true; do
-  rtk bash "${scripts_dir}/next-open-item.sh" --doc "$doc" >"$next_item_file"
+  bash "${scripts_dir}/next-open-item.sh" --doc "$doc" >"$next_item_file"
 
-  has_work="$(rtk jq -r '.nextItem.hasWork // "false"' "$next_item_file")"
+  has_work="$(jq -r '.nextItem.hasWork // "false"' "$next_item_file")"
   if [ "$has_work" != "true" ]; then
     break
   fi
 
-  item_payload="$(rtk jq -ce '.nextItem' "$next_item_file")"
-  item_title="$(rtk jq -r '.nextItem.title' "$next_item_file")"
-  reasoning="$(rtk jq -r '.nextItem.reasoning' "$next_item_file")"
+  item_payload="$(jq -ce '.nextItem' "$next_item_file")"
+  item_title="$(jq -r '.nextItem.title' "$next_item_file")"
+  reasoning="$(jq -r '.nextItem.reasoning' "$next_item_file")"
 
-  cat <<PROMPT | rtk bash "${scripts_dir}/run-codex-prompt.sh" \
+  cat <<PROMPT | bash "${scripts_dir}/run-codex-prompt.sh" \
     --repo "$repo" \
     --model "$model" \
     --state-dir "$state_dir" \
@@ -89,7 +89,7 @@ Selected open roadmap item JSON:
 ${item_payload}
 PROMPT
 
-  rtk jq -ce \
+  jq -ce \
     'if type=="object"
         and has("itemTitle")
         and has("commitMessage")
@@ -99,10 +99,10 @@ PROMPT
      end' \
     "$implement_result_file" >/dev/null
 
-  review_reasoning="$(rtk jq -r '.reviewReasoning' "$implement_result_file")"
-  commit_message="$(rtk jq -r '.commitMessage' "$implement_result_file")"
+  review_reasoning="$(jq -r '.reviewReasoning' "$implement_result_file")"
+  commit_message="$(jq -r '.commitMessage' "$implement_result_file")"
 
-  cat <<PROMPT | rtk bash "${scripts_dir}/run-codex-prompt.sh" \
+  cat <<PROMPT | bash "${scripts_dir}/run-codex-prompt.sh" \
     --repo "$repo" \
     --model "$model" \
     --state-dir "$state_dir" \
@@ -124,19 +124,19 @@ Proposed commit message:
 ${commit_message}
 PROMPT
 
-  rtk jq -ce \
+  jq -ce \
     'if type=="object" and .approved == true and has("notes")
      then .
      else error("review not approved")
      end' \
     "$review_result_file" >/dev/null
 
-  rtk bash "${scripts_dir}/commit-if-changed.sh" \
+  bash "${scripts_dir}/commit-if-changed.sh" \
     --exclude-path "$state_dir" \
     "$commit_message" >/dev/null
 
   item_checked="$(
-    roadmap_items_json "$doc" | rtk jq -r --arg title "$item_title" '
+    roadmap_items_json "$doc" | jq -r --arg title "$item_title" '
       [ .[] | select(.title == $title) ] as $matches
       | if ($matches | length) != 1 then
           error("expected exactly one roadmap item for title")
@@ -149,5 +149,5 @@ PROMPT
   [ "$item_checked" = "true" ] || die "selected roadmap item was not marked done: $item_title"
 done
 
-rtk bash "${scripts_dir}/remaining-open-items.sh" --doc "$doc" >"$phase_file"
+bash "${scripts_dir}/remaining-open-items.sh" --doc "$doc" >"$phase_file"
 cat "$phase_file"

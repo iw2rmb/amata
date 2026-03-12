@@ -62,7 +62,7 @@ chmod +x "${bin_dir}/codex"
 output="$(
   PATH="${bin_dir}:$PATH" \
   HOME="${home_dir}" \
-  rtk bash "$RUNNER" \
+  bash "$RUNNER" \
     --repo "$repo_dir" \
     --model fake-codex \
     --reasoning low \
