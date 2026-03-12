@@ -10,11 +10,12 @@ params:
 
 steps:
   - name: refactor-all-paths
-    command: >
-      bash "${SCRIPTS_DIR}/refactor-loop.sh"
-      --repo "${REPO_DIR}"
-      --scripts-dir "${SCRIPTS_DIR}"
-      --claude-model "${CLAUDE_MODEL}"
-      --claude-reasoning "${CLAUDE_REFACTOR_REASONING}"
-      --codex-model "${CODEX_MODEL}"
-      --codex-reasoning "${CODEX_REVIEW_REASONING}"
+    command: |
+      scripts_dir="${SCRIPTS_DIR/#\~/$HOME}"
+      bash "${scripts_dir}/refactor-loop.sh" \
+        --repo "${REPO_DIR}" \
+        --scripts-dir "${scripts_dir}" \
+        --claude-model "${CLAUDE_MODEL}" \
+        --claude-reasoning "${CLAUDE_REFACTOR_REASONING}" \
+        --codex-model "${CODEX_MODEL}" \
+        --codex-reasoning "${CODEX_REVIEW_REASONING}"

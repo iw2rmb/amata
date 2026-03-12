@@ -12,8 +12,9 @@ The workflow expects a clean git worktree before it starts. Each Codex review is
 required to leave the repository clean with one new commit for the path it
 reviewed.
 
-`REPO_DIR` may be absolute or relative to this workflow repository root
-(`/Users/vk/@iw2rmb/auto`).
+`REPO_DIR` must be absolute or `~/...`.
+Dagu steps do not preserve the shell directory that launched `dagu start`, so
+relative paths such as `REPO_DIR=.` are intentionally rejected.
 
 Runtime helpers live in `./scripts/`:
 
@@ -26,12 +27,12 @@ Example run:
 
 ```bash
 dagu start dagu/refactor/refactor.yaml -- \
-  REPO_DIR=/abs/path/to/repo \
+  REPO_DIR="$PWD" \
   CLAUDE_MODEL=sonnet \
   CODEX_MODEL=gpt-5.4
 ```
 
 By default `SCRIPTS_DIR` points at this repository's
 `/Users/vk/@iw2rmb/auto/dagu/refactor/scripts` directory so the workflow can run
-against a separate `REPO_DIR`. Override it only if you intentionally move the
-workflow helpers.
+against a separate `REPO_DIR`. `SCRIPTS_DIR` may also use `~/...`. Override it
+only if you intentionally move the workflow helpers.

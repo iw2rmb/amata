@@ -35,7 +35,8 @@ done
 [ -n "$model" ] || die "--model is required"
 [ -n "$reasoning" ] || die "--reasoning is required"
 
-repo="$(CDPATH= cd -- "$repo" && pwd)"
+repo="$(resolve_path_from "$PWD" "$repo")"
+require_dir "$repo"
 
 require_command codex
 

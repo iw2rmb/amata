@@ -58,16 +58,16 @@ done
 require_command bash
 require_command git
 
-workflow_root="$(CDPATH= cd -- "${SCRIPT_DIR}/../../.." && pwd)"
-
+repo="$(expand_home_path "$repo")"
 case "$repo" in
-  /*)
-    repo="$(CDPATH= cd -- "$repo" && pwd)"
-    ;;
+  /*) ;;
   *)
-    repo="$(CDPATH= cd -- "${workflow_root}/${repo}" && pwd)"
+    die "--repo must be an absolute path or start with ~/ because dagu steps do not preserve the caller working directory"
     ;;
 esac
+require_dir "$repo"
+scripts_dir="$(resolve_path_from "$PWD" "$scripts_dir")"
+require_dir "$scripts_dir"
 
 cd "$repo"
 require_clean_worktree

@@ -35,6 +35,9 @@ done
 [ -n "$model" ] || die "--model is required"
 [ -n "$reasoning" ] || die "--reasoning is required"
 
+repo="$(resolve_path_from "$PWD" "$repo")"
+require_dir "$repo"
+
 require_command claude
 
 prompt_file="$(mktemp)"
