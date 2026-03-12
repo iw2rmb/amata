@@ -1,14 +1,14 @@
 # Mandatory Instructions
 
-When Codex agent is in the **interactive mode**, it **MUST** read and follow policies from `/Users/vk/.codex/policies/interactive-mode.md`.
+When Codex agent is in the **interactive mode**, it **MUST** read and follow policies from `~/.codex/policies/interactive-mode.md`.
 Don't use `rtk ` prefix when executing commands, it strips important data unpredictibly.
 
 ## Policies
 
 Additional policies **MUST** be loaded when naming is literally corresponds the task:
 
-- When **composing desing docs**: `/Users/vk/.codex/policies/composing-design-docs.md`
-- When **composing or implementing roadmaps**: `/Users/vk/.codex/policies/composing-and-implementing-roadmaps.md`
+- When **composing desing docs**: `~/.codex/policies/composing-design-docs.md`
+- When **composing or implementing roadmaps**: `~/.codex/policies/composing-and-implementing-roadmaps.md`
 
 
 ## Aster
@@ -110,7 +110,7 @@ After compact and before proceeding, reread:
 - `docs/**` should not repeat design history. It should capture structured current-state snapshots of features, subjects, schemas, instructions, standards, and important implementation principles, relying on the codebase and code comments for low-level detail.
 - When document exceeds 1000 LOC, consider splitting into narrower domains, or extracting `##`-sections or large tables into separate files.
 - Keep all documents cross-referenced.
-- For cross-reference integrity checks, run `/Users/vk/@iw2rmb/auto/scripts/check_docs_links.sh` from the target project root.
+- For cross-reference integrity checks, run `~/@iw2rmb/auto/scripts/check_docs_links.sh` from the target project root.
 
 
 ## Tests Writing Policy

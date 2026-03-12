@@ -5,7 +5,7 @@ params:
   - REPO_DIR: "."
   - ROADMAP_FILE: "roadmap/index.md"
   - STATE_DIR: ".amata"
-  - SCRIPTS_DIR: "/Users/vk/@iw2rmb/auto/dagu/implement-roadmap/scripts"
+  - SCRIPTS_DIR: "~/@iw2rmb/auto/dagu/implement-roadmap/scripts"
   - CODEX_MODEL: "gpt-5.4"
   - CODEX_CORRECTNESS_REASONING: "xhigh"
   - CODEX_DOCS_REASONING: "high"
