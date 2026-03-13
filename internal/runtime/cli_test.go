@@ -38,6 +38,26 @@ func TestRunCLIInterruptHelperProcess(t *testing.T) {
 	os.Exit(0)
 }
 
+func TestRunCLINoArgsReturnsUsage(t *testing.T) {
+	err := runtime.RunCLI(nil, nil, nil)
+	if err == nil {
+		t.Fatalf("run cli succeeded, want usage error")
+	}
+	if !strings.Contains(err.Error(), "usage:") {
+		t.Fatalf("run cli error = %q, want usage text", err)
+	}
+}
+
+func TestRunCLIUnknownFlag(t *testing.T) {
+	err := runtime.RunCLI([]string{"run", "--bogus"}, nil, nil)
+	if err == nil {
+		t.Fatalf("run cli succeeded, want unknown flag error")
+	}
+	if !strings.Contains(err.Error(), `unknown flag "--bogus"`) {
+		t.Fatalf("run cli error = %q, want unknown flag message", err)
+	}
+}
+
 func TestRunCLINormalizesWorkspaceFromSpecAndPersistsLaunchSettings(t *testing.T) {
 	specDir := t.TempDir()
 	repoRoot := filepath.Join(specDir, "repo")
