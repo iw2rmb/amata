@@ -74,10 +74,10 @@ cat <<PROMPT | bash "${scripts_dir}/run-codex-prompt.sh" \
 Repository root: ${repo}
 Roadmap file: ${roadmap_file}
 
-Review the current uncommitted diff after the correctness and refactor passes.
+Review the current uncommitted diff.
 Check for scope drift, regressions, half-applied edits, or architectural mistakes.
-You may patch the repository directly if you find issues, then rerun any checks needed for confidence.
-Leave changes uncommitted.
+Address findings, if any.
+Do not commit.
 Output ONLY valid JSON:
   {"approved":true,"notes":"...","commitMessage":"..."}
 PROMPT
