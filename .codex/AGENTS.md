@@ -11,6 +11,12 @@ Additional policies **MUST** be loaded when naming is literally corresponds the 
 - When **composing or implementing roadmaps**: `~/.codex/policies/composing-and-implementing-roadmaps.md`
 
 
+## Aster
+
+- Aster is a framework for the effective codebase navigation and manipulation.
+- Get instructions at `http://localhost:9090/v1/coding-agents-instructions`.
+
+
 ## Architecture Patterns Policy
 
 Repetitive boilerplate is the primary source of bugs.
