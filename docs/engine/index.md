@@ -148,6 +148,33 @@ Step context rules:
 - Executors receive the normalized workspace, run directory, spec path, current step, and the last succeeded step result.
 - Skipped and failed steps are never exposed as the previous step context.
 
+## Live Progress Stream
+
+`amata run` and `amata resume` emit a live in-memory progress stream in parallel with durable state writes.
+
+Stream contract:
+- The live stream is best-effort UI data only. `events.ndjson` and `snapshot.json` remain the only durable resume source of truth.
+- `run` emits `run_started`, then paired `step_started` and `step_finished` events for each executed control or executor step, then one terminal `run_finished`.
+- `resume` emits `run_resumed` instead of `run_started`, seeds `snapshot.active` with unfinished parent control steps reconstructed from durable frames, then continues with normal `step_finished`, `step_started`, and terminal `run_finished` events.
+- Every live event carries a full `snapshot` with `run_id`, current run `status`, `active` steps, completed `steps`, and terminal `failure` when present.
+- Nested `switch` and `call` execution is represented as stacked active steps in event snapshots. Child finishes arrive before the enclosing control step finish.
+
+CLI stream split:
+- `stdout` stays machine-readable and prints only the run id for both `run` and `resume`.
+- Live progress rendering writes to `stderr`.
+- The default CLI renderer uses Bubble Tea only when `stderr` is a TTY. Non-TTY `stderr` falls back to a plain line renderer with the same event order and descriptor data.
+
+Renderer metadata guarantees:
+- Every `step_started` and `step_finished` event includes `flow`, `index`, `type`, `status`, and step artifacts/value/error fields that match the live transition being reported.
+- Renderers may rely on `descriptor.primary_text`, `descriptor.detail_text`, and `descriptor.final_summary_details` when present, but must tolerate any field being absent for unsupported or failed descriptor resolution paths.
+- `call` guarantees the resolved target flow in `primary_text` and in the completed-line summary.
+- `switch` guarantees the case count while running, then either `case <n>` or `no match` in the completed-line summary.
+- `shell` guarantees the resolved command in `primary_text` and `exit <code>` in the completed-line summary.
+- `assert` guarantees the resolved assertion text in `primary_text`, optional resolved message lines in `detail_text`, and `passed` or `failed` in the completed-line summary.
+- `codex` and `claude` guarantee the resolved model in `primary_text`, optional resolved reasoning alongside it when configured, and resolved prompt text in `detail_text`.
+- `git.inspect` guarantees the resolved `cwd` while running, then a completed-line summary of `clean`, `not repo`, or `<n> files`, with changed file paths in `detail_text` when applicable.
+- `git.commit` guarantees the resolved commit message in `detail_text` while running. After a commit it guarantees `shortCommit` plus `files <n> +<ins> -<del>` in the completed-line summary, with per-file `path +<ins> -<del>` lines in `detail_text`. When no commit is created it guarantees `no changes`.
+
 ## Control Blocks
 
 ### `switch`

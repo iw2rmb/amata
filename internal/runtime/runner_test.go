@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -326,6 +327,30 @@ func TestRunnerEmitsLiveProgressForNestedSwitchAndCall(t *testing.T) {
 	if got := len(finished.Snapshot.Steps); got != 4 {
 		t.Fatalf("completed step count = %d, want 4", got)
 	}
+	if got, want := activeStepIDs(events[1].Snapshot), []string{"switch-step"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("active steps after switch start = %#v, want %#v", got, want)
+	}
+	if got, want := activeStepIDs(events[2].Snapshot), []string{"switch-step", "branch-step"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("active steps while switch branch runs = %#v, want %#v", got, want)
+	}
+	if got, want := completedStepIDs(events[3].Snapshot), []string{"branch-step"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("completed steps after branch finish = %#v, want %#v", got, want)
+	}
+	if got, want := completedStepIDs(events[4].Snapshot), []string{"branch-step", "switch-step"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("completed steps after switch finish = %#v, want %#v", got, want)
+	}
+	if got, want := activeStepIDs(events[5].Snapshot), []string{"call-step"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("active steps after call start = %#v, want %#v", got, want)
+	}
+	if got, want := activeStepIDs(events[6].Snapshot), []string{"call-step", "child-step"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("active steps while child flow runs = %#v, want %#v", got, want)
+	}
+	if got, want := completedStepIDs(events[7].Snapshot), []string{"branch-step", "switch-step", "child-step"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("completed steps after child finish = %#v, want %#v", got, want)
+	}
+	if got, want := completedStepIDs(events[8].Snapshot), []string{"branch-step", "switch-step", "child-step", "call-step"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("completed steps after call finish = %#v, want %#v", got, want)
+	}
 }
 
 func TestRunnerResumeEmitsLiveProgressForReturnedControl(t *testing.T) {
@@ -507,6 +532,90 @@ func TestRunnerLiveProgressIncludesStepDescriptors(t *testing.T) {
 	}
 	if got := events[2].Step.Descriptor; got == nil || !reflect.DeepEqual(got.FinalSummaryDetails, []string{"exit 0"}) {
 		t.Fatalf("finished step descriptor = %#v, want exit summary", got)
+	}
+}
+
+func TestRunnerLiveProgressIncludesGitCommitCompletedLineSummary(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID:   "commit-step",
+						Type: "git.commit",
+						Fields: map[string]any{
+							"message": "test commit",
+						},
+					},
+				},
+			},
+		},
+	})
+
+	initGitRepository(t, config.Workspace.Root)
+	writeFile(t, filepath.Join(config.Workspace.Root, "note.txt"), "before\n")
+	runGit(t, config.Workspace.Root, "add", "note.txt")
+	runGit(t, config.Workspace.Root, "commit", "-m", "init")
+	writeFile(t, filepath.Join(config.Workspace.Root, "note.txt"), "before\nafter\n")
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	var events []progress.Event
+	sink := progress.SinkFunc(func(event progress.Event) {
+		events = append(events, event)
+	})
+
+	_, err := NewRunner(nil, WithRunnerProgressSink(sink)).Run(context.Background(), config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	assertProgressKindsAndSteps(t, events,
+		[]progress.EventKind{
+			progress.EventRunStarted,
+			progress.EventStepStarted,
+			progress.EventStepFinished,
+			progress.EventRunFinished,
+		},
+		[]string{
+			"",
+			"commit-step",
+			"commit-step",
+			"",
+		},
+	)
+
+	if got := events[1].Step.Descriptor; got == nil || !reflect.DeepEqual(got.DetailText, []string{"test commit"}) {
+		t.Fatalf("started git.commit descriptor = %#v, want commit message detail", got)
+	}
+
+	finished := events[2].Step
+	if finished == nil || finished.Descriptor == nil {
+		t.Fatalf("finished git.commit descriptor missing: %#v", finished)
+	}
+	metadata, ok := mapValueField(finished.Value, "metadata")
+	if !ok {
+		t.Fatalf("git.commit value metadata missing: %#v", finished.Value)
+	}
+	shortCommit, ok := stringValueField(metadata, "shortCommit")
+	if !ok || shortCommit == "" {
+		t.Fatalf("git.commit shortCommit missing: %#v", metadata)
+	}
+	if got, want := finished.Descriptor.FinalSummaryDetails, []string{shortCommit, "files 1 +1 -0"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("finished git.commit summary = %#v, want %#v", got, want)
+	}
+	if got, want := finished.Descriptor.DetailText, []string{"test commit", "note.txt +1 -0"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("finished git.commit details = %#v, want %#v", got, want)
+	}
+	if got, want := completedStepIDs(events[2].Snapshot), []string{"commit-step"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("completed steps after git.commit = %#v, want %#v", got, want)
 	}
 }
 
@@ -2498,6 +2607,48 @@ func assertProgressKindsAndSteps(t *testing.T, events []progress.Event, wantKind
 	}
 }
 
+func activeStepIDs(snapshot progress.Snapshot) []string {
+	return progressStepIDs(snapshot.Active)
+}
+
+func completedStepIDs(snapshot progress.Snapshot) []string {
+	return progressStepIDs(snapshot.Steps)
+}
+
+func progressStepIDs(steps []progress.Step) []string {
+	ids := make([]string, 0, len(steps))
+	for _, step := range steps {
+		ids = append(ids, step.ID)
+	}
+	return ids
+}
+
+func mapValueField(value any, key string) (map[string]any, bool) {
+	mapped, ok := value.(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	field, ok := mapped[key]
+	if !ok {
+		return nil, false
+	}
+	child, ok := field.(map[string]any)
+	return child, ok
+}
+
+func stringValueField(value any, key string) (string, bool) {
+	mapped, ok := value.(map[string]any)
+	if !ok {
+		return "", false
+	}
+	field, ok := mapped[key]
+	if !ok {
+		return "", false
+	}
+	text, ok := field.(string)
+	return text, ok
+}
+
 func cloneStepResult(result state.StepResult) state.StepResult {
 	result.Artifacts = cloneArtifacts(result.Artifacts)
 	result.Value = cloneJSONValue(result.Value)
@@ -2689,4 +2840,32 @@ func readFile(t *testing.T, path string) string {
 	}
 
 	return string(data)
+}
+
+func writeFile(t *testing.T, path string, contents string) {
+	t.Helper()
+
+	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func initGitRepository(t *testing.T, dir string) {
+	t.Helper()
+
+	runGit(t, dir, "init")
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+}
+
+func runGit(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, string(output))
+	}
+	return string(output)
 }

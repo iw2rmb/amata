@@ -25,11 +25,7 @@ Legend: [ ] todo, [x] done.
   - Implemented a primary-buffer Bubble Tea model that animates exactly one active spinner, prints completed steps back into visible history with `✓` and `X`, and reuses the shared descriptor formatting for wrapped executor-specific detail sections.
   - Verified with deterministic progress renderer tests, CLI integration tests for fallback and sink override behavior, `go test ./cmd/amata ./internal/runtime`, and a PTY capture that showed spinner, checkmark, and `X` output without alt-screen switching.
 
-- [ ] 1.4 Document the stream contract and verify end to end
-  - Repository: auto
-  - Component: docs/engine, design/engine/example, internal/runtime
-  - Verification: `go test ./...`, `~/@iw2rmb/auto/scripts/check_docs_links.sh`, manual run and resume on `design/engine/example/implement-roadmap.yaml`
-  - Reasoning: medium
-1. Update `docs/engine/index.md` to document the live progress stream, the `stderr` versus `stdout` split, and which executor metadata is guaranteed for renderers.
-2. Extend runtime integration coverage to assert streamed start and finish transitions, resume behavior, and `git.commit` completed-line summaries without depending on wall-clock waits.
-3. Verify the example workflow produces readable live progress for nested `call` and `switch` flows before closing the roadmap item.
+- [x] 1.4 Document the stream contract and verify end to end
+  - Documented the live progress contract in `docs/engine/index.md`, including event sequencing, `stdout` versus `stderr` behavior, and the descriptor metadata renderers can rely on for built-in executors and control steps.
+  - Extended runtime coverage to assert nested `switch` and `call` start/finish snapshot transitions, resume reconstruction behavior, and `git.commit` completed-line summaries without any wall-clock waits.
+  - Verified the example roadmap workflow with manual `run` and `resume` checks on `design/engine/example/implement-roadmap.yaml`, confirming readable live progress for nested control flow before closing phase 1.
