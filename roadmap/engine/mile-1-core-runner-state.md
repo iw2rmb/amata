@@ -6,15 +6,10 @@ Documentation: [Engine design](../../design/engine/engine.md)
 
 Legend: [ ] todo, [x] done.
 
-- [ ] 1.1 Bootstrap CLI, spec model, and normalized runtime config
-  - Repository: auto
-  - Component: `cmd/amata`, `internal/spec`, `internal/workspace`, `internal/runtime`
-  - Verification: valid specs load, invalid workspace shapes fail fast, `--workspace` and `--run-id` override normalized runtime settings
-  - Reasoning: high
-  1. Create the Go module layout for CLI entrypoints, spec decoding, workspace resolution, runtime config, and executor registration.
-  2. Implement spec decoding for `version`, `name`, `entry`, `workspace`, `params`, `defaults`, `schemas`, and `flows`.
-  3. Normalize `workspace.root` from the spec file location or `--workspace`, then normalize `workspace.state_dir` from the resolved root.
-  4. Persist the normalized spec and launch settings under `<workspace.state_dir>/runs/<run-id>/spec.yaml`.
+- [x] 1.1 Bootstrap CLI, spec model, and normalized runtime config
+  - Added the initial Go engine layout for `cmd/amata`, typed spec loading, workspace normalization, runtime config persistence, and executor registration.
+  - Implemented spec decoding and validation for `version`, `name`, `entry`, `workspace`, `params`, `defaults`, `schemas`, and `flows`, with malformed workspace shapes failing during load.
+  - Normalized `workspace.root` from the spec location or `--workspace`, normalized `workspace.state_dir` from the resolved root, and persisted the normalized run bundle to `<workspace.state_dir>/runs/<run-id>/spec.yaml`.
 
 - [ ] 1.2 Add append-only run state and sequential execution records
   - Repository: auto
