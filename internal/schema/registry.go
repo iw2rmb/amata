@@ -28,6 +28,10 @@ func NewRegistry(workflowSchemas map[string]any) *Registry {
 	return &Registry{schemas: cloned}
 }
 
+func Normalize(value any) (any, error) {
+	return normalizeSchema(value)
+}
+
 func (r *Registry) Compile(responseSchema any) (*Compiled, error) {
 	normalizedResponse, err := normalizeSchema(responseSchema)
 	if err != nil {

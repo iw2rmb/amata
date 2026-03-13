@@ -13,7 +13,7 @@ amata run <spec.yaml> [--workspace <dir>] [--run-id <id>]
 amata resume <run-id>
 ```
 
-The current implementation includes durable on-disk run state, one shared expression/template runtime, response value and schema handling, three built-in executors (`shell`, `expr`, and `assert`), and first-version control blocks (`switch` and `call`) over a deterministically planned resumable flow stack.
+The current implementation includes durable on-disk run state, one shared expression/template runtime, response value and schema handling, five built-in executors (`shell`, `expr`, `assert`, `codex`, and `claude`), and first-version control blocks (`switch` and `call`) over a deterministically planned resumable flow stack.
 
 ## Workflow Spec
 
@@ -40,7 +40,7 @@ Current behavior:
 - `flows` may include named subflows that are reachable through `type: call` and synthetic `switch` branch frames.
 - `workspace.root` and `workspace.state_dir` are accepted and normalized before execution.
 - `params` are exposed to expressions and templates under `ctx.params`.
-- `defaults` are parsed and persisted, but the runtime does not interpret them yet.
+- `defaults` are parsed and persisted. Agent executors currently interpret `defaults.cwd`, `defaults.env`, and `defaults.executors.codex|claude`.
 - `schemas` provides workflow-local JSON Schema definitions for `response.schema`.
 - A step may declare `type`, or omit it when one of these shorthands is present:
   - `command` -> `shell`
@@ -211,6 +211,40 @@ Behavior:
 - `false` fails with code `assertion_failed`.
 - `message`, when present, resolves through the shared runtime and becomes the failure message.
 
+### `codex`
+
+Supported fields:
+- `type: codex`
+- `prompt`: required expression-bearing string
+- `model`: required string after applying `defaults.executors.codex`
+- `reasoning`: optional string
+- `cwd`: optional string
+- `env`: optional map of environment variable names to string values
+
+Behavior:
+- `prompt`, `model`, `reasoning`, `cwd`, and `env` resolve through the shared expression/template runtime before execution.
+- `cwd` falls back to `defaults.cwd`, then `workspace.root`.
+- When `response.schema` targets `value`, the executor writes a schema artifact and requests structured JSON output through `codex exec --output-schema`.
+- Raw provider stdout, stderr, the rendered prompt, the final transcript, and provider metadata persist as step artifacts.
+- Without `response.schema`, the step `value` is the raw final transcript text.
+
+### `claude`
+
+Supported fields:
+- `type: claude`
+- `prompt`: required expression-bearing string
+- `model`: required string after applying `defaults.executors.claude`
+- `reasoning`: optional string
+- `cwd`: optional string
+- `env`: optional map of environment variable names to string values
+
+Behavior:
+- `prompt`, `model`, `reasoning`, `cwd`, and `env` resolve through the shared expression/template runtime before execution.
+- `cwd` falls back to `defaults.cwd`, then `workspace.root`.
+- When `response.schema` targets `value`, the executor uses Claude structured output support when available and otherwise appends engine-owned JSON instructions before normalizing the returned JSON into `value`.
+- Raw provider stdout, stderr, the rendered prompt, the final transcript, and provider metadata persist as step artifacts.
+- Without `response.schema`, the step `value` is the raw final transcript text.
+
 ## Response Resolution and Schema Validation
 
 Steps may declare:
@@ -243,8 +277,7 @@ Current behavior:
 ## Current Limits
 
 Not implemented yet:
-- workflow-wide defaults and params evaluation
-- agent executors
+- workflow-wide defaults and params evaluation beyond current agent-step support
 - Git executors
 - provider-session continuation
 - pause and continue

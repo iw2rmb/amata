@@ -19,6 +19,7 @@ type StepContext struct {
 	RunID     string
 	RunDir    string
 	SpecPath  string
+	Spec      spec.Document
 	Workspace workspace.Config
 	FlowName  string
 	StepIndex int

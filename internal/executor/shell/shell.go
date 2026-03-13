@@ -40,7 +40,7 @@ func (e *Executor) Execute(ctx context.Context, stepCtx executor.StepContext) st
 		return executor.Failed("invalid_files", fmt.Sprintf("step %d: %v", stepCtx.StepIndex, err))
 	}
 
-	stepDir := filepath.Join(stepCtx.RunDir, "artifacts", stepSlug(stepCtx.StepIndex, stepCtx.Step.ID))
+	stepDir := executor.StepArtifactDir(stepCtx.RunDir, stepCtx.StepIndex, stepCtx.Step.ID)
 	if err := os.MkdirAll(stepDir, 0o755); err != nil {
 		return executor.Failed("artifact_dir_failed", fmt.Sprintf("step %d: create artifact directory: %v", stepCtx.StepIndex, err))
 	}
@@ -201,7 +201,7 @@ func captureNamedFiles(stepDir string, files []namedFile) (map[string]string, er
 			return captured, fmt.Errorf("files[%q]: %w", file.name, err)
 		}
 
-		destination := filepath.Join(filesDir, sanitizeName(file.name))
+		destination := filepath.Join(filesDir, executor.SanitizeArtifactName(file.name))
 		if err := os.WriteFile(destination, data, 0o644); err != nil {
 			return captured, fmt.Errorf("files[%q]: %w", file.name, err)
 		}
@@ -209,36 +209,6 @@ func captureNamedFiles(stepDir string, files []namedFile) (map[string]string, er
 	}
 
 	return captured, nil
-}
-
-func stepSlug(index int, id string) string {
-	label := fmt.Sprintf("step-%02d", index)
-	if id == "" {
-		return label
-	}
-	return label + "-" + sanitizeName(id)
-}
-
-func sanitizeName(value string) string {
-	replaced := strings.Map(func(r rune) rune {
-		switch {
-		case r >= 'a' && r <= 'z':
-			return r
-		case r >= 'A' && r <= 'Z':
-			return r
-		case r >= '0' && r <= '9':
-			return r
-		case r == '-', r == '_', r == '.':
-			return r
-		default:
-			return '-'
-		}
-	}, value)
-	replaced = strings.Trim(replaced, "-")
-	if replaced == "" {
-		return "artifact"
-	}
-	return replaced
 }
 
 func exitCode(state *os.ProcessState) int {

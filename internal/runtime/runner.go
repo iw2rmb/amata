@@ -239,6 +239,7 @@ func (r *Runner) executeStep(
 		RunID:     config.RunID,
 		RunDir:    config.RunDir,
 		SpecPath:  config.SpecPath,
+		Spec:      config.Spec,
 		Workspace: config.Workspace,
 		FlowName:  flowName,
 		StepIndex: stepIndex,
@@ -553,7 +554,6 @@ func nestedResultValue(previous *state.StepResult) map[string]any {
 	value["artifacts"] = artifactsContext(previous.Artifacts)
 	return value
 }
-
 
 func (r *Runner) recordResultEvent(store *state.Store, runID string, kind state.EventKind, result state.StepResult) (state.Snapshot, error) {
 	snapshot, err := store.Append(state.RunEvent{

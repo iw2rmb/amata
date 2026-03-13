@@ -6,15 +6,10 @@ Documentation: [Engine design](../../design/engine/engine.md)
 
 Legend: [ ] todo, [x] done.
 
-- [ ] 3.1 Add shared agent executor plumbing for Codex and Claude
-  - Repository: auto
-  - Component: `internal/executor/codex`, `internal/executor/claude`, artifact persistence
-  - Verification: prompts render through templates, model and reasoning settings pass through, structured outputs land in validated `value`, raw transcripts persist as artifacts
-  - Reasoning: xhigh
-  1. Define one agent executor contract for `prompt`, `model`, `reasoning`, `cwd`, `env`, artifact locations, and provider-specific invocation details.
-  2. Implement the Codex executor so `response.schema` on `value` requests structured JSON output instead of repeated prompt boilerplate.
-  3. Implement the Claude executor so structured output uses provider support when available and normalizes provider output before schema validation otherwise.
-  4. Persist prompt files, raw outputs, and provider metadata as artifacts without turning those artifacts into the workflow data model.
+- [x] 3.1 Add shared agent executor plumbing for Codex and Claude
+  - Added shared `internal/executor/agent` request loading for rendered `prompt`, `model`, `reasoning`, `cwd`, `env`, response-schema detection, and per-step artifact directories with prompt/transcript/provider metadata persistence.
+  - Implemented `codex` structured output through `codex exec --output-schema` and `claude` structured output through provider JSON schema support with prompt-level fallback normalization when structured flags are unavailable.
+  - Focused validation: `go test ./internal/executor/... ./internal/runtime ./internal/schema`
 
 - [ ] 3.2 Add typed Git executors with a narrow CLI escape hatch
   - Repository: auto
