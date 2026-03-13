@@ -1294,6 +1294,154 @@ func TestRunnerResponseFromPublishesValidatedValue(t *testing.T) {
 	}
 }
 
+func TestRunnerExposesSpecPathAndDirInRuntimeContext(t *testing.T) {
+	t.Parallel()
+
+	baseDir := t.TempDir()
+	specDir := filepath.Join(baseDir, "bundle")
+	workspaceRoot := filepath.Join(baseDir, "repo")
+	stateDir := filepath.Join(workspaceRoot, ".amata")
+	if err := os.MkdirAll(specDir, 0o755); err != nil {
+		t.Fatalf("mkdir spec dir: %v", err)
+	}
+	if err := os.MkdirAll(workspaceRoot, 0o755); err != nil {
+		t.Fatalf("mkdir workspace root: %v", err)
+	}
+
+	helperPath := filepath.Join(specDir, "helper.txt")
+	if err := os.WriteFile(helperPath, []byte("bundle helper"), 0o644); err != nil {
+		t.Fatalf("write helper file: %v", err)
+	}
+
+	config := Config{
+		RunID:    "run-001",
+		RunDir:   filepath.Join(stateDir, "runs", "run-001"),
+		SpecPath: filepath.Join(specDir, "workflow.yaml"),
+		Workspace: workspace.Config{
+			Root:     workspaceRoot,
+			StateDir: stateDir,
+		},
+		Spec: spec.Document{
+			Version: spec.Version,
+			Name:    "sample",
+			Entry:   "main",
+			Flows: map[string]spec.Flow{
+				"main": {
+					Steps: []spec.Step{
+						{
+							ID: "spec-dir",
+							Fields: map[string]any{
+								"expr": "$.spec.dir",
+							},
+						},
+						{
+							ID: "spec-path",
+							Fields: map[string]any{
+								"expr": "$.spec.path",
+							},
+						},
+						{
+							ID: "read-helper",
+							Fields: map[string]any{
+								"command": []any{
+									"sh",
+									"-lc",
+									"cat '{{ ctx.spec.dir }}/helper.txt'",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	snapshot, err := NewRunner(nil).Run(context.Background(), config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got := snapshot.Steps[0].Value; got != specDir {
+		t.Fatalf("spec dir = %#v, want %q", got, specDir)
+	}
+	if got := snapshot.Steps[1].Value; got != config.SpecPath {
+		t.Fatalf("spec path = %#v, want %q", got, config.SpecPath)
+	}
+	if got := strings.TrimSpace(readFile(t, snapshot.Steps[2].Artifacts.Stdout)); got != "bundle helper" {
+		t.Fatalf("helper stdout = %q, want bundle helper", got)
+	}
+}
+
+func TestRunnerNormalizesPreviousTypedSlicesForExpressions(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{ID: "typed-slice", Type: "fake"},
+					{ID: "read-path", Type: "fake"},
+				},
+			},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	calls := []string{}
+	registry := NewRegistry()
+	if err := registry.Register("fake", func() executorapi.Executor {
+		return &fakeExecutor{
+			calls: &calls,
+			execute: func(ctx executorapi.StepContext) state.StepResult {
+				if ctx.Step.ID == "read-path" {
+					value, err := ctx.Runtime.Resolve(map[string]any{
+						"expr": `ctx.prev.value["paths"][0]`,
+					})
+					if err != nil {
+						return state.StepResult{
+							Status: state.StepStatusFailed,
+							Error: &state.Failure{
+								Code:    "resolve_failed",
+								Message: err.Error(),
+							},
+						}
+					}
+					return state.StepResult{
+						Status: state.StepStatusSucceeded,
+						Value:  value,
+					}
+				}
+
+				return state.StepResult{
+					Status: state.StepStatusSucceeded,
+					Value: map[string]any{
+						"paths": []string{"alpha", "beta"},
+					},
+				}
+			},
+		}
+	}); err != nil {
+		t.Fatalf("register fake executor: %v", err)
+	}
+
+	snapshot, err := NewRunner(registry).Run(context.Background(), config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got := snapshot.Steps[1].Value; got != "alpha" {
+		t.Fatalf("expr value = %#v, want %q", got, "alpha")
+	}
+}
+
 func TestRunnerResponseSchemaMismatchFailsStructurally(t *testing.T) {
 	t.Parallel()
 

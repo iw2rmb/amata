@@ -138,6 +138,7 @@ amata resume <run-id>
 Contract:
 - `run` copies the resolved spec into the run directory and records the normalized workspace settings used for the run.
 - `--workspace` overrides `workspace.root` for the launched run.
+- Repeated `--set key=value` flags override declared workflow params for the launched run and become part of the stored normalized spec.
 - `resume` always uses the stored spec and stored workspace from the existing run.
 - `amata/v1` does not support resuming a run against a different spec.
 
@@ -156,10 +157,13 @@ Rules:
 ### 4. Execution Context
 
 Primary runtime references:
+- `ctx.spec.path`
+- `ctx.spec.dir`
 - `ctx.prev`
   - the previous completed step result in the current flow frame, if any
 
 Rules:
+- `ctx.spec.dir` is the stable base path for workflow-bundle helper scripts and adjacent assets.
 - `ctx.prev` is the primary way to consume upstream data in `amata/v1`.
 - Expressions must not reference earlier steps by declared step `id`.
 - If a later step needs older data, the previous step should carry that data forward in its own `value`.

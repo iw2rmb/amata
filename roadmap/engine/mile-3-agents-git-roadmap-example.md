@@ -17,15 +17,11 @@ Legend: [ ] todo, [x] done.
   - Isolated the required Git CLI mutation path inside the adapter with `git add -A -- <included>` plus `git commit -- <included>`, which commits only the filtered candidate set and leaves excluded staged paths untouched.
   - Focused validation: `go test ./internal/gitadapter ./internal/executor/gitinspect ./internal/executor/gitcommit ./internal/runtime`
 
-- [ ] 3.3 Port the reference `implement-roadmap` flow to engine-owned control flow
-  - Repository: auto
-  - Component: example workflow bundle, runtime integration, roadmap helpers
-  - Verification: the loop selects the next open item from the roadmap file, per-item review and commit stay in YAML flow, final correctness/refactor/sanity/docs phases run without external routing scripts
-  - Reasoning: xhigh
-  1. Wire [design/engine/example/implement-roadmap.yaml](../../design/engine/example/implement-roadmap.yaml) to the real engine runtime and keep the prompt shape `Implement next open item from the <file>`.
-  2. Replace the bash loop, routing, and JSON gatekeeping from `dagu/implement-roadmap/scripts/implement-open-items-loop.sh` with `call`, `switch`, schema validation, and typed step results.
-  3. Move repo path handling, prompt artifacts, and run state ownership from shell wrappers into engine runtime packages.
-  4. Keep the example dependent only on built-in executors plus the roadmap helper scripts that operate on the roadmap file itself.
+- [x] 3.3 Port the reference `implement-roadmap` flow to engine-owned control flow
+  - Added runtime-owned `--set key=value` param overrides plus `ctx.spec.path|dir` so the example bundle can target external repos and still resolve its own helper scripts without `--repo` or `--scripts-dir` wrapper arguments.
+  - Reworked [design/engine/example/implement-roadmap.yaml](../../design/engine/example/implement-roadmap.yaml) to drive next-item selection, per-item verification, review, commit, and final correctness/refactor/sanity/docs phases through built-in `shell`, `call`, `switch`, `codex`, `claude`, and `git.commit` steps with response schemas instead of external routing scripts.
+  - Simplified [design/engine/example/scripts/roadmap_items.py](../../design/engine/example/scripts/roadmap_items.py) into a direct CLI helper for roadmap-file queries, preserved repo-relative and `~/...` path handling, and fixed runtime value normalization so typed `git.commit` results remain usable through `ctx.prev`.
+  - Focused validation: `go test ./internal/runtime -count=1`; `python3 -m py_compile design/engine/example/scripts/*.py`; `python3 design/engine/example/scripts/roadmap_items.py next-open --file '~/@iw2rmb/auto/design/engine/example/fixture-repo/roadmap/index.md'`; manual `go run ./cmd/amata run design/engine/example/implement-roadmap.yaml ...` smoke with stub `codex`/`claude` CLIs
 
 - [ ] 3.4 Add smoke and regression coverage for the reference workflow
   - Repository: auto

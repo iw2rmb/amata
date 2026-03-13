@@ -301,6 +301,74 @@ flows:
 	}
 }
 
+func TestRunCLISetOverridesPersistedParams(t *testing.T) {
+	specDir := t.TempDir()
+	repoRoot := filepath.Join(specDir, "repo")
+	if err := os.MkdirAll(repoRoot, 0o755); err != nil {
+		t.Fatalf("mkdir repo root: %v", err)
+	}
+
+	specPath := filepath.Join(specDir, "workflow.yaml")
+	specBody := `
+version: amata/v1
+name: sample
+entry: main
+workspace:
+  root: repo
+params:
+  roadmap_file: roadmap/default.md
+  dry_run: false
+flows:
+  main: {}
+`
+	if err := os.WriteFile(specPath, []byte(specBody), 0o644); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+
+	if err := runtime.RunCLI([]string{
+		"run",
+		specPath,
+		"--run-id", "run-params",
+		"--set", "roadmap_file=roadmap/custom.md",
+		"--set", "dry_run=true",
+	}, nil, nil); err != nil {
+		t.Fatalf("run cli: %v", err)
+	}
+
+	persisted := loadPersistedRunSpec(t, filepath.Join(repoRoot, ".amata", "runs", "run-params", "spec.yaml"))
+	if got := persisted.Spec.Params["roadmap_file"]; got != "roadmap/custom.md" {
+		t.Fatalf("spec.params.roadmap_file = %#v, want %q", got, "roadmap/custom.md")
+	}
+	if got := persisted.Spec.Params["dry_run"]; got != true {
+		t.Fatalf("spec.params.dry_run = %#v, want true", got)
+	}
+}
+
+func TestRunCLISetRejectsUndeclaredParam(t *testing.T) {
+	specDir := t.TempDir()
+	specPath := filepath.Join(specDir, "workflow.yaml")
+	specBody := `
+version: amata/v1
+name: sample
+entry: main
+params:
+  roadmap_file: roadmap/index.md
+flows:
+  main: {}
+`
+	if err := os.WriteFile(specPath, []byte(specBody), 0o644); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+
+	err := runtime.RunCLI([]string{"run", specPath, "--set", "unknown=value"}, nil, nil)
+	if err == nil {
+		t.Fatalf("run cli succeeded, want undeclared param error")
+	}
+	if !strings.Contains(err.Error(), `param "unknown" is not declared in spec.params`) {
+		t.Fatalf("run cli error = %q, want undeclared param message", err)
+	}
+}
+
 func TestResumeCLIRestartsFromStepAfterInterruptedBoundary(t *testing.T) {
 	originalWD, err := os.Getwd()
 	if err != nil {

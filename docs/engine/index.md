@@ -9,7 +9,7 @@ See [Documentation](../index.md).
 `amata` is a local CLI runner with two commands:
 
 ```text
-amata run <spec.yaml> [--workspace <dir>] [--run-id <id>]
+amata run <spec.yaml> [--workspace <dir>] [--set key=value ...] [--run-id <id>]
 amata resume <run-id>
 ```
 
@@ -40,6 +40,7 @@ Current behavior:
 - `flows` may include named subflows that are reachable through `type: call` and synthetic `switch` branch frames.
 - `workspace.root` and `workspace.state_dir` are accepted and normalized before execution.
 - `params` are exposed to expressions and templates under `ctx.params`.
+- Repeated `--set key=value` flags override declared `spec.params` entries for the launched run and persist inside the stored normalized spec.
 - `defaults` are parsed and persisted. Agent executors currently interpret `defaults.cwd`, `defaults.env`, and `defaults.executors.codex|claude`.
 - `schemas` provides workflow-local JSON Schema definitions for `response.schema`.
 - A step may declare `type`, or omit it when one of these shorthands is present:
@@ -52,6 +53,8 @@ Current behavior:
 ## Expression Runtime
 
 The shared runtime context is exposed at `ctx`:
+- `ctx.spec.path`
+- `ctx.spec.dir`
 - `ctx.workspace.root`
 - `ctx.workspace.state_dir`
 - `ctx.params`
@@ -88,6 +91,7 @@ Workspace resolution rules:
 - `run` resolves the spec path to an absolute path first.
 - If `--workspace` is not set, `workspace.root` resolves relative to the spec directory. When omitted, it defaults to the spec directory itself.
 - If `--workspace` is set, the override resolves relative to the CLI process working directory and replaces the spec value.
+- `--set key=value` overrides only declared `params` keys and decodes each value through YAML scalar or collection parsing before persistence.
 - `workspace.state_dir` defaults to `.amata`. Relative values resolve from the normalized workspace root.
 
 Each run persists under:
@@ -313,7 +317,7 @@ Current behavior:
 ## Current Limits
 
 Not implemented yet:
-- workflow-wide defaults and params evaluation beyond current agent-step support
+- workflow-wide executor defaults beyond current agent-step support
 - provider-session continuation
 - pause and continue
 - parallel execution

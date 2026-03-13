@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"auto/internal/spec"
+	"gopkg.in/yaml.v3"
 )
 
 func RunCLI(args []string, stdout io.Writer, stderr io.Writer) error {
@@ -29,7 +30,7 @@ func RunCLI(args []string, stdout io.Writer, stderr io.Writer) error {
 }
 
 func runCommand(args []string, stdout io.Writer, stderr io.Writer) error {
-	workspaceOverride, runID, specPath, err := parseRunArgs(args)
+	workspaceOverride, runID, paramOverrides, specPath, err := parseRunArgs(args)
 	if err != nil {
 		return err
 	}
@@ -41,6 +42,7 @@ func runCommand(args []string, stdout io.Writer, stderr io.Writer) error {
 
 	config, err := BuildRunConfig(loaded, LaunchOptions{
 		WorkspaceOverride: workspaceOverride,
+		ParamOverrides:    paramOverrides,
 		RunID:             runID,
 	})
 	if err != nil {
@@ -59,9 +61,10 @@ func runCommand(args []string, stdout io.Writer, stderr io.Writer) error {
 	return err
 }
 
-func parseRunArgs(args []string) (string, string, string, error) {
+func parseRunArgs(args []string) (string, string, map[string]any, string, error) {
 	var workspaceOverride string
 	var runID string
+	paramOverrides := map[string]any{}
 	var positionals []string
 
 	for index := 0; index < len(args); index++ {
@@ -70,7 +73,7 @@ func parseRunArgs(args []string) (string, string, string, error) {
 		switch {
 		case value == "--workspace":
 			if index+1 >= len(args) {
-				return "", "", "", fmt.Errorf("--workspace requires a value")
+				return "", "", nil, "", fmt.Errorf("--workspace requires a value")
 			}
 			workspaceOverride = args[index+1]
 			index++
@@ -78,24 +81,65 @@ func parseRunArgs(args []string) (string, string, string, error) {
 			workspaceOverride = strings.TrimPrefix(value, "--workspace=")
 		case value == "--run-id":
 			if index+1 >= len(args) {
-				return "", "", "", fmt.Errorf("--run-id requires a value")
+				return "", "", nil, "", fmt.Errorf("--run-id requires a value")
 			}
 			runID = args[index+1]
 			index++
 		case strings.HasPrefix(value, "--run-id="):
 			runID = strings.TrimPrefix(value, "--run-id=")
+		case value == "--set":
+			if index+1 >= len(args) {
+				return "", "", nil, "", fmt.Errorf("--set requires key=value")
+			}
+			override, err := parseParamOverride(args[index+1])
+			if err != nil {
+				return "", "", nil, "", err
+			}
+			paramOverrides[override.key] = override.value
+			index++
+		case strings.HasPrefix(value, "--set="):
+			override, err := parseParamOverride(strings.TrimPrefix(value, "--set="))
+			if err != nil {
+				return "", "", nil, "", err
+			}
+			paramOverrides[override.key] = override.value
 		case strings.HasPrefix(value, "-"):
-			return "", "", "", fmt.Errorf("unknown flag %q", value)
+			return "", "", nil, "", fmt.Errorf("unknown flag %q", value)
 		default:
 			positionals = append(positionals, value)
 		}
 	}
 
 	if len(positionals) != 1 {
-		return "", "", "", fmt.Errorf("run requires exactly one spec path\n\n%s", usageText())
+		return "", "", nil, "", fmt.Errorf("run requires exactly one spec path\n\n%s", usageText())
 	}
 
-	return workspaceOverride, runID, positionals[0], nil
+	return workspaceOverride, runID, paramOverrides, positionals[0], nil
+}
+
+type paramOverride struct {
+	key   string
+	value any
+}
+
+func parseParamOverride(value string) (paramOverride, error) {
+	key, rawValue, ok := strings.Cut(value, "=")
+	if !ok {
+		return paramOverride{}, fmt.Errorf("--set requires key=value")
+	}
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return paramOverride{}, fmt.Errorf("--set requires a non-empty key")
+	}
+	if rawValue == "" {
+		return paramOverride{key: key, value: ""}, nil
+	}
+
+	var decoded any
+	if err := yaml.Unmarshal([]byte(rawValue), &decoded); err != nil {
+		return paramOverride{}, fmt.Errorf("--set %q is invalid: %w", key, err)
+	}
+	return paramOverride{key: key, value: decoded}, nil
 }
 
 func resumeCommand(args []string, stdout io.Writer, stderr io.Writer) error {
@@ -185,7 +229,7 @@ func usageError() error {
 func usageText() string {
 	return strings.TrimSpace(`
 usage:
-  amata run <spec.yaml> [--workspace <dir>] [--run-id <id>]
+  amata run <spec.yaml> [--workspace <dir>] [--set key=value ...] [--run-id <id>]
   amata resume <run-id>
 `)
 }

@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"path/filepath"
+
 	"auto/internal/jsonutil"
 	"auto/internal/state"
 	"auto/internal/workspace"
@@ -9,10 +11,18 @@ import (
 func buildRuntimeContext(config Config, previous *state.StepResult) map[string]any {
 	return map[string]any{
 		"ctx": map[string]any{
+			"spec":      specContext(config.SpecPath),
 			"workspace": workspaceContext(config.Workspace),
 			"params":    jsonutil.CloneMap(config.Spec.Params),
 			"prev":      previousContext(previous),
 		},
+	}
+}
+
+func specContext(path string) map[string]any {
+	return map[string]any{
+		"path": path,
+		"dir":  filepath.Dir(path),
 	}
 }
 

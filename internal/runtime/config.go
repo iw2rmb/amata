@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"auto/internal/jsonutil"
 	"auto/internal/spec"
 	"auto/internal/workspace"
 	"gopkg.in/yaml.v3"
@@ -13,6 +14,7 @@ import (
 
 type LaunchOptions struct {
 	WorkspaceOverride string
+	ParamOverrides    map[string]any
 	RunID             string
 }
 
@@ -55,6 +57,9 @@ func BuildRunConfig(loaded spec.Loaded, options LaunchOptions) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	if err := validateParamOverrides(loaded.Spec.Params, options.ParamOverrides); err != nil {
+		return Config{}, err
+	}
 
 	runID := options.RunID
 	if runID == "" {
@@ -62,6 +67,15 @@ func BuildRunConfig(loaded spec.Loaded, options LaunchOptions) (Config, error) {
 	}
 
 	normalizedSpec := loaded.Spec
+	normalizedSpec.Params = jsonutil.CloneMap(loaded.Spec.Params)
+	if len(options.ParamOverrides) > 0 {
+		if normalizedSpec.Params == nil {
+			normalizedSpec.Params = map[string]any{}
+		}
+		for key, value := range options.ParamOverrides {
+			normalizedSpec.Params[key] = jsonutil.CloneValue(value)
+		}
+	}
 	normalizedSpec.Workspace.Root = resolvedWorkspace.Root
 	normalizedSpec.Workspace.StateDir = resolvedWorkspace.StateDir
 
@@ -74,6 +88,20 @@ func BuildRunConfig(loaded spec.Loaded, options LaunchOptions) (Config, error) {
 		Workspace: resolvedWorkspace,
 		Spec:      normalizedSpec,
 	}, nil
+}
+
+func validateParamOverrides(declared map[string]any, overrides map[string]any) error {
+	if len(overrides) == 0 {
+		return nil
+	}
+
+	for key := range overrides {
+		if _, ok := declared[key]; ok {
+			continue
+		}
+		return fmt.Errorf("param %q is not declared in spec.params", key)
+	}
+	return nil
 }
 
 func PersistRunSpec(config Config) error {
