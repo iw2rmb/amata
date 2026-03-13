@@ -11,15 +11,11 @@ Legend: [ ] todo, [x] done.
   - Implemented spec decoding and validation for `version`, `name`, `entry`, `workspace`, `params`, `defaults`, `schemas`, and `flows`, with malformed workspace shapes failing during load.
   - Normalized `workspace.root` from the spec location or `--workspace`, normalized `workspace.state_dir` from the resolved root, and persisted the normalized run bundle to `<workspace.state_dir>/runs/<run-id>/spec.yaml`.
 
-- [ ] 1.2 Add append-only run state and sequential execution records
-  - Repository: auto
-  - Component: `internal/state`, `internal/runtime`, run snapshot model
-  - Verification: events append immutably, snapshots reconstruct flow progress, failed and skipped steps persist before stop or advance
-  - Reasoning: high
-  1. Define run event and snapshot structs for flow frames, step results, artifacts, run status, and failure metadata.
-  2. Implement append-only `events.ndjson` writing and deterministic `snapshot.json` updates in the run directory.
-  3. Build a sequential planner that executes `steps:` in order and stops on the first failed step.
-  4. Reconstruct durable progress from stored state so `resume` can reopen an existing run without reloading transient shell state.
+- [x] 1.2 Add append-only run state and sequential execution records
+  - Added typed flow parsing plus durable run event and snapshot models for flow frames, step results, artifacts, run status, and failure metadata across `internal/spec`, `internal/state`, and `internal/runtime`.
+  - Persisted append-only `events.ndjson` records, wrote deterministic `snapshot.json` state, and rebuilt snapshots from the event log when the snapshot file is missing or corrupt while rejecting out-of-order step replay.
+  - Implemented a sequential runner that dispatches steps through the executor registry, records skipped and failed results before advancing or stopping, and resumes from stored run progress and persisted `spec.yaml`.
+  - Verified with `go test ./...`, including coverage for immutable event appends, snapshot reconstruction, stop-on-failure sequencing, terminal failure preservation, ambiguous run lookup, and `resume` reopening a run after removing the original workflow file.
 
 - [ ] 1.3 Implement minimal step contract with `shell`, `expr`, `assert`, and `resume`
   - Repository: auto

@@ -1,9 +1,13 @@
 package runtime
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"auto/internal/spec"
@@ -18,7 +22,7 @@ func RunCLI(args []string, stdout io.Writer, stderr io.Writer) error {
 	case "run":
 		return runCommand(args[1:], stdout, stderr)
 	case "resume":
-		return fmt.Errorf("resume is not implemented yet")
+		return resumeCommand(args[1:], stdout, stderr)
 	default:
 		return fmt.Errorf("unknown command %q\n\n%s", args[0], usageText())
 	}
@@ -51,7 +55,8 @@ func runCommand(args []string, stdout io.Writer, stderr io.Writer) error {
 		_, _ = fmt.Fprintln(stdout, config.RunID)
 	}
 
-	return nil
+	_, err = NewRunner(nil).Run(context.Background(), config)
+	return err
 }
 
 func parseRunArgs(args []string) (string, string, string, error) {
@@ -91,6 +96,86 @@ func parseRunArgs(args []string) (string, string, string, error) {
 	}
 
 	return workspaceOverride, runID, positionals[0], nil
+}
+
+func resumeCommand(args []string, stdout io.Writer, stderr io.Writer) error {
+	runID, err := parseResumeArgs(args)
+	if err != nil {
+		return err
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("resolve cwd: %w", err)
+	}
+
+	runDir, err := locateRunDir(cwd, runID)
+	if err != nil {
+		return err
+	}
+
+	config, err := LoadRunConfig(runDir)
+	if err != nil {
+		return err
+	}
+
+	if stdout != nil {
+		_, _ = fmt.Fprintln(stdout, config.RunID)
+	}
+
+	_, err = NewRunner(nil).Resume(context.Background(), config)
+	return err
+}
+
+func parseResumeArgs(args []string) (string, error) {
+	if len(args) != 1 {
+		return "", fmt.Errorf("resume requires exactly one run id\n\n%s", usageText())
+	}
+	if strings.HasPrefix(args[0], "-") {
+		return "", fmt.Errorf("unknown flag %q", args[0])
+	}
+
+	return args[0], nil
+}
+
+func locateRunDir(cwd string, runID string) (string, error) {
+	var matches []string
+	walkErr := filepath.WalkDir(cwd, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			if errors.Is(err, fs.ErrPermission) {
+				return filepath.SkipDir
+			}
+			return err
+		}
+		if entry.IsDir() && entry.Name() == ".git" {
+			return filepath.SkipDir
+		}
+		if !entry.IsDir() {
+			return nil
+		}
+		if entry.Name() != runID {
+			return nil
+		}
+		if filepath.Base(filepath.Dir(path)) != "runs" {
+			return nil
+		}
+		if _, err := os.Stat(filepath.Join(path, "spec.yaml")); err != nil {
+			return nil
+		}
+		matches = append(matches, path)
+		if len(matches) > 1 {
+			return fmt.Errorf("run %q is ambiguous under %s", runID, cwd)
+		}
+		return filepath.SkipDir
+	})
+	if walkErr != nil {
+		return "", walkErr
+	}
+	if len(matches) == 0 {
+		return "", fmt.Errorf("run %q was not found under %s", runID, cwd)
+	}
+
+	return matches[0], nil
 }
 
 func usageError() error {

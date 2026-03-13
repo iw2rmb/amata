@@ -1,8 +1,26 @@
 package runtime
 
-import "fmt"
+import (
+	"context"
+	"fmt"
 
-type ExecutorFactory func() any
+	"auto/internal/spec"
+	"auto/internal/state"
+)
+
+type Executor interface {
+	Execute(context.Context, StepContext) state.StepResult
+}
+
+type ExecutorFactory func() Executor
+
+type StepContext struct {
+	Config    Config
+	FlowName  string
+	StepIndex int
+	Step      spec.Step
+	Previous  *state.StepResult
+}
 
 type Registry struct {
 	factories map[string]ExecutorFactory

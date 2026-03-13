@@ -12,19 +12,46 @@ import (
 const Version = "amata/v1"
 
 type Document struct {
-	Version   string         `yaml:"version"`
-	Name      string         `yaml:"name"`
-	Entry     string         `yaml:"entry"`
-	Workspace Workspace      `yaml:"workspace,omitempty"`
-	Params    map[string]any `yaml:"params,omitempty"`
-	Defaults  map[string]any `yaml:"defaults,omitempty"`
-	Schemas   map[string]any `yaml:"schemas,omitempty"`
-	Flows     map[string]any `yaml:"flows"`
+	Version   string          `yaml:"version"`
+	Name      string          `yaml:"name"`
+	Entry     string          `yaml:"entry"`
+	Workspace Workspace       `yaml:"workspace,omitempty"`
+	Params    map[string]any  `yaml:"params,omitempty"`
+	Defaults  map[string]any  `yaml:"defaults,omitempty"`
+	Schemas   map[string]any  `yaml:"schemas,omitempty"`
+	Flows     map[string]Flow `yaml:"flows"`
 }
 
 type Workspace struct {
 	Root     string `yaml:"root,omitempty"`
 	StateDir string `yaml:"state_dir,omitempty"`
+}
+
+type Flow struct {
+	Steps []Step `yaml:"steps,omitempty"`
+}
+
+type Step struct {
+	ID     string         `yaml:"id,omitempty"`
+	Type   string         `yaml:"type,omitempty"`
+	Fields map[string]any `yaml:",inline"`
+}
+
+func (s Step) ExecutorType() string {
+	if s.Type != "" {
+		return s.Type
+	}
+	if _, ok := s.Fields["command"]; ok {
+		return "shell"
+	}
+	if _, ok := s.Fields["expr"]; ok {
+		return "expr"
+	}
+	if _, ok := s.Fields["assert"]; ok {
+		return "assert"
+	}
+
+	return ""
 }
 
 type Loaded struct {

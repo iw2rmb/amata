@@ -104,3 +104,28 @@ func PersistRunSpec(config Config) error {
 
 	return nil
 }
+
+func LoadRunConfig(runDir string) (Config, error) {
+	absRunDir, err := filepath.Abs(runDir)
+	if err != nil {
+		return Config{}, fmt.Errorf("resolve run directory: %w", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(absRunDir, "spec.yaml"))
+	if err != nil {
+		return Config{}, fmt.Errorf("read persisted run spec: %w", err)
+	}
+
+	var persisted PersistedRunSpec
+	if err := yaml.Unmarshal(data, &persisted); err != nil {
+		return Config{}, fmt.Errorf("decode persisted run spec: %w", err)
+	}
+
+	return Config{
+		RunID:     persisted.Launch.RunID,
+		RunDir:    persisted.Launch.RunDir,
+		SpecPath:  persisted.Launch.SpecPath,
+		Workspace: persisted.Launch.Workspace,
+		Spec:      persisted.Spec,
+	}, nil
+}
