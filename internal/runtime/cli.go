@@ -19,8 +19,11 @@ import (
 type CLIOption func(*cliOptions)
 
 type cliOptions struct {
-	progressSink progress.Sink
+	progressSink              progress.Sink
+	progressControllerFactory progressControllerFactory
 }
+
+type progressControllerFactory func(io.Writer) (progress.Sink, io.Closer, error)
 
 func WithProgressSink(sink progress.Sink) CLIOption {
 	return func(options *cliOptions) {
@@ -71,11 +74,11 @@ func newRootCommand(stdout io.Writer, stderr io.Writer, options cliOptions) *cob
 	command.SetOut(writerOrDiscard(stdout))
 	command.SetErr(writerOrDiscard(stderr))
 	command.SetFlagErrorFunc(flagErrorFunc)
-	command.AddCommand(newRunCommand(options), newResumeCommand(options))
+	command.AddCommand(newRunCommand(stderr, options), newResumeCommand(stderr, options))
 	return command
 }
 
-func newRunCommand(options cliOptions) *cobra.Command {
+func newRunCommand(stderr io.Writer, options cliOptions) *cobra.Command {
 	var workspaceOverride string
 	var runID string
 	var rawOverrides []string
@@ -92,11 +95,20 @@ func newRunCommand(options cliOptions) *cobra.Command {
 			}
 			return nil
 		},
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) (runErr error) {
 			paramOverrides, err := buildParamOverrides(rawOverrides)
 			if err != nil {
 				return err
 			}
+			sink, closeProgress, err := options.resolveProgress(stderr)
+			if err != nil {
+				return err
+			}
+			defer func() {
+				if closeErr := closeProgress.Close(); runErr == nil && closeErr != nil {
+					runErr = closeErr
+				}
+			}()
 			return runCommand(
 				cmd.Context(),
 				args[0],
@@ -106,7 +118,7 @@ func newRunCommand(options cliOptions) *cobra.Command {
 					RunID:             runID,
 				},
 				cmd.OutOrStdout(),
-				options.progressSink,
+				sink,
 			)
 		},
 	}
@@ -118,7 +130,7 @@ func newRunCommand(options cliOptions) *cobra.Command {
 	return command
 }
 
-func newResumeCommand(options cliOptions) *cobra.Command {
+func newResumeCommand(stderr io.Writer, options cliOptions) *cobra.Command {
 	command := &cobra.Command{
 		Use:           "resume <run-id>",
 		Short:         "Resume a stored run",
@@ -130,8 +142,17 @@ func newResumeCommand(options cliOptions) *cobra.Command {
 			}
 			return nil
 		},
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return resumeCommand(cmd.Context(), args[0], cmd.OutOrStdout(), options.progressSink)
+		RunE: func(cmd *cobra.Command, args []string) (runErr error) {
+			sink, closeProgress, err := options.resolveProgress(stderr)
+			if err != nil {
+				return err
+			}
+			defer func() {
+				if closeErr := closeProgress.Close(); runErr == nil && closeErr != nil {
+					runErr = closeErr
+				}
+			}()
+			return resumeCommand(cmd.Context(), args[0], cmd.OutOrStdout(), sink)
 		},
 	}
 
@@ -181,6 +202,35 @@ func buildParamOverrides(rawOverrides []string) (map[string]any, error) {
 		paramOverrides[override.key] = override.value
 	}
 	return paramOverrides, nil
+}
+
+func (options cliOptions) resolveProgress(stderr io.Writer) (progress.Sink, io.Closer, error) {
+	if options.progressSink != nil {
+		return options.progressSink, noopCloser{}, nil
+	}
+
+	factory := options.progressControllerFactory
+	if factory == nil {
+		factory = newProgressController
+	}
+	return factory(stderr)
+}
+
+func newProgressController(stderr io.Writer) (progress.Sink, io.Closer, error) {
+	controller, err := progress.NewStreamController(stderr)
+	if err != nil {
+		return nil, nil, err
+	}
+	if controller == nil {
+		return nil, noopCloser{}, nil
+	}
+	return controller, controller, nil
+}
+
+type noopCloser struct{}
+
+func (noopCloser) Close() error {
+	return nil
 }
 
 func runCommand(ctx context.Context, specPath string, options LaunchOptions, stdout io.Writer, sink progress.Sink) error {

@@ -20,14 +20,10 @@ Legend: [ ] todo, [x] done.
   - Split agent request resolution into reusable `agent.ResolveStep` so descriptor enrichment can resolve model, reasoning, cwd, env, and rendered prompt before execution, with descriptor tests covering codex, claude, shell, assert, git.inspect, and git.commit shapes at the 60-column wrap width.
   - Extended `gitadapter.CommitResult` and `git.commit` outputs with structured commit metadata (`shortCommit`, changed file count, total insertions/deletions, per-file stats) and verified with `go test ./internal/runtime ./internal/progress ./internal/executor/agent ./internal/executor/gitcommit ./internal/gitadapter`.
 
-- [ ] 1.3 Add a Bubble Tea stream renderer and CLI integration
-  - Repository: auto
-  - Component: cmd/amata, internal/runtime, internal/progress
-  - Verification: `go test ./cmd/amata ./internal/runtime`, manual TTY run shows spinner, checkmark, and `X` states with stable wrapping and no broken line rewrites on the primary screen buffer
-  - Reasoning: high
-1. Add Bubble Tea plus Bubbles and `github.com/charmbracelet/lipgloss/v2`, then implement a renderer-controller pair that writes live progress to `stderr`, animates one active spinner, and replaces it with a checkmark or `X` when the step completes.
-2. Keep the live progress renderer on the primary screen buffer rather than alt screen so streamed history remains visible, while formatting the shared headline as `<status> <time> <step-type>` and plugging in reusable executor-specific detail sections, including `codex <model> <reasoning>` plus wrapped prompt text and `git.commit {<sha> <files X +N -N>}` plus wrapped commit message and per-file diff stats.
-3. Keep `stdout` reserved for machine-friendly outputs such as the run id, provide a non-TTY plain-text fallback with the same content model, and cover line formatting with deterministic tests or golden snapshots.
+- [x] 1.3 Add a Bubble Tea stream renderer and CLI integration
+  - Added a `progress.StreamController` that auto-selects a Bubble Tea renderer for TTY `stderr` and a plain-text fallback otherwise, while keeping `stdout` untouched for machine-readable outputs like the run id.
+  - Implemented a primary-buffer Bubble Tea model that animates exactly one active spinner, prints completed steps back into visible history with `✓` and `X`, and reuses the shared descriptor formatting for wrapped executor-specific detail sections.
+  - Verified with deterministic progress renderer tests, CLI integration tests for fallback and sink override behavior, `go test ./cmd/amata ./internal/runtime`, and a PTY capture that showed spinner, checkmark, and `X` output without alt-screen switching.
 
 - [ ] 1.4 Document the stream contract and verify end to end
   - Repository: auto

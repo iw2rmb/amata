@@ -166,6 +166,83 @@ flows:
 	}
 }
 
+func TestRunCLIPlainFallbackWritesProgressToStderr(t *testing.T) {
+	specDir := t.TempDir()
+	specPath := filepath.Join(specDir, "workflow.yaml")
+	specBody := `
+version: amata/v1
+name: sample
+entry: main
+flows:
+  main:
+    steps:
+      - assert: true
+`
+	if err := os.WriteFile(specPath, []byte(specBody), 0o644); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if err := runtime.RunCLI([]string{"run", specPath, "--run-id", "run-plain"}, &stdout, &stderr); err != nil {
+		t.Fatalf("run cli: %v", err)
+	}
+
+	if got := stdout.String(); got != "run-plain\n" {
+		t.Fatalf("stdout = %q, want run id only", got)
+	}
+
+	output := stderr.String()
+	for _, want := range []string{"assert true", "•", "✓"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("stderr = %q, want %q", output, want)
+		}
+	}
+}
+
+func TestRunCLIExplicitProgressSinkSuppressesDefaultStderrRenderer(t *testing.T) {
+	specDir := t.TempDir()
+	specPath := filepath.Join(specDir, "workflow.yaml")
+	specBody := `
+version: amata/v1
+name: sample
+entry: main
+flows:
+  main:
+    steps:
+      - assert: true
+`
+	if err := os.WriteFile(specPath, []byte(specBody), 0o644); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	var events []progress.Event
+	sink := progress.SinkFunc(func(event progress.Event) {
+		events = append(events, event)
+	})
+
+	if err := runtime.RunCLI(
+		[]string{"run", specPath, "--run-id", "run-sink"},
+		&stdout,
+		&stderr,
+		runtime.WithProgressSink(sink),
+	); err != nil {
+		t.Fatalf("run cli: %v", err)
+	}
+
+	if got := stdout.String(); got != "run-sink\n" {
+		t.Fatalf("stdout = %q, want run id only", got)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty because explicit sink replaces default renderer", stderr.String())
+	}
+	if len(events) == 0 {
+		t.Fatalf("events = %d, want progress callbacks", len(events))
+	}
+}
+
 func TestRunCLIWorkspaceNormalizationCases(t *testing.T) {
 	testCases := []struct {
 		name             string
