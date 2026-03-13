@@ -157,6 +157,60 @@ func TestRunnerBuiltinsShellCapturesArtifactsAndNormalizesCWD(t *testing.T) {
 	}
 }
 
+func TestRunnerBuiltinsShellResolveTemplatedScalars(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Params: map[string]any{
+			"filename": "report",
+			"content":  "templated",
+		},
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID: "shell-step",
+						Fields: map[string]any{
+							"command": []any{
+								"sh",
+								"-lc",
+								"printf '{{ ctx.params.content }}' > {{ ctx.params.filename }}.txt",
+							},
+							"cwd": "{{ ctx.workspace.root }}/nested",
+							"files": map[string]any{
+								"report": "{{ ctx.workspace.root }}/nested/{{ ctx.params.filename }}.txt",
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	if err := os.MkdirAll(filepath.Join(config.Workspace.Root, "nested"), 0o755); err != nil {
+		t.Fatalf("mkdir nested cwd: %v", err)
+	}
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	snapshot, err := NewRunner(nil).Run(context.Background(), config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	reportPath := snapshot.Steps[0].Artifacts.Files["report"]
+	if reportPath == "" {
+		t.Fatalf("named report artifact missing")
+	}
+	if got := strings.TrimSpace(readFile(t, reportPath)); got != "templated" {
+		t.Fatalf("captured report = %q, want templated", got)
+	}
+}
+
 func TestRunnerPersistsRunMetadataAndArtifactsUnderRunDirectory(t *testing.T) {
 	t.Parallel()
 
@@ -324,10 +378,19 @@ func TestRunnerBuiltinsExprAndWhenSkip(t *testing.T) {
 						},
 					},
 					{
+						ID: "when-shorthand",
+						Fields: map[string]any{
+							"expr": "ran",
+							"when": `$.prev.value["ok"]`,
+						},
+					},
+					{
 						ID: "skip-expr",
 						Fields: map[string]any{
 							"expr": "ignored",
-							"when": false,
+							"when": map[string]any{
+								"expr": `False`,
+							},
 						},
 					},
 					{
@@ -356,11 +419,14 @@ func TestRunnerBuiltinsExprAndWhenSkip(t *testing.T) {
 	if got := snapshot.Steps[0].Value.(map[string]any)["ok"]; got != true {
 		t.Fatalf("expr value ok = %#v, want true", got)
 	}
-	if snapshot.Steps[1].Status != state.StepStatusSkipped {
-		t.Fatalf("skip-expr status = %q, want skipped", snapshot.Steps[1].Status)
+	if snapshot.Steps[1].Status != state.StepStatusSucceeded {
+		t.Fatalf("when-shorthand status = %q, want succeeded", snapshot.Steps[1].Status)
 	}
 	if snapshot.Steps[2].Status != state.StepStatusSkipped {
-		t.Fatalf("skip-assert status = %q, want skipped", snapshot.Steps[2].Status)
+		t.Fatalf("skip-expr status = %q, want skipped", snapshot.Steps[2].Status)
+	}
+	if snapshot.Steps[3].Status != state.StepStatusSkipped {
+		t.Fatalf("skip-assert status = %q, want skipped", snapshot.Steps[3].Status)
 	}
 }
 
@@ -400,6 +466,170 @@ func TestRunnerBuiltinAssertFailsStructurally(t *testing.T) {
 	}
 	if failedErr.Failure.Message != "nope" {
 		t.Fatalf("failure message = %q, want nope", failedErr.Failure.Message)
+	}
+}
+
+func TestRunnerBuiltinAssertUsesSharedRuntime(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID: "produce",
+						Fields: map[string]any{
+							"expr": map[string]any{
+								"approved": false,
+								"message":  "templated failure",
+							},
+						},
+					},
+					{
+						ID: "check",
+						Fields: map[string]any{
+							"assert":  `$.prev.value["approved"]`,
+							"message": `{{ ctx.prev.value["message"] }}`,
+						},
+					},
+				},
+			},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	_, err := NewRunner(nil).Run(context.Background(), config)
+	var failedErr RunFailedError
+	if !errors.As(err, &failedErr) {
+		t.Fatalf("run error = %v, want RunFailedError", err)
+	}
+	if failedErr.Failure.Code != "assertion_failed" {
+		t.Fatalf("failure code = %q, want assertion_failed", failedErr.Failure.Code)
+	}
+	if failedErr.Failure.Message != "templated failure" {
+		t.Fatalf("failure message = %q, want templated failure", failedErr.Failure.Message)
+	}
+}
+
+func TestRunnerExpressionsTemplatesAndExpectShareRuntimeTypes(t *testing.T) {
+	t.Parallel()
+
+	payload := map[string]any{
+		"approved": true,
+		"items":    []any{"x", int64(3)},
+	}
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Params: map[string]any{
+			"payload": payload,
+		},
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID: "expr-shorthand",
+						Fields: map[string]any{
+							"expr": "$.params.payload",
+						},
+					},
+					{
+						ID: "template-whole",
+						Fields: map[string]any{
+							"expr": "{{ ctx.params.payload }}",
+						},
+					},
+					{
+						ID: "literal-escape",
+						Fields: map[string]any{
+							"expr": "$$.params.payload",
+						},
+					},
+					{
+						ID: "expect-current-step",
+						Fields: map[string]any{
+							"expr": map[string]any{
+								"approved": true,
+							},
+							"expect": map[string]any{
+								"expr": `ctx.value["approved"]`,
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	snapshot, err := NewRunner(nil).Run(context.Background(), config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	gotPayload, ok := snapshot.Steps[0].Value.(map[string]any)
+	if !ok {
+		t.Fatalf("expr shorthand value type = %T, want map[string]any", snapshot.Steps[0].Value)
+	}
+	if gotPayload["approved"] != true {
+		t.Fatalf("expr shorthand approved = %#v, want true", gotPayload["approved"])
+	}
+	if !reflect.DeepEqual(snapshot.Steps[1].Value, snapshot.Steps[0].Value) {
+		t.Fatalf("template value = %#v, want %#v", snapshot.Steps[1].Value, snapshot.Steps[0].Value)
+	}
+	if snapshot.Steps[2].Value != "$.params.payload" {
+		t.Fatalf("escaped value = %#v, want %q", snapshot.Steps[2].Value, "$.params.payload")
+	}
+	if snapshot.Steps[3].Status != state.StepStatusSucceeded {
+		t.Fatalf("expect step status = %q, want succeeded", snapshot.Steps[3].Status)
+	}
+}
+
+func TestRunnerExpectDoesNotOverrideExecutionFailure(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID: "shell-failure",
+						Fields: map[string]any{
+							"command": "exit 2",
+							"expect": map[string]any{
+								"expr": "False",
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	_, err := NewRunner(nil).Run(context.Background(), config)
+	var failedErr RunFailedError
+	if !errors.As(err, &failedErr) {
+		t.Fatalf("run error = %v, want RunFailedError", err)
+	}
+	if failedErr.Failure.Code != "shell_failed" {
+		t.Fatalf("failure code = %q, want shell_failed", failedErr.Failure.Code)
 	}
 }
 

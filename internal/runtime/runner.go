@@ -7,6 +7,7 @@ import (
 	"os"
 
 	executorapi "auto/internal/executor"
+	exprruntime "auto/internal/expr"
 	"auto/internal/spec"
 	"auto/internal/state"
 )
@@ -178,8 +179,9 @@ func (r *Runner) executeStep(
 		ID:    step.ID,
 		Type:  step.ExecutorType(),
 	})
+	runtime := exprruntime.NewRuntime(buildRuntimeContext(config, previous))
 
-	if skip, failure := shouldSkipStep(stepIndex, step); failure != nil {
+	if skip, failure := shouldSkipStep(stepIndex, step, runtime); failure != nil {
 		result.Status = state.StepStatusFailed
 		result.Error = failure
 		return result
@@ -226,6 +228,7 @@ func (r *Runner) executeStep(
 		StepIndex: stepIndex,
 		Step:      step,
 		Previous:  previous,
+		Runtime:   runtime,
 	})
 	result = executorapi.NormalizeResult(result)
 	result.Index = stepIndex
@@ -234,6 +237,13 @@ func (r *Runner) executeStep(
 	}
 	if result.Type == "" {
 		result.Type = step.ExecutorType()
+	}
+
+	if result.Status == state.StepStatusSucceeded {
+		if failure := expectStep(stepIndex, step, runtime, result); failure != nil {
+			result.Status = state.StepStatusFailed
+			result.Error = failure
+		}
 	}
 
 	switch result.Status {
@@ -257,13 +267,21 @@ func (r *Runner) executeStep(
 	}
 }
 
-func shouldSkipStep(stepIndex int, step spec.Step) (bool, *state.Failure) {
+func shouldSkipStep(stepIndex int, step spec.Step, runtime exprruntime.Runtime) (bool, *state.Failure) {
 	value, ok := step.Fields["when"]
 	if !ok {
 		return false, nil
 	}
 
-	enabled, ok := value.(bool)
+	resolved, err := runtime.Resolve(value)
+	if err != nil {
+		return false, &state.Failure{
+			Code:    "invalid_when",
+			Message: fmt.Sprintf("step %d when is invalid: %v", stepIndex, err),
+		}
+	}
+
+	enabled, ok := resolved.(bool)
 	if !ok {
 		return false, &state.Failure{
 			Code:    "invalid_when",
@@ -272,6 +290,38 @@ func shouldSkipStep(stepIndex int, step spec.Step) (bool, *state.Failure) {
 	}
 
 	return !enabled, nil
+}
+
+func expectStep(stepIndex int, step spec.Step, runtime exprruntime.Runtime, result state.StepResult) *state.Failure {
+	value, ok := step.Fields["expect"]
+	if !ok {
+		return nil
+	}
+
+	boundRuntime := runtime.WithBindings(stepResultContext(result))
+	resolved, err := boundRuntime.Resolve(value)
+	if err != nil {
+		return &state.Failure{
+			Code:    "invalid_expect",
+			Message: fmt.Sprintf("step %d expect is invalid: %v", stepIndex, err),
+		}
+	}
+
+	passed, ok := resolved.(bool)
+	if !ok {
+		return &state.Failure{
+			Code:    "invalid_expect",
+			Message: fmt.Sprintf("step %d expect must be a boolean", stepIndex),
+		}
+	}
+	if passed {
+		return nil
+	}
+
+	return &state.Failure{
+		Code:    "expectation_failed",
+		Message: fmt.Sprintf("step %d expectation failed", stepIndex),
+	}
 }
 
 func durableFailedStep(snapshot state.Snapshot) *state.StepResult {

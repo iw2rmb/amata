@@ -13,7 +13,7 @@ amata run <spec.yaml> [--workspace <dir>] [--run-id <id>]
 amata resume <run-id>
 ```
 
-The current implementation is limited to one sequential entry flow, durable on-disk run state, and three built-in executors: `shell`, `expr`, and `assert`.
+The current implementation is limited to one sequential entry flow, durable on-disk run state, one shared expression runtime context, and three built-in executors: `shell`, `expr`, and `assert`.
 
 ## Workflow Spec
 
@@ -38,12 +38,38 @@ Current behavior:
 - `version`, `name`, `entry`, and `flows` are required.
 - `entry` must name a flow present in `flows`.
 - `workspace.root` and `workspace.state_dir` are accepted and normalized before execution.
-- `params`, `defaults`, and `schemas` are parsed and persisted, but the runtime does not interpret them yet.
+- `params` are exposed to expressions and templates under `ctx.params`.
+- `defaults` and `schemas` are parsed and persisted, but the runtime does not interpret them yet.
 - A step may declare `type`, or omit it when one of these shorthands is present:
   - `command` -> `shell`
   - `expr` -> `expr`
   - `assert` -> `assert`
-- `when` is supported only as a literal boolean. `false` skips the step before executor dispatch.
+- `when` resolves through the shared expression runtime and must evaluate to a boolean. `false` skips the step before executor dispatch.
+
+## Expression Runtime
+
+The shared runtime context is exposed at `ctx`:
+- `ctx.workspace.root`
+- `ctx.workspace.state_dir`
+- `ctx.params`
+- `ctx.prev`
+
+`ctx.prev` contains the last succeeded step result:
+- `index`
+- `id`
+- `type`
+- `status`
+- `value`
+- `error`
+- `artifacts.stdout`
+- `artifacts.stderr`
+- `artifacts.files`
+
+Expression-bearing scalar positions also support two whole-scalar shorthands:
+- A value starting with `$.` resolves as a Starlark expression rooted at `ctx`.
+- A value starting with `$$` escapes that shorthand and becomes a literal string with one leading `$`.
+
+Strings containing `{{ ... }}` use the same evaluator for template interpolation. A template consisting of one expression returns that raw JSON-like value instead of stringifying it.
 
 ## Workspace and Run Layout
 
@@ -115,6 +141,7 @@ Supported fields:
 Behavior:
 - A string `command` runs as `sh -lc <command>`.
 - An array `command` runs as an argv-style process.
+- `command`, `cwd`, and `files` values resolve through the shared expression/template runtime before execution.
 - `cwd` defaults to `workspace.root`. Relative values resolve from `workspace.root`.
 - `stdout` and `stderr` are always captured under the run artifact directory.
 - `files` copies named files into the run artifact directory after the command exits.
@@ -127,26 +154,32 @@ Supported fields:
 - `expr`: required
 
 Behavior:
-- The executor returns the literal `expr` value as the step `value`.
-- No expression language or context evaluation is implemented yet.
+- The executor resolves `expr` through the shared Starlark/template runtime.
+- Successful results are returned as JSON-like values (`nil`, booleans, strings, numbers, arrays, and objects).
 
 ### `assert`
 
 Supported fields:
-- `assert`: required boolean
+- `assert`: required expression-bearing value that must resolve to a boolean
 - `message`: optional string
 
 Behavior:
+- `assert` resolves through the shared Starlark/template runtime.
 - `true` succeeds with `value: true`.
 - `false` fails with code `assertion_failed`.
-- `message`, when present, becomes the failure message.
+- `message`, when present, resolves through the shared runtime and becomes the failure message.
+
+## Step Conditions and Expectations
+
+- `when` runs before executor dispatch in the normal runtime context.
+- `expect` runs only after a succeeded step.
+- `expect` extends the normal runtime context with the current step result at `ctx.status`, `ctx.value`, `ctx.error`, and `ctx.artifacts`.
+- `expect` must resolve to a boolean. `false` fails the step with code `expectation_failed`.
 
 ## Current Limits
 
 Not implemented yet:
-- expression evaluation
 - schema validation
-- template interpolation
 - workflow-wide defaults and params evaluation
 - subflows, branching, and other control blocks
 - agent executors

@@ -6,15 +6,10 @@ Documentation: [Engine design](../../design/engine/engine.md)
 
 Legend: [ ] todo, [x] done.
 
-- [ ] 2.1 Integrate Starlark evaluation and one runtime context shape
-  - Repository: auto
-  - Component: `internal/expr`, `internal/template`, runtime context builder
-  - Verification: `$.` shorthand resolves through `ctx`, `$$` escapes literal scalars, templates and expressions return the same JSON-like types
-  - Reasoning: high
-  1. Add a Starlark evaluator that accepts immutable JSON-like runtime input and returns JSON-serializable values.
-  2. Build one context shape that exposes `ctx.workspace`, `ctx.params`, `ctx.prev`, and the current step bindings without any step-id lookup API.
-  3. Implement whole-scalar `$.` shorthand and `$$` escaping in literal-or-expression scalar positions.
-  4. Reuse the same evaluator for `expr`, `when`, `expect`, and `{{ ... }}` template rendering.
+- [x] 2.1 Integrate Starlark evaluation and one runtime context shape
+  - Added shared `internal/expr` Starlark evaluation over immutable JSON-like runtime input and `internal/template` rendering that preserves raw JSON-like values for whole-template expressions.
+  - Unified runtime context under `ctx.workspace`, `ctx.params`, `ctx.prev`, plus current-step `ctx.status`, `ctx.value`, `ctx.error`, and `ctx.artifacts` bindings for `expect`.
+  - Reused the same resolver across `expr`, `when`, `expect`, `assert`, and templated shell scalar fields, including whole-scalar `$.` shorthand and `$$` escaping coverage.
 
 - [ ] 2.2 Implement response resolution and schema validation
   - Repository: auto

@@ -25,7 +25,7 @@ func New() executor.Executor {
 }
 
 func (e *Executor) Execute(ctx context.Context, stepCtx executor.StepContext) state.StepResult {
-	command, err := resolveCommand(stepCtx.Step.Fields["command"])
+	command, err := resolveCommand(stepCtx, stepCtx.Step.Fields["command"])
 	if err != nil {
 		return executor.Failed("invalid_command", fmt.Sprintf("step %d: %v", stepCtx.StepIndex, err))
 	}
@@ -81,20 +81,24 @@ func (e *Executor) Execute(ctx context.Context, stepCtx executor.StepContext) st
 	return result
 }
 
-func resolveCommand(value any) ([]string, error) {
+func resolveCommand(stepCtx executor.StepContext, value any) ([]string, error) {
 	switch command := value.(type) {
 	case string:
-		if strings.TrimSpace(command) == "" {
+		resolved, err := stepCtx.Runtime.ResolveString(command)
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(resolved) == "" {
 			return nil, fmt.Errorf("command must not be empty")
 		}
-		return []string{"sh", "-lc", command}, nil
+		return []string{"sh", "-lc", resolved}, nil
 	case []any:
 		if len(command) == 0 {
 			return nil, fmt.Errorf("command array must not be empty")
 		}
 		args := make([]string, 0, len(command))
 		for index, part := range command {
-			text, err := scalarString(part)
+			text, err := stepCtx.Runtime.ResolveString(part)
 			if err != nil {
 				return nil, fmt.Errorf("command[%d]: %w", index, err)
 			}
@@ -112,7 +116,7 @@ func resolveCWD(stepCtx executor.StepContext) (string, error) {
 		return stepCtx.Workspace.Root, nil
 	}
 
-	text, err := scalarString(value)
+	text, err := stepCtx.Runtime.ResolveString(value)
 	if err != nil {
 		return "", err
 	}
@@ -164,7 +168,7 @@ func resolveNamedFiles(stepCtx executor.StepContext) ([]namedFile, error) {
 
 	files := make([]namedFile, 0, len(rawFiles))
 	for name, rawPath := range rawFiles {
-		source, err := scalarString(rawPath)
+		source, err := stepCtx.Runtime.ResolveString(rawPath)
 		if err != nil {
 			return nil, fmt.Errorf("files[%q]: %w", name, err)
 		}
@@ -205,17 +209,6 @@ func captureNamedFiles(stepDir string, files []namedFile) (map[string]string, er
 	}
 
 	return captured, nil
-}
-
-func scalarString(value any) (string, error) {
-	text, ok := value.(string)
-	if !ok {
-		return "", fmt.Errorf("must be a string")
-	}
-	if text == "" {
-		return "", fmt.Errorf("must not be empty")
-	}
-	return text, nil
 }
 
 func stepSlug(index int, id string) string {

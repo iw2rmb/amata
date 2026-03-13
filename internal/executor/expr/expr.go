@@ -20,5 +20,10 @@ func (e *Executor) Execute(_ context.Context, ctx executor.StepContext) state.St
 		return executor.Failed("invalid_expr", fmt.Sprintf("step %d is missing expr", ctx.StepIndex))
 	}
 
-	return executor.Succeeded(value)
+	resolved, err := ctx.Runtime.Resolve(value)
+	if err != nil {
+		return executor.Failed("invalid_expr", fmt.Sprintf("step %d: %v", ctx.StepIndex, err))
+	}
+
+	return executor.Succeeded(resolved)
 }

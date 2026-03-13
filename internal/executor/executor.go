@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 
+	exprruntime "auto/internal/expr"
 	"auto/internal/spec"
 	"auto/internal/state"
 	"auto/internal/workspace"
@@ -23,4 +24,5 @@ type StepContext struct {
 	StepIndex int
 	Step      spec.Step
 	Previous  *state.StepResult
+	Runtime   exprruntime.Runtime
 }

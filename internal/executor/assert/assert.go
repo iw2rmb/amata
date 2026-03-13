@@ -20,7 +20,12 @@ func (e *Executor) Execute(_ context.Context, ctx executor.StepContext) state.St
 		return executor.Failed("invalid_assert", fmt.Sprintf("step %d is missing assert", ctx.StepIndex))
 	}
 
-	passed, ok := value.(bool)
+	resolved, err := ctx.Runtime.Resolve(value)
+	if err != nil {
+		return executor.Failed("invalid_assert", fmt.Sprintf("step %d: %v", ctx.StepIndex, err))
+	}
+
+	passed, ok := resolved.(bool)
 	if !ok {
 		return executor.Failed("invalid_assert", fmt.Sprintf("step %d assert must be a boolean", ctx.StepIndex))
 	}
@@ -30,9 +35,9 @@ func (e *Executor) Execute(_ context.Context, ctx executor.StepContext) state.St
 
 	message := fmt.Sprintf("step %d assertion failed", ctx.StepIndex)
 	if rawMessage, ok := ctx.Step.Fields["message"]; ok {
-		text, isString := rawMessage.(string)
-		if !isString {
-			return executor.Failed("invalid_assert_message", fmt.Sprintf("step %d message must be a string", ctx.StepIndex))
+		text, err := ctx.Runtime.ResolveString(rawMessage)
+		if err != nil {
+			return executor.Failed("invalid_assert_message", fmt.Sprintf("step %d: %v", ctx.StepIndex, err))
 		}
 		message = text
 	}
