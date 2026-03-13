@@ -79,7 +79,7 @@ func TestReferenceWorkflowSmoke(t *testing.T) {
 	commits := gitLogSubjects(t, harness.repoDir)
 	wantPrefixes := []string{
 		"docs: remove completed roadmap",
-		"fixture: validate plugin wiring",
+		"fixture: validate built-in executor wiring",
 		"fixture: implement first fixture change",
 	}
 	for index, want := range wantPrefixes {
@@ -162,7 +162,7 @@ func TestReferenceWorkflowResumeDoesNotReplayCommittedWork(t *testing.T) {
 	if got := countSubject(gitLogSubjects(t, harness.repoDir), "fixture: implement first fixture change"); got != 1 {
 		t.Fatalf("first item commit count after resume = %d, want 1", got)
 	}
-	if got := countSubject(gitLogSubjects(t, harness.repoDir), "fixture: validate plugin wiring"); got != 1 {
+	if got := countSubject(gitLogSubjects(t, harness.repoDir), "fixture: validate built-in executor wiring"); got != 1 {
 		t.Fatalf("second item commit count after resume = %d, want 1", got)
 	}
 	if got := countSubject(gitLogSubjects(t, harness.repoDir), "docs: remove completed roadmap"); got != 1 {
@@ -368,7 +368,7 @@ def mark_item_done(root, label):
         text = handle.read()
     replacements = {
         '1.1': '- [ ] 1.1 Implement the first fixture change',
-        '1.2': '- [ ] 1.2 Validate the plugin wiring',
+        '1.2': '- [ ] 1.2 Validate built-in executor wiring',
     }
     marker = replacements[label]
     if marker in text:
@@ -433,15 +433,15 @@ def handle_codex(root, prompt):
             'reviewReasoning': 'medium',
             'summary': 'Updated the current-state docs.',
         }
-    if 'Implement next open item from the' in prompt and '1.2 Validate the plugin wiring' in prompt:
+    if 'Implement next open item from the' in prompt and '1.2 Validate built-in executor wiring' in prompt:
         append_log(root, 'codex:implement:1.2')
         maybe_block(root, '1.2')
         ensure_doc_line(root, 'The workflow uses built-in executors only.')
         mark_item_done(root, '1.2')
         return {
-            'itemTitle': '1.2 Validate the plugin wiring',
+            'itemTitle': '1.2 Validate built-in executor wiring',
             'itemLabel': '1.2',
-            'commitMessage': 'fixture: validate plugin wiring',
+            'commitMessage': 'fixture: validate built-in executor wiring',
             'reviewReasoning': 'high',
             'summary': 'Confirmed the workflow uses built-in executors.',
         }
@@ -454,13 +454,13 @@ def handle_codex(root, prompt):
             'itemTitle': '1.1 Implement the first fixture change',
             'itemLabel': '1.1',
         }
-    if 'Review the current uncommitted diff for the selected roadmap item.' in prompt and '1.2 Validate the plugin wiring' in prompt:
+    if 'Review the current uncommitted diff for the selected roadmap item.' in prompt and '1.2 Validate built-in executor wiring' in prompt:
         append_log(root, 'codex:review:1.2')
         return {
             'approved': True,
             'notes': 'ready',
-            'commitMessage': 'fixture: validate plugin wiring',
-            'itemTitle': '1.2 Validate the plugin wiring',
+            'commitMessage': 'fixture: validate built-in executor wiring',
+            'itemTitle': '1.2 Validate built-in executor wiring',
             'itemLabel': '1.2',
         }
     if 'Confirm by inspecting the codebase, tests, and current documentation' in prompt:

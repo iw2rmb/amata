@@ -2,7 +2,7 @@
 
 This document describes the shipped `amata` engine behavior in this repository.
 
-See [Documentation](../index.md).
+See [Documentation](../index.md), [Engine example bundle](../../design/engine/example/README.md), and [Deferred engine research](../../research/hardcore.md).
 
 ## Summary
 

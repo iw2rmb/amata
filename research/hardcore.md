@@ -4,7 +4,7 @@
 
 Capture deferred design work that should not block `amata/v1`.
 
-This document is research, not an implementation-ready design. The first-version contract lives in [design/engine/engine.md](../design/engine/engine.md).
+This document is research, not an implementation-ready design. The shipped first-version contract lives in [docs/engine/index.md](../docs/engine/index.md).
 
 ## Deferred Subjects
 
@@ -62,6 +62,6 @@ Evidence needed before design work:
 
 ## References
 
-- First-version design: [design/engine/engine.md](../design/engine/engine.md)
+- First-version contract: [docs/engine/index.md](../docs/engine/index.md)
 - Current Dagu workflow overview: [dagu/implement-roadmap/README.md](../dagu/implement-roadmap/README.md)
 - Current Codex wrapper behavior: [dagu/implement-roadmap/scripts/run-codex-prompt.sh](../dagu/implement-roadmap/scripts/run-codex-prompt.sh)

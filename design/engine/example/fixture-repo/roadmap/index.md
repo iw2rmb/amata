@@ -8,9 +8,9 @@
   1. Update the current-state docs.
   2. Mark only this item done.
 
-- [ ] 1.2 Validate the plugin wiring
+- [ ] 1.2 Validate built-in executor wiring
   - Repository: design/engine/example/fixture-repo
-  - Component: plugins
+  - Component: workflow
   - Verification: python3 -m py_compile design/engine/example/scripts/*.py
   - Reasoning: high
-  1. Confirm the plugin scripts cover the custom step types in the example workflow.
+  1. Confirm the built-in engine steps cover the example workflow without plugin scripts.

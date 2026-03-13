@@ -4,4 +4,4 @@ The fixture repository is intentionally minimal.
 
 It exists so the workflow example has:
 - a `docs/` tree for documentation updates
-- a `roadmap/` tree for `roadmap.items` and `roadmap.mark_done`
+- a `roadmap/` tree for roadmap item queries and completion checks

@@ -1,18 +1,16 @@
 # Engine Example Bundle
 
-This folder is a self-contained reference bundle for the engine contract in [../engine.md](../engine.md).
+This folder is a self-contained reference bundle for the shipped engine contract in [Engine docs](../../../docs/engine/index.md).
 
 It contains:
 - `implement-roadmap.yaml`
   - the workflow spec
-- `sdk/`
-  - shared helpers for the remaining example scripts
 - `scripts/`
   - roadmap helper scripts
 - `fixture-repo/`
   - a sample target tree inside the host repository
 
-Built-in runtime assumptions from the engine design:
+Built-in runtime assumptions from the shipped engine contract:
 - `shell`
 - `codex`
 - `claude`
@@ -31,7 +29,7 @@ Notes:
 - Launch-time inputs such as `roadmap_file`, `codex_model`, or `claude_model` are overridden through repeated `--set key=value` flags.
 - `roadmap_file` accepts repo-relative paths, absolute paths, and `~/...` home-relative paths.
 - The default `roadmap_file` still points at the sample roadmap under `design/engine/example/fixture-repo/`.
-- `sdk/python.py` remains only for the older `roadmap_mark_done.py` helper; the active `roadmap_items.py` flow now uses a direct CLI contract.
+- The active roadmap helper contract is the direct CLI in `scripts/roadmap_items.py`.
 
 Minimal `git.inspect` usage:
 
