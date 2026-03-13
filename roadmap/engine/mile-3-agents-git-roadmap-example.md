@@ -11,15 +11,11 @@ Legend: [ ] todo, [x] done.
   - Implemented `codex` structured output through `codex exec --output-schema` and `claude` structured output through provider JSON schema support with prompt-level fallback normalization when structured flags are unavailable.
   - Focused validation: `go test ./internal/executor/... ./internal/runtime ./internal/schema`
 
-- [ ] 3.2 Add typed Git executors with a narrow CLI escape hatch
-  - Repository: auto
-  - Component: `internal/executor/gitinspect`, `internal/executor/gitcommit`, typed Git adapter
-  - Verification: `git.inspect` returns one consistent snapshot including untracked files, `git.commit` excludes `workspace.state_dir`, unrelated staged changes never leak into engine commits
-  - Reasoning: xhigh
-  1. Implement `git.inspect` on the typed Git layer so `isRepo`, `hasDiff`, and `files` come from one repository snapshot.
-  2. Implement `git.commit` candidate selection on normalized repo-relative paths with directory-prefix exclusion semantics.
-  3. Keep `go-git` as the default backend and isolate any required Git CLI fallback behind one internal adapter package.
-  4. Enforce default exclusion of `workspace.state_dir` when that state directory sits inside the target repository tree.
+- [x] 3.2 Add typed Git executors with a narrow CLI escape hatch
+  - Added a typed `internal/gitadapter` service that uses `go-git` for repo discovery and one status snapshot, so `git.inspect` returns `isRepo`, `hasDiff`, and `files` from the same untracked-inclusive view.
+  - Implemented `internal/executor/gitcommit` and `internal/executor/gitinspect`, wired both into built-in executor registration, and normalized commit exclusion matching on repo-relative directory prefixes.
+  - Isolated the required Git CLI mutation path inside the adapter with `git add -A -- <included>` plus `git commit -- <included>`, which commits only the filtered candidate set and leaves excluded staged paths untouched.
+  - Focused validation: `go test ./internal/gitadapter ./internal/executor/gitinspect ./internal/executor/gitcommit ./internal/runtime`
 
 - [ ] 3.3 Port the reference `implement-roadmap` flow to engine-owned control flow
   - Repository: auto

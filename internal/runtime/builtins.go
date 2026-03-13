@@ -6,6 +6,8 @@ import (
 	claudeexec "auto/internal/executor/claude"
 	codexexec "auto/internal/executor/codex"
 	exprexec "auto/internal/executor/expr"
+	gitcommitexec "auto/internal/executor/gitcommit"
+	gitinspectexec "auto/internal/executor/gitinspect"
 	shellexec "auto/internal/executor/shell"
 )
 
@@ -16,6 +18,8 @@ func builtinRegistry() *Registry {
 	mustRegister(registry, "assert", assertexec.New)
 	mustRegister(registry, "codex", codexexec.New)
 	mustRegister(registry, "claude", claudeexec.New)
+	mustRegister(registry, "git.inspect", gitinspectexec.New)
+	mustRegister(registry, "git.commit", gitcommitexec.New)
 	return registry
 }
 

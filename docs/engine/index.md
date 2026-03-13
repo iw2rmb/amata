@@ -13,7 +13,7 @@ amata run <spec.yaml> [--workspace <dir>] [--run-id <id>]
 amata resume <run-id>
 ```
 
-The current implementation includes durable on-disk run state, one shared expression/template runtime, response value and schema handling, five built-in executors (`shell`, `expr`, `assert`, `codex`, and `claude`), and first-version control blocks (`switch` and `call`) over a deterministically planned resumable flow stack.
+The current implementation includes durable on-disk run state, one shared expression/template runtime, response value and schema handling, seven built-in executors (`shell`, `expr`, `assert`, `codex`, `claude`, `git.inspect`, and `git.commit`), and first-version control blocks (`switch` and `call`) over a deterministically planned resumable flow stack.
 
 ## Workflow Spec
 
@@ -245,6 +245,42 @@ Behavior:
 - Raw provider stdout, stderr, the rendered prompt, the final transcript, and provider metadata persist as step artifacts.
 - Without `response.schema`, the step `value` is the raw final transcript text.
 
+### `git.inspect`
+
+Supported fields:
+- `type: git.inspect`
+- `cwd`: optional string
+
+Behavior:
+- `cwd` resolves through the shared expression/template runtime before execution.
+- `cwd` defaults to `workspace.root`.
+- Relative `cwd` values resolve from `workspace.root`.
+- The executor returns `value.isRepo`, `value.hasDiff`, and `value.files` from one repository status snapshot.
+- `value.files` is a sorted array of repo-relative paths and includes untracked files.
+- When `cwd` is not inside a Git work tree, the step still succeeds with `value.isRepo: false`, `value.hasDiff: false`, and `value.files: []`.
+
+### `git.commit`
+
+Supported fields:
+- `type: git.commit`
+- `message`: required string
+- `cwd`: optional string
+- `exclude_paths`: optional array of repo-relative path prefixes
+
+Behavior:
+- `message`, `cwd`, and `exclude_paths` items resolve through the shared expression/template runtime before execution.
+- `cwd` defaults to `workspace.root`.
+- Relative `cwd` values resolve from `workspace.root`.
+- The executor fails with `not_git_repo` when `cwd` is not inside a Git work tree.
+- Candidate paths come from one repository snapshot that includes untracked files.
+- `exclude_paths` use normalized repo-relative directory-prefix matching instead of raw Git pathspec behavior.
+- `workspace.state_dir` is excluded by default when it sits inside the target repository tree.
+- Only the included candidate path set is staged and committed, so unrelated staged changes outside that set are not absorbed into the engine commit.
+- The typed Git adapter uses `go-git` for repo discovery and status inspection, with the Git CLI limited to the internal mutation path needed for staged path-scoped commits.
+- The step returns `value.committed`, `value.commit`, and `value.paths`.
+- When no included changed paths remain after filtering, the step succeeds with `value.committed: false`, `value.commit: null`, and `value.paths: []`.
+- When included paths remain but staging them produces no staged diff, the step succeeds with `value.committed: false`, `value.commit: null`, and `value.paths` set to the included repo-relative paths.
+
 ## Response Resolution and Schema Validation
 
 Steps may declare:
@@ -278,7 +314,6 @@ Current behavior:
 
 Not implemented yet:
 - workflow-wide defaults and params evaluation beyond current agent-step support
-- Git executors
 - provider-session continuation
 - pause and continue
 - parallel execution
