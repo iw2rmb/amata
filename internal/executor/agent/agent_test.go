@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"auto/internal/executor"
@@ -145,6 +146,11 @@ func TestExecutorResolvesDefaultsTemplatesAndPersistsArtifacts(t *testing.T) {
 	if !reflect.DeepEqual(resolved.Value, wantValue) {
 		t.Fatalf("value = %#v, want %#v", resolved.Value, wantValue)
 	}
+	assertArtifactPathPrefix(t, resolved.Artifacts.Stdout, filepath.Join(runDir, "artifacts", "step-00-shared-agent"))
+	assertArtifactPathPrefix(t, resolved.Artifacts.Stderr, filepath.Join(runDir, "artifacts", "step-00-shared-agent"))
+	assertArtifactPathPrefix(t, resolved.Artifacts.Files["prompt"], filepath.Join(runDir, "artifacts", "step-00-shared-agent"))
+	assertArtifactPathPrefix(t, resolved.Artifacts.Files["transcript"], filepath.Join(runDir, "artifacts", "step-00-shared-agent"))
+	assertArtifactPathPrefix(t, resolved.Artifacts.Files["metadata"], filepath.Join(runDir, "artifacts", "step-00-shared-agent"))
 
 	assertArtifactContents(t, resolved.Artifacts.Stdout, "codex stdout\n")
 	assertArtifactContents(t, resolved.Artifacts.Stderr, "codex stderr\n")
@@ -294,6 +300,111 @@ func TestExecutorPersistsProviderAdjustedPrompt(t *testing.T) {
 	assertArtifactContents(t, result.Artifacts.Files["prompt"], "Original prompt\n\nReturn only JSON.")
 }
 
+func TestExecutorReturnsInvalidProviderPayloadFailureAndPersistsArtifacts(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	runDir := filepath.Join(rootDir, ".amata", "runs", "run-04")
+	workspaceConfig := workspace.Config{
+		Root:     rootDir,
+		StateDir: filepath.Join(rootDir, ".amata"),
+	}
+	step := spec.Step{
+		ID:   "invalid-provider-output",
+		Type: "codex",
+		Fields: map[string]any{
+			"prompt": "Return JSON",
+			"response": map[string]any{
+				"schema": map[string]any{
+					"type":                 "object",
+					"required":             []any{"approved"},
+					"additionalProperties": false,
+					"properties": map[string]any{
+						"approved": "boolean",
+					},
+				},
+			},
+		},
+	}
+
+	provider := &fakeProvider{
+		name: "codex",
+		execute: func(_ context.Context, request agent.Request) (agent.Response, *agent.Error) {
+			if request.Structured == nil {
+				t.Fatalf("structured output request missing")
+			}
+			return agent.Response{
+					Prompt:     request.Prompt + "\n\nProvider attempted JSON output.",
+					Transcript: []byte("not-json"),
+					Stdout:     []byte("provider stdout\n"),
+					Stderr:     []byte("provider stderr\n"),
+					Metadata: map[string]any{
+						"structuredOutputMode": "provider_schema",
+					},
+				}, &agent.Error{
+					Code:    "invalid_provider_output",
+					Message: "structured output does not contain valid JSON",
+				}
+		},
+	}
+
+	result := agent.New(provider).Execute(context.Background(), executor.StepContext{
+		RunDir: runDir,
+		Spec: spec.Document{
+			Defaults: map[string]any{
+				"executors": map[string]any{
+					"codex": map[string]any{
+						"model": "gpt-5.4",
+					},
+				},
+			},
+		},
+		Workspace: workspaceConfig,
+		StepIndex: 3,
+		Step:      step,
+		Runtime:   runtimeForWorkspace(workspaceConfig, nil),
+	})
+
+	if result.Status != state.StepStatusFailed {
+		t.Fatalf("result status = %q, want failed", result.Status)
+	}
+	if result.Error == nil || result.Error.Code != "invalid_provider_output" {
+		t.Fatalf("result error = %#v, want invalid_provider_output", result.Error)
+	}
+	if got := result.Error.Message; !strings.Contains(got, "structured output does not contain valid JSON") {
+		t.Fatalf("result error message = %q, want provider error detail", got)
+	}
+
+	stepDir := filepath.Join(runDir, "artifacts", "step-03-invalid-provider-output")
+	assertArtifactPathPrefix(t, result.Artifacts.Stdout, stepDir)
+	assertArtifactPathPrefix(t, result.Artifacts.Stderr, stepDir)
+	assertArtifactPathPrefix(t, result.Artifacts.Files["prompt"], stepDir)
+	assertArtifactPathPrefix(t, result.Artifacts.Files["transcript"], stepDir)
+	assertArtifactPathPrefix(t, result.Artifacts.Files["metadata"], stepDir)
+	assertArtifactContents(t, result.Artifacts.Stdout, "provider stdout\n")
+	assertArtifactContents(t, result.Artifacts.Stderr, "provider stderr\n")
+	assertArtifactContents(t, result.Artifacts.Files["prompt"], "Return JSON\n\nProvider attempted JSON output.")
+	assertArtifactContents(t, result.Artifacts.Files["transcript"], "not-json")
+
+	metadataFile, err := os.ReadFile(result.Artifacts.Files["metadata"])
+	if err != nil {
+		t.Fatalf("read metadata artifact: %v", err)
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(metadataFile, &metadata); err != nil {
+		t.Fatalf("decode metadata artifact: %v", err)
+	}
+	if metadata["provider"] != "codex" {
+		t.Fatalf("metadata provider = %#v, want codex", metadata["provider"])
+	}
+	if metadata["structuredOutputRequested"] != true {
+		t.Fatalf("metadata structuredOutputRequested = %#v, want true", metadata["structuredOutputRequested"])
+	}
+	if metadata["structuredOutputMode"] != "provider_schema" {
+		t.Fatalf("metadata structuredOutputMode = %#v, want provider_schema", metadata["structuredOutputMode"])
+	}
+}
+
 type fakeProvider struct {
 	name    string
 	execute func(context.Context, agent.Request) (agent.Response, *agent.Error)
@@ -329,6 +440,14 @@ func assertArtifactContents(t *testing.T, path string, want string) {
 	}
 	if string(data) != want {
 		t.Fatalf("artifact %s = %q, want %q", path, string(data), want)
+	}
+}
+
+func assertArtifactPathPrefix(t *testing.T, path string, wantPrefix string) {
+	t.Helper()
+
+	if !strings.HasPrefix(path, wantPrefix+string(os.PathSeparator)) && path != wantPrefix {
+		t.Fatalf("artifact path %q, want prefix %q", path, wantPrefix)
 	}
 }
 
