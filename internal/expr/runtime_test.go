@@ -40,6 +40,18 @@ func TestRuntimeResolveShorthandAndEscape(t *testing.T) {
 			want:  true,
 		},
 		{
+			name:  "whole template returns raw value",
+			value: "{{ ctx.prev.value }}",
+			want: map[string]any{
+				"approved": true,
+			},
+		},
+		{
+			name:  "template interpolates into strings",
+			value: "count={{ ctx.params.count }}",
+			want:  "count=3",
+		},
+		{
 			name:  "double dollar escapes",
 			value: "$$.workspace.root",
 			want:  "$.workspace.root",

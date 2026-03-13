@@ -1466,6 +1466,121 @@ func TestRunnerExpectDoesNotOverrideExecutionFailure(t *testing.T) {
 	}
 }
 
+func TestRunnerExpectFailureStopsRecursiveLoopOnCurrentStep(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID: "seed",
+						Fields: map[string]any{
+							"expr": map[string]any{
+								"n":   2,
+								"sum": 0,
+							},
+						},
+					},
+					{
+						ID:   "loop",
+						Type: "call",
+						Fields: map[string]any{
+							"flow": "loop",
+						},
+					},
+					{
+						ID: "after",
+						Fields: map[string]any{
+							"expr": "unreachable",
+						},
+					},
+				},
+			},
+			"loop": {
+				Steps: []spec.Step{
+					{
+						ID:   "branch",
+						Type: "switch",
+						Fields: map[string]any{
+							"cases": []any{
+								map[string]any{
+									"when": map[string]any{"expr": `ctx.prev.value["n"] <= 0`},
+									"steps": []spec.Step{
+										{
+											ID: "done",
+											Fields: map[string]any{
+												"expr": `$.prev.value`,
+											},
+										},
+									},
+								},
+								map[string]any{
+									"when": map[string]any{"expr": `ctx.prev.value["n"] > 0`},
+									"steps": []spec.Step{
+										{
+											ID: "decrement",
+											Fields: map[string]any{
+												"expr": map[string]any{
+													"n":   map[string]any{"expr": `ctx.prev.value["n"] - 1`},
+													"sum": map[string]any{"expr": `ctx.prev.value["sum"] + ctx.prev.value["n"]`},
+												},
+												"expect": map[string]any{
+													"expr": `ctx.value["n"] > 0`,
+												},
+											},
+										},
+										{
+											ID:   "recurse",
+											Type: "call",
+											Fields: map[string]any{
+												"flow": "loop",
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	snapshot, err := NewRunner(nil).Run(context.Background(), config)
+	var failedErr RunFailedError
+	if !errors.As(err, &failedErr) {
+		t.Fatalf("run error = %v, want RunFailedError", err)
+	}
+	if failedErr.Failure.Code != "expectation_failed" {
+		t.Fatalf("failure code = %q, want expectation_failed", failedErr.Failure.Code)
+	}
+	if snapshot.Status != state.RunStatusFailed {
+		t.Fatalf("snapshot status = %q, want failed", snapshot.Status)
+	}
+	if got := snapshot.Steps[len(snapshot.Steps)-1].ID; got != "decrement" {
+		t.Fatalf("failed step id = %q, want decrement", got)
+	}
+	if got := snapshot.Steps[len(snapshot.Steps)-1].Status; got != state.StepStatusFailed {
+		t.Fatalf("failed step status = %q, want failed", got)
+	}
+	if got := intValue(t, snapshot.Steps[len(snapshot.Steps)-1].Value.(map[string]any)["n"]); got != 0 {
+		t.Fatalf("failed step value n = %d, want 0", got)
+	}
+	for _, step := range snapshot.Steps {
+		if step.ID == "recurse" || step.ID == "after" {
+			t.Fatalf("unexpected step executed after failed expect: %q", step.ID)
+		}
+	}
+}
+
 func TestRunnerResumeFinalizesDurableFailureWithoutRunningLaterSteps(t *testing.T) {
 	t.Parallel()
 

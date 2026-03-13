@@ -23,12 +23,7 @@ Legend: [ ] todo, [x] done.
   - New flow frames start with the caller's current `ctx.prev`, then update only within that frame so recursive flows can receive upstream data without restoring step-id lookup semantics.
   - Removed `id` from runtime step-result bindings and made `id` lookups fail in the expression object so step ids stay diagnostics-only.
 
-- [ ] 2.4 Add tests for branching, recursive flows, templates, and validation failures
-  - Repository: auto
-  - Component: evaluator tests, planner tests, integration workflow tests
-  - Verification: recursive subflows run with `ctx.prev` only, `expect` fails the current step, invalid schemas and missing refs stop the run cleanly
-  - Reasoning: medium
-  1. Add table-driven evaluator tests for shorthand expressions, template interpolation, and literal escaping.
-  2. Add flow tests for `switch` branching and recursive `call` with `ctx.prev`-only data passing.
-  3. Add negative tests for invalid schema refs, schema validation errors, and failed `expect` expressions.
-  4. Add an integration workflow that mirrors the example loop shape without agent executors and proves step-id lookups are unnecessary.
+- [x] 2.4 Add tests for branching, recursive flows, templates, and validation failures
+  - Expanded evaluator coverage with table-driven shorthand, whole-template, interpolation, and literal rendering cases across `internal/expr` and `internal/template`.
+  - Added planner coverage for nested synthetic switch branch flows so recursive branch planning stays deterministic without step-id lookups.
+  - Extended runner coverage for recursive loop workflows where `ctx.prev` is the only carried state, including `expectation_failed`, missing schema refs, and response schema mismatches halting runs cleanly.
