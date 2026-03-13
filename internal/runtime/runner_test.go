@@ -595,6 +595,293 @@ func TestRunnerExpressionsTemplatesAndExpectShareRuntimeTypes(t *testing.T) {
 	}
 }
 
+func TestRunnerResponseFromPublishesValidatedValue(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name     string
+		response map[string]any
+		result   state.StepResult
+		want     string
+	}{
+		{
+			name: "executor value",
+			response: map[string]any{
+				"schema": map[string]any{"$ref": "#/schemas/selected_value"},
+			},
+			result: state.StepResult{
+				Status: state.StepStatusSucceeded,
+				Value: map[string]any{
+					"selected": "value",
+				},
+				Artifacts: executorapi.EmptyArtifacts(),
+			},
+			want: "value",
+		},
+		{
+			name: "stdout artifact",
+			response: map[string]any{
+				"from":   "stdout",
+				"schema": map[string]any{"$ref": "#/schemas/selected_value"},
+			},
+			result: state.StepResult{
+				Status: state.StepStatusSucceeded,
+				Value:  map[string]any{"selected": "ignored"},
+				Artifacts: state.Artifacts{
+					Stdout: "__stdout__",
+					Files:  map[string]string{},
+				},
+			},
+			want: "stdout",
+		},
+		{
+			name: "stderr artifact",
+			response: map[string]any{
+				"from":   "stderr",
+				"schema": map[string]any{"$ref": "#/schemas/selected_value"},
+			},
+			result: state.StepResult{
+				Status: state.StepStatusSucceeded,
+				Value:  map[string]any{"selected": "ignored"},
+				Artifacts: state.Artifacts{
+					Stderr: "__stderr__",
+					Files:  map[string]string{},
+				},
+			},
+			want: "stderr",
+		},
+		{
+			name: "named artifact",
+			response: map[string]any{
+				"from":   "artifact:report",
+				"schema": map[string]any{"$ref": "#/schemas/selected_value"},
+			},
+			result: state.StepResult{
+				Status: state.StepStatusSucceeded,
+				Value:  map[string]any{"selected": "ignored"},
+				Artifacts: state.Artifacts{
+					Files: map[string]string{
+						"report": "__report__",
+					},
+				},
+			},
+			want: "report",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			config := testConfig(t, spec.Document{
+				Version: spec.Version,
+				Name:    "sample",
+				Entry:   "main",
+				Schemas: map[string]any{
+					"selected_value": map[string]any{
+						"type":                 "object",
+						"required":             []any{"selected"},
+						"additionalProperties": false,
+						"properties": map[string]any{
+							"selected": "string",
+						},
+					},
+				},
+				Flows: map[string]spec.Flow{
+					"main": {
+						Steps: []spec.Step{
+							{
+								ID:   "resolve",
+								Type: "fake",
+								Fields: map[string]any{
+									"response": testCase.response,
+								},
+							},
+							{
+								ID:   "consume",
+								Type: "expr",
+								Fields: map[string]any{
+									"expr": `$.prev.value["selected"]`,
+								},
+							},
+						},
+					},
+				},
+			})
+
+			testResult := cloneStepResult(testCase.result)
+			switch testCase.name {
+			case "stdout artifact":
+				testResult.Artifacts.Stdout = writeArtifactFixture(t, config.RunDir, "stdout.json", `{"selected":"stdout"}`)
+			case "stderr artifact":
+				testResult.Artifacts.Stderr = writeArtifactFixture(t, config.RunDir, "stderr.json", `{"selected":"stderr"}`)
+			case "named artifact":
+				testResult.Artifacts.Files["report"] = writeArtifactFixture(t, config.RunDir, "report.json", `{"selected":"report"}`)
+			}
+
+			if err := PersistRunSpec(config); err != nil {
+				t.Fatalf("persist run spec: %v", err)
+			}
+
+			registry := builtinRegistry()
+			mustRegister(registry, "fake", func() executorapi.Executor {
+				return &fakeExecutor{
+					calls: new([]string),
+					execute: func(executorapi.StepContext) state.StepResult {
+						return cloneStepResult(testResult)
+					},
+				}
+			})
+
+			snapshot, err := NewRunner(registry).Run(context.Background(), config)
+			if err != nil {
+				t.Fatalf("run: %v", err)
+			}
+			if got := snapshot.Steps[0].Value.(map[string]any)["selected"]; got != testCase.want {
+				t.Fatalf("resolved step value = %#v, want %q", got, testCase.want)
+			}
+			if got := snapshot.Steps[1].Value; got != testCase.want {
+				t.Fatalf("downstream value = %#v, want %q", got, testCase.want)
+			}
+		})
+	}
+}
+
+func TestRunnerResponseSchemaMismatchFailsStructurally(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Schemas: map[string]any{
+			"selected_value": map[string]any{
+				"type":                 "object",
+				"required":             []any{"selected"},
+				"additionalProperties": false,
+				"properties": map[string]any{
+					"selected": "string",
+				},
+			},
+		},
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID:   "resolve",
+						Type: "fake",
+						Fields: map[string]any{
+							"response": map[string]any{
+								"schema": map[string]any{"$ref": "#/schemas/selected_value"},
+							},
+						},
+					},
+					{ID: "after", Type: "fake"},
+				},
+			},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	calls := []string{}
+	registry := builtinRegistry()
+	mustRegister(registry, "fake", func() executorapi.Executor {
+		return &fakeExecutor{
+			calls: &calls,
+			results: map[string]state.StepResult{
+				"resolve": {
+					Status: state.StepStatusSucceeded,
+					Value: map[string]any{
+						"selected": true,
+					},
+					Artifacts: executorapi.EmptyArtifacts(),
+				},
+				"after": {Status: state.StepStatusSucceeded},
+			},
+		}
+	})
+
+	snapshot, err := NewRunner(registry).Run(context.Background(), config)
+	var failedErr RunFailedError
+	if !errors.As(err, &failedErr) {
+		t.Fatalf("run error = %v, want RunFailedError", err)
+	}
+	if failedErr.Failure.Code != "response_schema_mismatch" {
+		t.Fatalf("failure code = %q, want response_schema_mismatch", failedErr.Failure.Code)
+	}
+	if got, want := calls, []string{"resolve"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("calls = %#v, want %#v", got, want)
+	}
+	if snapshot.Steps[0].Status != state.StepStatusFailed {
+		t.Fatalf("resolve status = %q, want failed", snapshot.Steps[0].Status)
+	}
+}
+
+func TestRunnerResponseInvalidSchemaFailsStructurally(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID:   "resolve",
+						Type: "fake",
+						Fields: map[string]any{
+							"response": map[string]any{
+								"schema": map[string]any{"$ref": "#/schemas/missing"},
+							},
+						},
+					},
+					{ID: "after", Type: "fake"},
+				},
+			},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	calls := []string{}
+	registry := builtinRegistry()
+	mustRegister(registry, "fake", func() executorapi.Executor {
+		return &fakeExecutor{
+			calls: &calls,
+			results: map[string]state.StepResult{
+				"resolve": {
+					Status:    state.StepStatusSucceeded,
+					Value:     map[string]any{"selected": "value"},
+					Artifacts: executorapi.EmptyArtifacts(),
+				},
+				"after": {Status: state.StepStatusSucceeded},
+			},
+		}
+	})
+
+	snapshot, err := NewRunner(registry).Run(context.Background(), config)
+	var failedErr RunFailedError
+	if !errors.As(err, &failedErr) {
+		t.Fatalf("run error = %v, want RunFailedError", err)
+	}
+	if failedErr.Failure.Code != "invalid_response_schema" {
+		t.Fatalf("failure code = %q, want invalid_response_schema", failedErr.Failure.Code)
+	}
+	if got, want := calls, []string{"resolve"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("calls = %#v, want %#v", got, want)
+	}
+	if snapshot.Steps[0].Status != state.StepStatusFailed {
+		t.Fatalf("resolve status = %q, want failed", snapshot.Steps[0].Status)
+	}
+}
+
 func TestRunnerExpectDoesNotOverrideExecutionFailure(t *testing.T) {
 	t.Parallel()
 
@@ -1074,6 +1361,69 @@ func resolveResultPaths(runDir string, results map[string]state.StepResult) map[
 		resolved[stepID] = result
 	}
 	return resolved
+}
+
+func cloneStepResult(result state.StepResult) state.StepResult {
+	result.Artifacts = cloneArtifacts(result.Artifacts)
+	result.Value = cloneJSONValue(result.Value)
+	result.Error = cloneFailure(result.Error)
+	return result
+}
+
+func cloneArtifacts(artifacts state.Artifacts) state.Artifacts {
+	cloned := state.Artifacts{
+		Stdout: artifacts.Stdout,
+		Stderr: artifacts.Stderr,
+	}
+	if len(artifacts.Files) > 0 {
+		cloned.Files = make(map[string]string, len(artifacts.Files))
+		for name, path := range artifacts.Files {
+			cloned.Files[name] = path
+		}
+	} else {
+		cloned.Files = map[string]string{}
+	}
+	return cloned
+}
+
+func cloneFailure(failure *state.Failure) *state.Failure {
+	if failure == nil {
+		return nil
+	}
+	cloned := *failure
+	return &cloned
+}
+
+func cloneJSONValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		cloned := make(map[string]any, len(typed))
+		for key, child := range typed {
+			cloned[key] = cloneJSONValue(child)
+		}
+		return cloned
+	case []any:
+		cloned := make([]any, len(typed))
+		for index, child := range typed {
+			cloned[index] = cloneJSONValue(child)
+		}
+		return cloned
+	default:
+		return value
+	}
+}
+
+func writeArtifactFixture(t *testing.T, runDir string, name string, contents string) string {
+	t.Helper()
+
+	path := filepath.Join(runDir, "fixtures", name)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir fixture dir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+		t.Fatalf("write fixture %s: %v", name, err)
+	}
+	return path
 }
 
 func assertSnapshotStatuses(t *testing.T, snapshot state.Snapshot, wantStatuses []state.StepStatus, wantRunStatus state.RunStatus) {

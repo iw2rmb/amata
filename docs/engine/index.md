@@ -39,7 +39,8 @@ Current behavior:
 - `entry` must name a flow present in `flows`.
 - `workspace.root` and `workspace.state_dir` are accepted and normalized before execution.
 - `params` are exposed to expressions and templates under `ctx.params`.
-- `defaults` and `schemas` are parsed and persisted, but the runtime does not interpret them yet.
+- `defaults` are parsed and persisted, but the runtime does not interpret them yet.
+- `schemas` provides workflow-local JSON Schema definitions for `response.schema`.
 - A step may declare `type`, or omit it when one of these shorthands is present:
   - `command` -> `shell`
   - `expr` -> `expr`
@@ -169,6 +170,27 @@ Behavior:
 - `false` fails with code `assertion_failed`.
 - `message`, when present, resolves through the shared runtime and becomes the failure message.
 
+## Response Resolution and Schema Validation
+
+Steps may declare:
+
+```yaml
+response:
+  from: value | stdout | stderr | artifact:<name>
+  schema: <json-schema-object-or-ref>
+```
+
+Current behavior:
+- `response.from` defaults to `value`, which preserves the executor-native structured result.
+- `stdout`, `stderr`, and named artifact sources read the captured artifact contents and publish them as step `value`.
+- Artifact-backed values JSON-decode when the artifact contains valid JSON; otherwise they stay plain strings.
+- `response.schema` validates the resolved `value` before `expect` runs or later steps can consume `ctx.prev.value`.
+- `response.schema` may use workflow-owned refs such as `#/schemas/review_result`.
+- Named schemas support the local shorthand forms used in the design examples, such as `approved: boolean`.
+- Invalid response schemas fail the step with `invalid_response_schema`.
+- Schema mismatches fail the step with `response_schema_mismatch`.
+- Raw stdout, stderr, and named file paths remain available under `artifacts`.
+
 ## Step Conditions and Expectations
 
 - `when` runs before executor dispatch in the normal runtime context.
@@ -179,7 +201,6 @@ Behavior:
 ## Current Limits
 
 Not implemented yet:
-- schema validation
 - workflow-wide defaults and params evaluation
 - subflows, branching, and other control blocks
 - agent executors

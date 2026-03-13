@@ -8,6 +8,8 @@ import (
 
 	executorapi "auto/internal/executor"
 	exprruntime "auto/internal/expr"
+	"auto/internal/runtime/response"
+	"auto/internal/schema"
 	"auto/internal/spec"
 	"auto/internal/state"
 )
@@ -46,6 +48,7 @@ func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state
 	if !ok {
 		return state.Snapshot{}, fmt.Errorf("entry flow %q is not defined", config.Spec.Entry)
 	}
+	responses := response.NewResolver(schema.NewRegistry(config.Spec.Schemas))
 
 	store := state.NewStore(config.RunDir)
 	snapshot, err := store.LoadSnapshot()
@@ -129,7 +132,7 @@ func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state
 
 	for index := nextStep; index < len(flow.Steps); index++ {
 		step := flow.Steps[index]
-		result := r.executeStep(ctx, config, index, step, previous)
+		result := r.executeStep(ctx, config, responses, index, step, previous)
 
 		snapshot, err = store.Append(state.RunEvent{
 			Kind: state.EventStepRecorded,
@@ -170,6 +173,7 @@ func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state
 func (r *Runner) executeStep(
 	ctx context.Context,
 	config Config,
+	responses response.Resolver,
 	stepIndex int,
 	step spec.Step,
 	previous *state.StepResult,
@@ -237,6 +241,15 @@ func (r *Runner) executeStep(
 	}
 	if result.Type == "" {
 		result.Type = step.ExecutorType()
+	}
+
+	if result.Status == state.StepStatusSucceeded {
+		resolved, failure := responses.Apply(stepIndex, step, result)
+		result = resolved
+		if failure != nil {
+			result.Status = state.StepStatusFailed
+			result.Error = failure
+		}
 	}
 
 	if result.Status == state.StepStatusSucceeded {

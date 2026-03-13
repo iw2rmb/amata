@@ -11,15 +11,11 @@ Legend: [ ] todo, [x] done.
   - Unified runtime context under `ctx.workspace`, `ctx.params`, `ctx.prev`, plus current-step `ctx.status`, `ctx.value`, `ctx.error`, and `ctx.artifacts` bindings for `expect`.
   - Reused the same resolver across `expr`, `when`, `expect`, `assert`, and templated shell scalar fields, including whole-scalar `$.` shorthand and `$$` escaping coverage.
 
-- [ ] 2.2 Implement response resolution and schema validation
-  - Repository: auto
-  - Component: `internal/runtime/response`, `internal/schema`, executor result adapters
-  - Verification: `response.from` selects the correct source, schema mismatches fail structurally, downstream steps consume validated `value` instead of raw stdout
-  - Reasoning: xhigh
-  1. Resolve step `value` from executor-native output, `stdout`, `stderr`, or a named artifact according to `response.from`.
-  2. Implement local schema registry loading and `#/schemas/...` `$ref` resolution for workflow-owned schemas.
-  3. Validate resolved values before publishing them downstream and surface schema failures as structured step errors.
-  4. Keep raw process and agent output in artifacts while making `value` the only supported data path for downstream expressions.
+- [x] 2.2 Implement response resolution and schema validation
+  - Added `internal/runtime/response` so succeeded steps resolve `value` from executor-native output, `stdout`, `stderr`, or `artifact:<name>` before `expect` and downstream `ctx.prev.value` use.
+  - Added `internal/schema` with workflow-local schema compilation, shorthand normalization, and `#/schemas/...` `$ref` rewriting for response validation.
+  - Failed response schema compilation now stops the step with `invalid_response_schema`, while structural mismatches stop it with `response_schema_mismatch`.
+  - Kept raw process output in artifacts and added runner coverage that downstream steps consume validated `value` instead of raw artifact paths.
 
 - [ ] 2.3 Implement `switch`, `call`, and recursive flow frames
   - Repository: auto
