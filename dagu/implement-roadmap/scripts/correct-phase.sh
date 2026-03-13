@@ -74,11 +74,8 @@ Repository root: ${repo}
 Roadmap file: ${roadmap_file}
 
 Confirm by inspecting the codebase, tests, and current documentation that the roadmap work is wired end-to-end,
-implemented correctly and in full, and leaves no leftover or partially applied work.
-If you find gaps, patch the repository directly and rerun the relevant checks.
-Stay within the scope of the implemented roadmap work.
-Do not do discretionary refactors or docs cleanup in this step.
-Leave changes uncommitted.
+implemented correctly and in full, and leaves no leftover or partially applied work. Address gaps, if any.
+Do not commit.
 Output ONLY valid JSON:
   {"approved":true,"notes":"..."}
 PROMPT
