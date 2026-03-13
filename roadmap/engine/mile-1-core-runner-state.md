@@ -17,15 +17,11 @@ Legend: [ ] todo, [x] done.
   - Implemented a sequential runner that dispatches steps through the executor registry, records skipped and failed results before advancing or stopping, and resumes from stored run progress and persisted `spec.yaml`.
   - Verified with `go test ./...`, including coverage for immutable event appends, snapshot reconstruction, stop-on-failure sequencing, terminal failure preservation, ambiguous run lookup, and `resume` reopening a run after removing the original workflow file.
 
-- [ ] 1.3 Implement minimal step contract with `shell`, `expr`, `assert`, and `resume`
-  - Repository: auto
-  - Component: `internal/executor/shell`, `internal/executor/expr`, `internal/executor/assert`, response/result contract
-  - Verification: `shell` captures artifacts, `expr` returns typed values, `assert` fails structurally, interrupted runs continue from the first incomplete step
-  - Reasoning: high
-  1. Implement the common step-result shape with `status`, `value`, `error`, and artifact paths for `stdout`, `stderr`, and named files.
-  2. Implement the `shell` executor with normalized `cwd`, artifact capture, and executor-native value handling.
-  3. Implement `expr` and `assert` executors with `when` skip handling and structured failure codes.
-  4. Make `resume` start from the first step that lacks a durable result and never recompute completed steps.
+- [x] 1.3 Implement minimal step contract with `shell`, `expr`, `assert`, and `resume`
+  - Added a shared executor contract plus normalized step-result helpers so built-in executors return consistent `status`, `value`, `error`, and artifact paths with named-file support.
+  - Implemented built-in `shell`, `expr`, and `assert` executors with normalized `cwd`, artifact capture under the run directory, typed `expr` passthrough, `when`-driven skips, and structured assertion failures.
+  - Tightened `resume` so it reuses only durable succeeded results as previous context, restarts from the first missing step after interruption, and finalizes durable failed steps without replaying later work.
+  - Verified with `go test ./...`, including runtime coverage for shell artifacts, typed `expr` values, skipped `when` steps, structural `assert` failures, interrupted-run resume, and durable-failure resume boundaries.
 
 - [ ] 1.4 Add tests for workspace resolution, state durability, and interruption boundaries
   - Repository: auto

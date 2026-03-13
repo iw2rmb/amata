@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	executorapi "auto/internal/executor"
 	"auto/internal/spec"
 	"auto/internal/state"
 )
@@ -25,7 +26,7 @@ func (e RunFailedError) Error() string {
 
 func NewRunner(registry *Registry) *Runner {
 	if registry == nil {
-		registry = NewRegistry()
+		registry = builtinRegistry()
 	}
 
 	return &Runner{registry: registry}
@@ -58,7 +59,35 @@ func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state
 		if len(snapshot.Frames) == 0 {
 			return state.Snapshot{}, fmt.Errorf("run %q has no flow frame state", config.RunID)
 		}
-		if snapshot.Status != state.RunStatusSucceeded && snapshot.Frames[0].NextStep < snapshot.Frames[0].StepCount {
+
+		switch snapshot.Status {
+		case state.RunStatusSucceeded:
+			return snapshot, nil
+		case state.RunStatusFailed:
+			failure := failureForSnapshot(config.RunID, snapshot)
+			return snapshot, RunFailedError{
+				RunID:   config.RunID,
+				Failure: *failure,
+			}
+		}
+
+		if failed := durableFailedStep(snapshot); failed != nil {
+			failure := failureForStep(*failed)
+			snapshot, err = store.Append(state.RunEvent{
+				Kind:    state.EventRunFinished,
+				Status:  state.RunStatusFailed,
+				Failure: failure,
+			})
+			if err != nil {
+				return state.Snapshot{}, err
+			}
+			return snapshot, RunFailedError{
+				RunID:   config.RunID,
+				Failure: *failure,
+			}
+		}
+
+		if snapshot.Frames[0].NextStep < snapshot.Frames[0].StepCount {
 			snapshot, err = store.Append(state.RunEvent{
 				Kind:    state.EventRunResumed,
 				Command: "resume",
@@ -93,13 +122,7 @@ func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state
 		case state.RunStatusSucceeded:
 			return snapshot, nil
 		case state.RunStatusFailed:
-			failure := snapshot.Failure
-			if failure == nil {
-				failure = &state.Failure{
-					Code:    "run_failed",
-					Message: fmt.Sprintf("run %q failed", config.RunID),
-				}
-			}
+			failure := failureForSnapshot(config.RunID, snapshot)
 			return snapshot, RunFailedError{
 				RunID:   config.RunID,
 				Failure: *failure,
@@ -112,11 +135,7 @@ func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state
 		}
 	}
 
-	var previous *state.StepResult
-	if len(snapshot.Steps) > 0 {
-		last := snapshot.Steps[len(snapshot.Steps)-1]
-		previous = &last
-	}
+	previous := previousCompletedStep(snapshot.Steps)
 
 	for index := nextStep; index < len(flow.Steps); index++ {
 		step := flow.Steps[index]
@@ -131,14 +150,7 @@ func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state
 		}
 
 		if result.Status == state.StepStatusFailed {
-			failure := result.Error
-			if failure == nil {
-				failure = &state.Failure{
-					Code:    "step_failed",
-					Message: fmt.Sprintf("step %d failed", index),
-				}
-			}
-
+			failure := failureForStep(result)
 			snapshot, err = store.Append(state.RunEvent{
 				Kind:    state.EventRunFinished,
 				Status:  state.RunStatusFailed,
@@ -154,7 +166,9 @@ func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state
 			}
 		}
 
-		previous = &result
+		if result.Status == state.StepStatusSucceeded {
+			previous = &result
+		}
 	}
 
 	return store.Append(state.RunEvent{
@@ -170,10 +184,19 @@ func (r *Runner) executeStep(
 	step spec.Step,
 	previous *state.StepResult,
 ) state.StepResult {
-	result := state.StepResult{
+	result := executorapi.NormalizeResult(state.StepResult{
 		Index: stepIndex,
 		ID:    step.ID,
 		Type:  step.ExecutorType(),
+	})
+
+	if skip, failure := shouldSkipStep(stepIndex, step); failure != nil {
+		result.Status = state.StepStatusFailed
+		result.Error = failure
+		return result
+	} else if skip {
+		result.Status = state.StepStatusSkipped
+		return result
 	}
 
 	if result.Type == "" {
@@ -195,8 +218,8 @@ func (r *Runner) executeStep(
 		return result
 	}
 
-	executor := factory()
-	if executor == nil {
+	stepExecutor := factory()
+	if stepExecutor == nil {
 		result.Status = state.StepStatusFailed
 		result.Error = &state.Failure{
 			Code:    "invalid_executor",
@@ -205,13 +228,17 @@ func (r *Runner) executeStep(
 		return result
 	}
 
-	result = executor.Execute(ctx, StepContext{
-		Config:    config,
+	result = stepExecutor.Execute(ctx, executorapi.StepContext{
+		RunID:     config.RunID,
+		RunDir:    config.RunDir,
+		SpecPath:  config.SpecPath,
+		Workspace: config.Workspace,
 		FlowName:  config.Spec.Entry,
 		StepIndex: stepIndex,
 		Step:      step,
 		Previous:  previous,
 	})
+	result = executorapi.NormalizeResult(result)
 	result.Index = stepIndex
 	if result.ID == "" {
 		result.ID = step.ID
@@ -239,4 +266,70 @@ func (r *Runner) executeStep(
 		}
 		return result
 	}
+}
+
+func shouldSkipStep(stepIndex int, step spec.Step) (bool, *state.Failure) {
+	value, ok := step.Fields["when"]
+	if !ok {
+		return false, nil
+	}
+
+	enabled, ok := value.(bool)
+	if !ok {
+		return false, &state.Failure{
+			Code:    "invalid_when",
+			Message: fmt.Sprintf("step %d when must be a boolean", stepIndex),
+		}
+	}
+
+	return !enabled, nil
+}
+
+func durableFailedStep(snapshot state.Snapshot) *state.StepResult {
+	if len(snapshot.Steps) == 0 {
+		return nil
+	}
+
+	last := snapshot.Steps[len(snapshot.Steps)-1]
+	if last.Status != state.StepStatusFailed {
+		return nil
+	}
+	return &last
+}
+
+func failureForSnapshot(runID string, snapshot state.Snapshot) *state.Failure {
+	if snapshot.Failure != nil {
+		failure := *snapshot.Failure
+		return &failure
+	}
+	if failed := durableFailedStep(snapshot); failed != nil {
+		return failureForStep(*failed)
+	}
+	return &state.Failure{
+		Code:    "run_failed",
+		Message: fmt.Sprintf("run %q failed", runID),
+	}
+}
+
+func failureForStep(step state.StepResult) *state.Failure {
+	if step.Error != nil {
+		failure := *step.Error
+		return &failure
+	}
+	return &state.Failure{
+		Code:    "step_failed",
+		Message: fmt.Sprintf("step %d failed", step.Index),
+	}
+}
+
+func previousCompletedStep(steps []state.StepResult) *state.StepResult {
+	for index := len(steps) - 1; index >= 0; index-- {
+		if steps[index].Status != state.StepStatusSucceeded {
+			continue
+		}
+		step := steps[index]
+		return &step
+	}
+
+	return nil
 }

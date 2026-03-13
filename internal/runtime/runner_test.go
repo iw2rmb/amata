@@ -9,12 +9,13 @@ import (
 	"strings"
 	"testing"
 
+	executorapi "auto/internal/executor"
 	"auto/internal/spec"
 	"auto/internal/state"
 	"auto/internal/workspace"
 )
 
-func TestRunnerStopsOnFirstFailureAndResumeUsesStoredProgress(t *testing.T) {
+func TestRunnerResumeContinuesFromFirstIncompleteStep(t *testing.T) {
 	t.Parallel()
 
 	config := testConfig(t, spec.Document{
@@ -36,51 +37,27 @@ func TestRunnerStopsOnFirstFailureAndResumeUsesStoredProgress(t *testing.T) {
 		t.Fatalf("persist run spec: %v", err)
 	}
 
-	firstCalls := []string{}
-	firstRegistry := NewRegistry()
-	if err := firstRegistry.Register("fake", func() Executor {
-		return &fakeExecutor{
-			calls: &firstCalls,
-			results: map[string]state.StepResult{
-				"step-1": {Status: state.StepStatusSucceeded},
-				"step-2": {
-					Status: state.StepStatusFailed,
-					Error: &state.Failure{
-						Code:    "broken",
-						Message: "broken",
-					},
-				},
-			},
-		}
-	}); err != nil {
-		t.Fatalf("register executor: %v", err)
-	}
-
-	_, err := NewRunner(firstRegistry).Run(context.Background(), config)
-	var failedErr RunFailedError
-	if !errors.As(err, &failedErr) {
-		t.Fatalf("run error = %v, want RunFailedError", err)
-	}
-	if got, want := firstCalls, []string{"step-1", "step-2"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("calls = %#v, want %#v", got, want)
-	}
-
 	store := state.NewStore(config.RunDir)
-	failedSnapshot, err := store.LoadSnapshot()
-	if err != nil {
-		t.Fatalf("load failed snapshot: %v", err)
+	if _, err := store.Append(state.RunEvent{
+		Kind: state.EventRunInitialized,
+		Frame: &state.FlowFrame{
+			Flow:      config.Spec.Entry,
+			StepCount: 3,
+		},
+		Command: "run",
+	}); err != nil {
+		t.Fatalf("append init: %v", err)
 	}
-	if failedSnapshot.Status != state.RunStatusFailed {
-		t.Fatalf("snapshot.status = %q, want failed", failedSnapshot.Status)
-	}
-	if len(failedSnapshot.Steps) != 2 {
-		t.Fatalf("step count = %d, want 2", len(failedSnapshot.Steps))
-	}
-	if failedSnapshot.Steps[1].Status != state.StepStatusFailed {
-		t.Fatalf("step 2 status = %q, want failed", failedSnapshot.Steps[1].Status)
-	}
-	if failedSnapshot.Frames[0].NextStep != 2 {
-		t.Fatalf("next step = %d, want 2", failedSnapshot.Frames[0].NextStep)
+	if _, err := store.Append(state.RunEvent{
+		Kind: state.EventStepRecorded,
+		Step: &state.StepResult{
+			Index:  0,
+			ID:     "step-1",
+			Type:   "fake",
+			Status: state.StepStatusSucceeded,
+		},
+	}); err != nil {
+		t.Fatalf("append step 1: %v", err)
 	}
 
 	resumeConfig, err := LoadRunConfig(config.RunDir)
@@ -90,10 +67,11 @@ func TestRunnerStopsOnFirstFailureAndResumeUsesStoredProgress(t *testing.T) {
 
 	secondCalls := []string{}
 	secondRegistry := NewRegistry()
-	if err := secondRegistry.Register("fake", func() Executor {
+	if err := secondRegistry.Register("fake", func() executorapi.Executor {
 		return &fakeExecutor{
 			calls: &secondCalls,
 			results: map[string]state.StepResult{
+				"step-2": {Status: state.StepStatusSucceeded},
 				"step-3": {Status: state.StepStatusSucceeded},
 			},
 		}
@@ -105,17 +83,342 @@ func TestRunnerStopsOnFirstFailureAndResumeUsesStoredProgress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resume run: %v", err)
 	}
-	if got, want := secondCalls, []string{"step-3"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("resume calls = %#v, want %#v", got, want)
-	}
 	if resumedSnapshot.Status != state.RunStatusSucceeded {
 		t.Fatalf("resumed snapshot.status = %q, want succeeded", resumedSnapshot.Status)
 	}
 	if len(resumedSnapshot.Steps) != 3 {
 		t.Fatalf("resumed step count = %d, want 3", len(resumedSnapshot.Steps))
 	}
-	if resumedSnapshot.Steps[2].ID != "step-3" {
-		t.Fatalf("last step id = %q, want step-3", resumedSnapshot.Steps[2].ID)
+	if got, want := secondCalls, []string{"step-2", "step-3"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("resume calls = %#v, want %#v", got, want)
+	}
+	if resumedSnapshot.Steps[0].ID != "step-1" {
+		t.Fatalf("first step id = %q, want step-1", resumedSnapshot.Steps[0].ID)
+	}
+}
+
+func TestRunnerBuiltinsShellCapturesArtifactsAndNormalizesCWD(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID: "shell-step",
+						Fields: map[string]any{
+							"command": "printf 'hello'; printf 'warn' >&2; pwd > report.txt",
+							"cwd":     "nested",
+							"files": map[string]any{
+								"report": "nested/report.txt",
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	if err := os.MkdirAll(filepath.Join(config.Workspace.Root, "nested"), 0o755); err != nil {
+		t.Fatalf("mkdir nested cwd: %v", err)
+	}
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	snapshot, err := NewRunner(nil).Run(context.Background(), config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	result := snapshot.Steps[0]
+	if result.Status != state.StepStatusSucceeded {
+		t.Fatalf("step status = %q, want succeeded", result.Status)
+	}
+	if got := result.Value.(map[string]any)["exitCode"].(float64); got != 0 {
+		t.Fatalf("exitCode = %#v, want 0", got)
+	}
+	if got := strings.TrimSpace(readFile(t, result.Artifacts.Stdout)); got != "hello" {
+		t.Fatalf("stdout = %q, want hello", got)
+	}
+	if got := strings.TrimSpace(readFile(t, result.Artifacts.Stderr)); got != "warn" {
+		t.Fatalf("stderr = %q, want warn", got)
+	}
+
+	reportPath := result.Artifacts.Files["report"]
+	if reportPath == "" {
+		t.Fatalf("named report artifact missing")
+	}
+	if got := strings.TrimSpace(readFile(t, reportPath)); got != filepath.Join(config.Workspace.Root, "nested") {
+		t.Fatalf("captured cwd = %q, want %q", got, filepath.Join(config.Workspace.Root, "nested"))
+	}
+}
+
+func TestRunnerBuiltinShellRejectsInvalidFilesBeforeCommandRuns(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID: "shell-step",
+						Fields: map[string]any{
+							"command": "touch should-not-exist.txt",
+							"files":   []any{"bad"},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	_, err := NewRunner(nil).Run(context.Background(), config)
+	var failedErr RunFailedError
+	if !errors.As(err, &failedErr) {
+		t.Fatalf("run error = %v, want RunFailedError", err)
+	}
+	if failedErr.Failure.Code != "invalid_files" {
+		t.Fatalf("failure code = %q, want invalid_files", failedErr.Failure.Code)
+	}
+	if _, err := os.Stat(filepath.Join(config.Workspace.Root, "should-not-exist.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("command side effect err = %v, want not exists", err)
+	}
+}
+
+func TestRunnerBuiltinShellKeepsStdIOArtifactsWhenNamedFileCaptureFails(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID: "shell-step",
+						Fields: map[string]any{
+							"command": "printf 'hello'; printf 'warn' >&2",
+							"files": map[string]any{
+								"missing": "missing.txt",
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	_, err := NewRunner(nil).Run(context.Background(), config)
+	var failedErr RunFailedError
+	if !errors.As(err, &failedErr) {
+		t.Fatalf("run error = %v, want RunFailedError", err)
+	}
+	if failedErr.Failure.Code != "artifact_capture_failed" {
+		t.Fatalf("failure code = %q, want artifact_capture_failed", failedErr.Failure.Code)
+	}
+
+	snapshot, err := state.NewStore(config.RunDir).LoadSnapshot()
+	if err != nil {
+		t.Fatalf("load snapshot: %v", err)
+	}
+	result := snapshot.Steps[0]
+	if result.Artifacts.Stdout == "" {
+		t.Fatalf("stdout artifact path missing")
+	}
+	if result.Artifacts.Stderr == "" {
+		t.Fatalf("stderr artifact path missing")
+	}
+	if got := strings.TrimSpace(readFile(t, result.Artifacts.Stdout)); got != "hello" {
+		t.Fatalf("stdout = %q, want hello", got)
+	}
+	if got := strings.TrimSpace(readFile(t, result.Artifacts.Stderr)); got != "warn" {
+		t.Fatalf("stderr = %q, want warn", got)
+	}
+}
+
+func TestRunnerBuiltinsExprAndWhenSkip(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID: "typed-expr",
+						Fields: map[string]any{
+							"expr": map[string]any{
+								"ok":    true,
+								"count": 2,
+								"items": []any{"x", 3},
+							},
+						},
+					},
+					{
+						ID: "skip-expr",
+						Fields: map[string]any{
+							"expr": "ignored",
+							"when": false,
+						},
+					},
+					{
+						ID: "skip-assert",
+						Fields: map[string]any{
+							"assert": false,
+							"when":   false,
+						},
+					},
+				},
+			},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	snapshot, err := NewRunner(nil).Run(context.Background(), config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if snapshot.Steps[0].Status != state.StepStatusSucceeded {
+		t.Fatalf("expr status = %q, want succeeded", snapshot.Steps[0].Status)
+	}
+	if got := snapshot.Steps[0].Value.(map[string]any)["ok"]; got != true {
+		t.Fatalf("expr value ok = %#v, want true", got)
+	}
+	if snapshot.Steps[1].Status != state.StepStatusSkipped {
+		t.Fatalf("skip-expr status = %q, want skipped", snapshot.Steps[1].Status)
+	}
+	if snapshot.Steps[2].Status != state.StepStatusSkipped {
+		t.Fatalf("skip-assert status = %q, want skipped", snapshot.Steps[2].Status)
+	}
+}
+
+func TestRunnerBuiltinAssertFailsStructurally(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID: "check",
+						Fields: map[string]any{
+							"assert":  false,
+							"message": "nope",
+						},
+					},
+				},
+			},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	_, err := NewRunner(nil).Run(context.Background(), config)
+	var failedErr RunFailedError
+	if !errors.As(err, &failedErr) {
+		t.Fatalf("run error = %v, want RunFailedError", err)
+	}
+	if failedErr.Failure.Code != "assertion_failed" {
+		t.Fatalf("failure code = %q, want assertion_failed", failedErr.Failure.Code)
+	}
+	if failedErr.Failure.Message != "nope" {
+		t.Fatalf("failure message = %q, want nope", failedErr.Failure.Message)
+	}
+}
+
+func TestRunnerResumeFinalizesDurableFailureWithoutRunningLaterSteps(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{ID: "step-1", Type: "fake"},
+					{ID: "step-2", Type: "fake"},
+				},
+			},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	store := state.NewStore(config.RunDir)
+	if _, err := store.Append(state.RunEvent{
+		Kind: state.EventRunInitialized,
+		Frame: &state.FlowFrame{
+			Flow:      config.Spec.Entry,
+			StepCount: 2,
+		},
+		Command: "run",
+	}); err != nil {
+		t.Fatalf("append init: %v", err)
+	}
+	if _, err := store.Append(state.RunEvent{
+		Kind: state.EventStepRecorded,
+		Step: &state.StepResult{
+			Index:  0,
+			ID:     "step-1",
+			Type:   "fake",
+			Status: state.StepStatusFailed,
+			Error: &state.Failure{
+				Code:    "broken",
+				Message: "broken",
+			},
+		},
+	}); err != nil {
+		t.Fatalf("append failed step: %v", err)
+	}
+
+	resumeConfig, err := LoadRunConfig(config.RunDir)
+	if err != nil {
+		t.Fatalf("load run config: %v", err)
+	}
+
+	calls := []string{}
+	registry := NewRegistry()
+	if err := registry.Register("fake", func() executorapi.Executor {
+		return &fakeExecutor{calls: &calls}
+	}); err != nil {
+		t.Fatalf("register executor: %v", err)
+	}
+
+	_, err = NewRunner(registry).Resume(context.Background(), resumeConfig)
+	var failedErr RunFailedError
+	if !errors.As(err, &failedErr) {
+		t.Fatalf("resume error = %v, want RunFailedError", err)
+	}
+	if got := calls; len(got) != 0 {
+		t.Fatalf("resume executed steps = %#v, want none", got)
 	}
 }
 
@@ -142,7 +445,7 @@ func TestRunnerPersistsSkippedStepBeforeAdvancing(t *testing.T) {
 
 	calls := []string{}
 	registry := NewRegistry()
-	if err := registry.Register("fake", func() Executor {
+	if err := registry.Register("fake", func() executorapi.Executor {
 		return &fakeExecutor{
 			calls: &calls,
 			results: map[string]state.StepResult{
@@ -196,7 +499,7 @@ func TestRunnerResumeKeepsTerminalFailureState(t *testing.T) {
 	}
 
 	registry := NewRegistry()
-	if err := registry.Register("fake", func() Executor {
+	if err := registry.Register("fake", func() executorapi.Executor {
 		return &fakeExecutor{
 			calls: new([]string),
 			results: map[string]state.StepResult{
@@ -258,7 +561,7 @@ type fakeExecutor struct {
 	results map[string]state.StepResult
 }
 
-func (e *fakeExecutor) Execute(_ context.Context, ctx StepContext) state.StepResult {
+func (e *fakeExecutor) Execute(_ context.Context, ctx executorapi.StepContext) state.StepResult {
 	*e.calls = append(*e.calls, ctx.Step.ID)
 	if result, ok := e.results[ctx.Step.ID]; ok {
 		return result
@@ -348,4 +651,15 @@ func TestLocateRunDirFailsWhenRunIDIsAmbiguous(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
 		t.Fatalf("locateRunDir error = %v, want ambiguous failure", err)
 	}
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+
+	return string(data)
 }

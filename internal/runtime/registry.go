@@ -1,38 +1,22 @@
 package runtime
 
 import (
-	"context"
 	"fmt"
 
-	"auto/internal/spec"
-	"auto/internal/state"
+	"auto/internal/executor"
 )
 
-type Executor interface {
-	Execute(context.Context, StepContext) state.StepResult
-}
-
-type ExecutorFactory func() Executor
-
-type StepContext struct {
-	Config    Config
-	FlowName  string
-	StepIndex int
-	Step      spec.Step
-	Previous  *state.StepResult
-}
-
 type Registry struct {
-	factories map[string]ExecutorFactory
+	factories map[string]executor.Factory
 }
 
 func NewRegistry() *Registry {
 	return &Registry{
-		factories: make(map[string]ExecutorFactory),
+		factories: make(map[string]executor.Factory),
 	}
 }
 
-func (r *Registry) Register(name string, factory ExecutorFactory) error {
+func (r *Registry) Register(name string, factory executor.Factory) error {
 	if name == "" {
 		return fmt.Errorf("executor name is required")
 	}
@@ -47,7 +31,7 @@ func (r *Registry) Register(name string, factory ExecutorFactory) error {
 	return nil
 }
 
-func (r *Registry) Lookup(name string) (ExecutorFactory, bool) {
+func (r *Registry) Lookup(name string) (executor.Factory, bool) {
 	factory, ok := r.factories[name]
 	return factory, ok
 }
