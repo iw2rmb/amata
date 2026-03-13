@@ -13,7 +13,7 @@ amata run <spec.yaml> [--workspace <dir>] [--run-id <id>]
 amata resume <run-id>
 ```
 
-The current implementation is limited to one sequential entry flow, durable on-disk run state, one shared expression runtime context, and three built-in executors: `shell`, `expr`, and `assert`.
+The current implementation includes durable on-disk run state, one shared expression/template runtime, response value and schema handling, three built-in executors (`shell`, `expr`, and `assert`), and first-version control blocks (`switch` and `call`) over a resumable flow stack.
 
 ## Workflow Spec
 
@@ -37,6 +37,7 @@ flows:
 Current behavior:
 - `version`, `name`, `entry`, and `flows` are required.
 - `entry` must name a flow present in `flows`.
+- `flows` may include named subflows that are reachable through `type: call` and synthetic `switch` branch frames.
 - `workspace.root` and `workspace.state_dir` are accepted and normalized before execution.
 - `params` are exposed to expressions and templates under `ctx.params`.
 - `defaults` are parsed and persisted, but the runtime does not interpret them yet.
@@ -46,6 +47,7 @@ Current behavior:
   - `expr` -> `expr`
   - `assert` -> `assert`
 - `when` resolves through the shared expression runtime and must evaluate to a boolean. `false` skips the step before executor dispatch.
+- `switch` and `call` currently require an explicit `type`.
 
 ## Expression Runtime
 
@@ -55,9 +57,8 @@ The shared runtime context is exposed at `ctx`:
 - `ctx.params`
 - `ctx.prev`
 
-`ctx.prev` contains the last succeeded step result:
+`ctx.prev` contains the last succeeded step result in the current flow frame:
 - `index`
-- `id`
 - `type`
 - `status`
 - `value`
@@ -65,6 +66,8 @@ The shared runtime context is exposed at `ctx`:
 - `artifacts.stdout`
 - `artifacts.stderr`
 - `artifacts.files`
+
+Declared step `id` values remain diagnostics-only. Expressions cannot read `ctx.prev.id` or use step ids as data-flow references.
 
 Expression-bearing scalar positions also support two whole-scalar shorthands:
 - A value starting with `$.` resolves as a Starlark expression rooted at `ctx`.
@@ -101,14 +104,17 @@ Each run persists under:
 ## Execution and Durable State
 
 Execution rules:
-- The runner executes only the entry flow.
-- Steps run strictly in order.
+- The runner starts from the entry flow and may push child frames for `switch` branches and `call` subflows.
+- Steps run strictly in order within each flow frame.
+- A new child frame starts with the caller's current `ctx.prev`, then updates only within that frame until it returns.
 - Every durable state transition is appended to `events.ndjson`.
 - `snapshot.json` is rewritten after each appended event.
 
-The event log uses four event kinds:
+The event log uses six event kinds:
 - `run_initialized`
 - `run_resumed`
+- `frame_pushed`
+- `control_returned`
 - `step_recorded`
 - `run_finished`
 
@@ -129,6 +135,32 @@ Resume rules:
 Step context rules:
 - Executors receive the normalized workspace, run directory, spec path, current step, and the last succeeded step result.
 - Skipped and failed steps are never exposed as the previous step context.
+
+## Control Blocks
+
+### `switch`
+
+Supported fields:
+- `type: switch`
+- `cases`: required ordered list of branches
+
+Behavior:
+- Each case may declare `when` and `steps`.
+- Cases are evaluated in order and only the first matching branch runs.
+- The selected branch runs in a child flow frame.
+- The step succeeds with a structured `value` containing `matched`, `case`, `status`, `value`, `error`, and `artifacts` from the nested branch result.
+- When no case matches, the step still succeeds with `matched: false` and `case: null`.
+
+### `call`
+
+Supported fields:
+- `type: call`
+- `flow`: required expression-bearing string naming the target flow
+
+Behavior:
+- The target flow runs in a child frame that starts with the caller's current `ctx.prev`.
+- The child frame returns one structured `value` containing `flow`, `status`, `value`, `error`, and `artifacts` from the nested flow result.
+- The returned value becomes the caller frame's new `ctx.prev.value` for downstream steps.
 
 ## Built-in Executors
 
@@ -202,7 +234,6 @@ Current behavior:
 
 Not implemented yet:
 - workflow-wide defaults and params evaluation
-- subflows, branching, and other control blocks
 - agent executors
 - Git executors
 - provider-session continuation

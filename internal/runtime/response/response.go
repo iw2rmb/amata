@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"auto/internal/jsonutil"
 	"auto/internal/schema"
 	"auto/internal/spec"
 	"auto/internal/state"
@@ -49,7 +50,7 @@ func (r Resolver) Apply(stepIndex int, step spec.Step, result state.StepResult) 
 	if err != nil {
 		return result, failure(codeInvalidResponse, stepIndex, "response.from is invalid", err)
 	}
-	result.Value = cloneValue(value)
+	result.Value = jsonutil.CloneValue(value)
 
 	if cfg.schema == nil {
 		return result, nil
@@ -123,7 +124,7 @@ func parseSource(value any) (source, error) {
 func (s source) resolve(result state.StepResult) (any, error) {
 	switch s.kind {
 	case "value":
-		return cloneValue(result.Value), nil
+		return jsonutil.CloneValue(result.Value), nil
 	case "stdout":
 		return readArtifactValue("stdout", result.Artifacts.Stdout)
 	case "stderr":
@@ -166,24 +167,5 @@ func failure(code string, stepIndex int, summary string, err error) *state.Failu
 	return &state.Failure{
 		Code:    code,
 		Message: fmt.Sprintf("step %d %s: %v", stepIndex, summary, err),
-	}
-}
-
-func cloneValue(value any) any {
-	switch typed := value.(type) {
-	case map[string]any:
-		cloned := make(map[string]any, len(typed))
-		for key, child := range typed {
-			cloned[key] = cloneValue(child)
-		}
-		return cloned
-	case []any:
-		cloned := make([]any, len(typed))
-		for index, child := range typed {
-			cloned[index] = cloneValue(child)
-		}
-		return cloned
-	default:
-		return value
 	}
 }

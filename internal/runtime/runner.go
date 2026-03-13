@@ -8,6 +8,7 @@ import (
 
 	executorapi "auto/internal/executor"
 	exprruntime "auto/internal/expr"
+	"auto/internal/jsonutil"
 	"auto/internal/runtime/response"
 	"auto/internal/schema"
 	"auto/internal/spec"
@@ -397,6 +398,7 @@ func (r *Runner) prepareSwitch(
 			return stepAction{}, finalizeStatus(result)
 		}
 
+		idx := caseIndex
 		return stepAction{
 			pushFrame: &state.FlowFrame{
 				Flow:      branchFlow,
@@ -406,7 +408,7 @@ func (r *Runner) prepareSwitch(
 					StepType:  result.Type,
 					StepIndex: stepIndex,
 					StepID:    step.ID,
-					CaseIndex: intPtr(caseIndex),
+					CaseIndex: &idx,
 				},
 			},
 		}, result
@@ -546,15 +548,12 @@ func nestedResultValue(previous *state.StepResult) map[string]any {
 	value["index"] = previous.Index
 	value["type"] = previous.Type
 	value["status"] = string(previous.Status)
-	value["value"] = cloneValue(previous.Value)
+	value["value"] = jsonutil.CloneValue(previous.Value)
 	value["error"] = failureContext(previous.Error)
 	value["artifacts"] = artifactsContext(previous.Artifacts)
 	return value
 }
 
-func intPtr(value int) *int {
-	return &value
-}
 
 func (r *Runner) recordResultEvent(store *state.Store, runID string, kind state.EventKind, result state.StepResult) (state.Snapshot, error) {
 	snapshot, err := store.Append(state.RunEvent{

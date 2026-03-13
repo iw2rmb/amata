@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"strings"
 
+	"auto/internal/jsonutil"
 	jsonschema "github.com/santhosh-tekuri/jsonschema/v6"
 )
 
@@ -22,7 +23,7 @@ type Compiled struct {
 func NewRegistry(workflowSchemas map[string]any) *Registry {
 	cloned := make(map[string]any, len(workflowSchemas))
 	for name, schema := range workflowSchemas {
-		cloned[name] = cloneValue(schema)
+		cloned[name] = jsonutil.CloneValue(schema)
 	}
 	return &Registry{schemas: cloned}
 }
@@ -54,7 +55,7 @@ func (c *Compiled) Validate(value any) error {
 	if c == nil || c.schema == nil {
 		return fmt.Errorf("compiled schema is required")
 	}
-	return c.schema.Validate(cloneValue(value))
+	return c.schema.Validate(jsonutil.CloneValue(value))
 }
 
 func schemaResourceURL(name string) string {
@@ -126,14 +127,14 @@ func normalizeSchema(value any) (any, error) {
 				}
 				normalized[key] = items
 			default:
-				normalized[key] = cloneValue(child)
+				normalized[key] = jsonutil.CloneValue(child)
 			}
 		}
 		return normalized, nil
 	case []any:
 		return normalizeSchemaSlice(typed)
 	default:
-		return cloneValue(value), nil
+		return jsonutil.CloneValue(value), nil
 	}
 }
 
@@ -223,23 +224,4 @@ func rewriteLocalRef(ref string) string {
 func decodeJSONPointerSegment(value string) string {
 	value = strings.ReplaceAll(value, "~1", "/")
 	return strings.ReplaceAll(value, "~0", "~")
-}
-
-func cloneValue(value any) any {
-	switch typed := value.(type) {
-	case map[string]any:
-		cloned := make(map[string]any, len(typed))
-		for key, child := range typed {
-			cloned[key] = cloneValue(child)
-		}
-		return cloned
-	case []any:
-		cloned := make([]any, len(typed))
-		for index, child := range typed {
-			cloned[index] = cloneValue(child)
-		}
-		return cloned
-	default:
-		return value
-	}
 }

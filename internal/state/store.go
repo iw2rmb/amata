@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"auto/internal/jsonutil"
 )
 
 type RunStatus string
@@ -357,7 +359,7 @@ func cloneStepResultPtr(in *StepResult) *StepResult {
 
 func cloneStepResult(in StepResult) StepResult {
 	out := in
-	out.Value = cloneValue(in.Value)
+	out.Value = jsonutil.CloneValue(in.Value)
 	out.Error = cloneFailure(in.Error)
 	out.Artifacts = cloneArtifacts(in.Artifacts)
 	return out
@@ -378,23 +380,4 @@ func cloneArtifacts(in Artifacts) Artifacts {
 		out.Files[name] = path
 	}
 	return out
-}
-
-func cloneValue(value any) any {
-	switch typed := value.(type) {
-	case map[string]any:
-		cloned := make(map[string]any, len(typed))
-		for key, item := range typed {
-			cloned[key] = cloneValue(item)
-		}
-		return cloned
-	case []any:
-		cloned := make([]any, len(typed))
-		for index, item := range typed {
-			cloned[index] = cloneValue(item)
-		}
-		return cloned
-	default:
-		return value
-	}
 }

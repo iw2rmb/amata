@@ -14,12 +14,13 @@ Legend: [ ] todo, [x] done.
   - Implemented the Go CLI entrypoint, normalized workspace and run config persistence, append-only `events.ndjson` plus rebuildable `snapshot.json`, and sequential `shell`/`expr`/`assert` execution with durable `resume` boundaries.
   - Durable current-state documentation: [Engine docs](../../docs/engine/index.md)
 
-- [ ] 2.0 Milestone 2 expressions and first control blocks
+- [x] 2.0 Milestone 2 expressions and first control blocks
   - Repository: auto
   - Component: expression evaluator, flow planner, response/schema runtime
   - Verification: `ctx.prev`-only data flow works, `switch` selects one branch, recursive `call` carries validated values forward
   - Reasoning: high
-  1. Complete [mile-2-expressions-control-flow.md](mile-2-expressions-control-flow.md).
+  - Implemented the shared Starlark/template runtime, validated `response.from` and `response.schema` handling, and resumable `switch`/`call` flow frames that carry state through `ctx.prev` only.
+  - Durable current-state documentation: [Engine docs](../../docs/engine/index.md)
 
 - [ ] 3.0 Milestone 3 agent executors, Git executors, and reference workflow
   - Repository: auto

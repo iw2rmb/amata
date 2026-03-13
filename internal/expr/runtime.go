@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"auto/internal/jsonutil"
 	templateapi "auto/internal/template"
 
 	"go.starlark.net/starlark"
@@ -16,7 +17,7 @@ type Runtime struct {
 
 func NewRuntime(ctx map[string]any) Runtime {
 	return Runtime{
-		ctx: cloneMap(ctx),
+		ctx: jsonutil.CloneMap(ctx),
 	}
 }
 
@@ -87,15 +88,15 @@ func (r Runtime) ResolveString(value any) (string, error) {
 }
 
 func (r Runtime) WithBindings(bindings map[string]any) Runtime {
-	next := cloneMap(r.ctx)
+	next := jsonutil.CloneMap(r.ctx)
 	baseCtx, ok := next["ctx"].(map[string]any)
 	if !ok {
 		baseCtx = map[string]any{}
 	}
-	baseCtx = cloneMap(baseCtx)
+	baseCtx = jsonutil.CloneMap(baseCtx)
 	keys := sortedKeys(bindings)
 	for _, key := range keys {
-		baseCtx[key] = cloneJSONValue(bindings[key])
+		baseCtx[key] = jsonutil.CloneValue(bindings[key])
 	}
 	next["ctx"] = baseCtx
 	return Runtime{ctx: next}
@@ -138,7 +139,7 @@ func toGlobals(ctx map[string]any) (starlark.StringDict, error) {
 	globals := starlark.StringDict{}
 	keys := sortedKeys(ctx)
 	for _, key := range keys {
-		value, err := toStarlark(cloneJSONValue(ctx[key]))
+		value, err := toStarlark(jsonutil.CloneValue(ctx[key]))
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", key, err)
 		}
@@ -278,32 +279,6 @@ func fromStarlark(value starlark.Value) (any, error) {
 	}
 }
 
-func cloneMap(source map[string]any) map[string]any {
-	if source == nil {
-		return map[string]any{}
-	}
-	cloned := make(map[string]any, len(source))
-	keys := sortedKeys(source)
-	for _, key := range keys {
-		cloned[key] = cloneJSONValue(source[key])
-	}
-	return cloned
-}
-
-func cloneJSONValue(value any) any {
-	switch typed := value.(type) {
-	case map[string]any:
-		return cloneMap(typed)
-	case []any:
-		cloned := make([]any, len(typed))
-		for index, item := range typed {
-			cloned[index] = cloneJSONValue(item)
-		}
-		return cloned
-	default:
-		return value
-	}
-}
 
 func sortedKeys(values map[string]any) []string {
 	keys := make([]string, 0, len(values))

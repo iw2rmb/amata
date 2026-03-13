@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"auto/internal/jsonutil"
 	"auto/internal/state"
 	"auto/internal/workspace"
 )
@@ -9,7 +10,7 @@ func buildRuntimeContext(config Config, previous *state.StepResult) map[string]a
 	return map[string]any{
 		"ctx": map[string]any{
 			"workspace": workspaceContext(config.Workspace),
-			"params":    cloneMap(config.Spec.Params),
+			"params":    jsonutil.CloneMap(config.Spec.Params),
 			"prev":      previousContext(previous),
 		},
 	}
@@ -34,7 +35,7 @@ func stepResultContext(result state.StepResult) map[string]any {
 		"index":     result.Index,
 		"type":      result.Type,
 		"status":    string(result.Status),
-		"value":     cloneValue(result.Value),
+		"value":     jsonutil.CloneValue(result.Value),
 		"error":     failureContext(result.Error),
 		"artifacts": artifactsContext(result.Artifacts),
 	}
@@ -59,31 +60,5 @@ func artifactsContext(artifacts state.Artifacts) map[string]any {
 		"stdout": artifacts.Stdout,
 		"stderr": artifacts.Stderr,
 		"files":  files,
-	}
-}
-
-func cloneMap(source map[string]any) map[string]any {
-	if source == nil {
-		return map[string]any{}
-	}
-	cloned := make(map[string]any, len(source))
-	for key, value := range source {
-		cloned[key] = cloneValue(value)
-	}
-	return cloned
-}
-
-func cloneValue(value any) any {
-	switch typed := value.(type) {
-	case map[string]any:
-		return cloneMap(typed)
-	case []any:
-		cloned := make([]any, len(typed))
-		for index, item := range typed {
-			cloned[index] = cloneValue(item)
-		}
-		return cloned
-	default:
-		return value
 	}
 }
