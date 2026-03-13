@@ -95,6 +95,22 @@ func TestCommitExcludesAbsolutePrefixesAndKeepsExcludedStagedChanges(t *testing.
 	if result.Commit == "" {
 		t.Fatalf("result.Commit = empty, want sha")
 	}
+	if result.Metadata == nil {
+		t.Fatalf("result.Metadata = nil, want commit stats")
+	}
+	if result.Metadata.ShortCommit == "" {
+		t.Fatalf("result.Metadata.ShortCommit = empty, want short sha")
+	}
+	if result.Metadata.ChangedFileCount != 1 {
+		t.Fatalf("result.Metadata.ChangedFileCount = %d, want 1", result.Metadata.ChangedFileCount)
+	}
+	if result.Metadata.Insertions != 1 || result.Metadata.Deletions != 1 {
+		t.Fatalf("result.Metadata totals = +%d -%d, want +1 -1", result.Metadata.Insertions, result.Metadata.Deletions)
+	}
+	wantStats := []CommitFileStat{{Path: "engine.txt", Insertions: 1, Deletions: 1}}
+	if !reflect.DeepEqual(result.Metadata.FileStats, wantStats) {
+		t.Fatalf("result.Metadata.FileStats = %#v, want %#v", result.Metadata.FileStats, wantStats)
+	}
 
 	if got := runGit(t, repoDir, "show", "HEAD:engine.txt"); got != "engine change\n" {
 		t.Fatalf("HEAD engine.txt = %q, want committed content", got)
@@ -126,6 +142,23 @@ func TestFilterPathsUsesDirectoryPrefixSemantics(t *testing.T) {
 	want := []string{"dirname/file.txt", "dir.txt"}
 	if !reflect.DeepEqual(filtered, want) {
 		t.Fatalf("filtered = %#v, want %#v", filtered, want)
+	}
+}
+
+func TestParseCommitFileStatsHandlesTextAndBinaryEntries(t *testing.T) {
+	t.Parallel()
+
+	stats, err := parseCommitFileStats([]byte("3\t1\tengine.txt\n-\t-\tassets/logo.png\n"))
+	if err != nil {
+		t.Fatalf("parse commit file stats: %v", err)
+	}
+
+	want := []CommitFileStat{
+		{Path: "engine.txt", Insertions: 3, Deletions: 1},
+		{Path: "assets/logo.png", Insertions: 0, Deletions: 0},
+	}
+	if !reflect.DeepEqual(stats, want) {
+		t.Fatalf("stats = %#v, want %#v", stats, want)
 	}
 }
 

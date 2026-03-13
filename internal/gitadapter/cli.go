@@ -1,9 +1,11 @@
 package gitadapter
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -48,6 +50,35 @@ func (gitCLI) commitPaths(ctx context.Context, repoRoot string, message string, 
 	return strings.TrimSpace(string(output)), nil
 }
 
+func (gitCLI) commitMetadata(ctx context.Context, repoRoot string, commit string) (*CommitMetadata, error) {
+	shortOutput, err := runGitCommand(ctx, repoRoot, "rev-parse", "--short", commit)
+	if err != nil {
+		return nil, fmt.Errorf("resolve short commit sha: %w", err)
+	}
+
+	statsOutput, err := runGitCommand(ctx, repoRoot, "show", "--numstat", "--format=", "--no-renames", commit)
+	if err != nil {
+		return nil, fmt.Errorf("load commit stats: %w", err)
+	}
+
+	fileStats, err := parseCommitFileStats(statsOutput)
+	if err != nil {
+		return nil, fmt.Errorf("parse commit stats: %w", err)
+	}
+
+	metadata := &CommitMetadata{
+		ShortCommit: strings.TrimSpace(string(shortOutput)),
+		FileStats:   fileStats,
+	}
+	for _, stat := range fileStats {
+		metadata.ChangedFileCount++
+		metadata.Insertions += stat.Insertions
+		metadata.Deletions += stat.Deletions
+	}
+
+	return metadata, nil
+}
+
 func runGitCommand(ctx context.Context, repoRoot string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = repoRoot
@@ -64,4 +95,50 @@ func formatGitError(args []string, err error, output []byte) error {
 		return fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, message)
 	}
 	return fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+}
+
+func parseCommitFileStats(output []byte) ([]CommitFileStat, error) {
+	scanner := bufio.NewScanner(strings.NewReader(string(output)))
+	stats := []CommitFileStat{}
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+
+		fields := strings.SplitN(line, "\t", 3)
+		if len(fields) != 3 {
+			return nil, fmt.Errorf("unexpected numstat line %q", line)
+		}
+
+		insertions, err := parseNumstatCount(fields[0])
+		if err != nil {
+			return nil, fmt.Errorf("parse insertions for %q: %w", fields[2], err)
+		}
+		deletions, err := parseNumstatCount(fields[1])
+		if err != nil {
+			return nil, fmt.Errorf("parse deletions for %q: %w", fields[2], err)
+		}
+
+		stats = append(stats, CommitFileStat{
+			Path:       fields[2],
+			Insertions: insertions,
+			Deletions:  deletions,
+		})
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return stats, nil
+}
+
+func parseNumstatCount(value string) (int, error) {
+	if value == "-" {
+		return 0, nil
+	}
+	count, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
 }

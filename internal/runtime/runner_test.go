@@ -455,8 +455,58 @@ func TestRunnerResumeEmitsLiveProgressForReturnedControl(t *testing.T) {
 	if got := events[0].Snapshot.Active[0]; got.ID != "loop" || got.Type != "call" || got.Status != progress.StepStatusRunning {
 		t.Fatalf("resume active step = %#v, want running loop call", got)
 	}
+	if got := events[0].Snapshot.Active[0].Descriptor; got == nil || got.PrimaryText != "loop" {
+		t.Fatalf("resume active step descriptor = %#v, want loop target flow", got)
+	}
+	if got := events[1].Step.Descriptor; got == nil || !reflect.DeepEqual(got.FinalSummaryDetails, []string{"loop"}) {
+		t.Fatalf("returned control descriptor = %#v, want flow summary", got)
+	}
 	if got := len(events[1].Snapshot.Active); got != 0 {
 		t.Fatalf("active step count after returned control = %d, want 0", got)
+	}
+}
+
+func TestRunnerLiveProgressIncludesStepDescriptors(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID:   "shell-step",
+						Type: "shell",
+						Fields: map[string]any{
+							"command": []any{"echo", "descriptor"},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	var events []progress.Event
+	sink := progress.SinkFunc(func(event progress.Event) {
+		events = append(events, event)
+	})
+
+	_, err := NewRunner(nil, WithRunnerProgressSink(sink)).Run(context.Background(), config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if got := events[1].Step.Descriptor; got == nil || got.PrimaryText != "echo descriptor" {
+		t.Fatalf("started step descriptor = %#v, want primary text", got)
+	}
+	if got := events[2].Step.Descriptor; got == nil || !reflect.DeepEqual(got.FinalSummaryDetails, []string{"exit 0"}) {
+		t.Fatalf("finished step descriptor = %#v, want exit summary", got)
 	}
 }
 

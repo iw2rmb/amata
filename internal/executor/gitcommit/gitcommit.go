@@ -74,7 +74,31 @@ func (e *Executor) Execute(ctx context.Context, stepCtx executor.StepContext) st
 		"committed": result.Committed,
 		"commit":    commit,
 		"paths":     result.Paths,
+		"metadata":  metadataValue(result.Metadata),
 	})
+}
+
+func metadataValue(metadata *gitadapter.CommitMetadata) any {
+	if metadata == nil {
+		return nil
+	}
+
+	files := make([]any, 0, len(metadata.FileStats))
+	for _, stat := range metadata.FileStats {
+		files = append(files, map[string]any{
+			"path":       stat.Path,
+			"insertions": stat.Insertions,
+			"deletions":  stat.Deletions,
+		})
+	}
+
+	return map[string]any{
+		"shortCommit":      metadata.ShortCommit,
+		"changedFileCount": metadata.ChangedFileCount,
+		"insertions":       metadata.Insertions,
+		"deletions":        metadata.Deletions,
+		"files":            files,
+	}
 }
 
 func resolveMessage(stepCtx executor.StepContext) (string, error) {

@@ -15,14 +15,10 @@ Legend: [ ] todo, [x] done.
 2. Thread an optional progress sink from `runtime.RunCLI` into `Runner.execute` and emit notifications around executor dispatch, `switch` branch execution, `call` control returns, and terminal run completion without changing the `events.ndjson` or `snapshot.json` formats.
 3. Keep live progress in-memory and optional, with durable `state.Store` remaining the only resume source of truth.
 
-- [ ] 1.2 Build reusable step descriptors and executor enrichers
-  - Repository: auto
-  - Component: internal/progress, internal/executor/agent, internal/executor/gitcommit, internal/gitadapter
-  - Verification: `go test ./internal/executor/gitcommit ./internal/gitadapter`, descriptor unit tests cover codex, claude, shell, assert, git.inspect, and git.commit shapes
-  - Reasoning: high
-1. Add a shared step descriptor builder that exposes common fields for renderer reuse: status symbol kind, elapsed time, step type, primary line text, wrapped detail lines, and final summary details.
-2. Add agent-step enrichers so `codex` and `claude` descriptors can expose resolved model, reasoning, and rendered prompt before execution, with prompt wrapping handled by the renderer at a fixed 60-column content width.
-3. Extend `gitadapter.CommitResult` and the `git.commit` executor result with structured commit metadata for rendering: short SHA source, changed file count, total insertions and deletions, and per-file `+lines/-lines` stats so the renderer does not shell out or parse ad hoc text.
+- [x] 1.2 Build reusable step descriptors and executor enrichers
+  - Added `progress.DescriptorData` and `BuildStepDescriptor`, then wired runtime progress events to emit enriched descriptors for `codex`, `claude`, `shell`, `assert`, `git.inspect`, `git.commit`, `call`, and `switch` without changing durable state storage.
+  - Split agent request resolution into reusable `agent.ResolveStep` so descriptor enrichment can resolve model, reasoning, cwd, env, and rendered prompt before execution, with descriptor tests covering codex, claude, shell, assert, git.inspect, and git.commit shapes at the 60-column wrap width.
+  - Extended `gitadapter.CommitResult` and `git.commit` outputs with structured commit metadata (`shortCommit`, changed file count, total insertions/deletions, per-file stats) and verified with `go test ./internal/runtime ./internal/progress ./internal/executor/agent ./internal/executor/gitcommit ./internal/gitadapter`.
 
 - [ ] 1.3 Add a Bubble Tea stream renderer and CLI integration
   - Repository: auto

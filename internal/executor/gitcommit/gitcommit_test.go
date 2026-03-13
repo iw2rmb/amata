@@ -31,6 +31,15 @@ func TestExecutorAddsWorkspaceStateDirToExclusions(t *testing.T) {
 			Committed: true,
 			Commit:    "abc123",
 			Paths:     []string{"engine.txt"},
+			Metadata: &gitadapter.CommitMetadata{
+				ShortCommit:      "abc123",
+				ChangedFileCount: 1,
+				Insertions:       5,
+				Deletions:        2,
+				FileStats: []gitadapter.CommitFileStat{
+					{Path: "engine.txt", Insertions: 5, Deletions: 2},
+				},
+			},
 		},
 	}
 
@@ -60,6 +69,19 @@ func TestExecutorAddsWorkspaceStateDirToExclusions(t *testing.T) {
 		"committed": true,
 		"commit":    "abc123",
 		"paths":     []string{"engine.txt"},
+		"metadata": map[string]any{
+			"shortCommit":      "abc123",
+			"changedFileCount": 1,
+			"insertions":       5,
+			"deletions":        2,
+			"files": []any{
+				map[string]any{
+					"path":       "engine.txt",
+					"insertions": 5,
+					"deletions":  2,
+				},
+			},
+		},
 	}
 	if !reflect.DeepEqual(result.Value, wantValue) {
 		t.Fatalf("result.Value = %#v, want %#v", result.Value, wantValue)
@@ -132,6 +154,7 @@ func TestExecutorReturnsTypedNoOpWhenOnlyExcludedStateDirChanged(t *testing.T) {
 		"committed": false,
 		"commit":    nil,
 		"paths":     []string{},
+		"metadata":  nil,
 	}
 	if !reflect.DeepEqual(result.Value, want) {
 		t.Fatalf("result.Value = %#v, want %#v", result.Value, want)
@@ -191,6 +214,26 @@ func TestExecutorCommitsUntrackedFilesAndPreservesExcludedPaths(t *testing.T) {
 	wantPaths := []string{"engine.txt", "notes/todo.txt"}
 	if got := value["paths"]; !reflect.DeepEqual(got, wantPaths) {
 		t.Fatalf("paths = %#v, want %#v", got, wantPaths)
+	}
+	metadata, ok := value["metadata"].(map[string]any)
+	if !ok {
+		t.Fatalf("metadata = %#v, want map[string]any", value["metadata"])
+	}
+	if metadata["shortCommit"] == "" {
+		t.Fatalf("metadata.shortCommit = %#v, want short sha", metadata["shortCommit"])
+	}
+	if metadata["changedFileCount"] != 2 {
+		t.Fatalf("metadata.changedFileCount = %#v, want 2", metadata["changedFileCount"])
+	}
+	if metadata["insertions"] != 2 || metadata["deletions"] != 1 {
+		t.Fatalf("metadata totals = +%#v -%#v, want +2 -1", metadata["insertions"], metadata["deletions"])
+	}
+	wantStats := []any{
+		map[string]any{"path": "engine.txt", "insertions": 1, "deletions": 1},
+		map[string]any{"path": "notes/todo.txt", "insertions": 1, "deletions": 0},
+	}
+	if got := metadata["files"]; !reflect.DeepEqual(got, wantStats) {
+		t.Fatalf("metadata.files = %#v, want %#v", got, wantStats)
 	}
 
 	if got := runCommitGit(t, repoDir, "show", "HEAD:engine.txt"); got != "engine change\n" {

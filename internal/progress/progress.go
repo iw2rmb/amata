@@ -47,16 +47,17 @@ type Artifacts struct {
 }
 
 type Step struct {
-	Flow       string     `json:"flow"`
-	Index      int        `json:"index"`
-	ID         string     `json:"id,omitempty"`
-	Type       string     `json:"type,omitempty"`
-	Status     StepStatus `json:"status"`
-	Value      any        `json:"value,omitempty"`
-	Error      *Failure   `json:"error,omitempty"`
-	Artifacts  Artifacts  `json:"artifacts"`
-	StartedAt  time.Time  `json:"started_at,omitempty"`
-	FinishedAt time.Time  `json:"finished_at,omitempty"`
+	Flow       string          `json:"flow"`
+	Index      int             `json:"index"`
+	ID         string          `json:"id,omitempty"`
+	Type       string          `json:"type,omitempty"`
+	Status     StepStatus      `json:"status"`
+	Value      any             `json:"value,omitempty"`
+	Error      *Failure        `json:"error,omitempty"`
+	Artifacts  Artifacts       `json:"artifacts"`
+	Descriptor *DescriptorData `json:"descriptor,omitempty"`
+	StartedAt  time.Time       `json:"started_at,omitempty"`
+	FinishedAt time.Time       `json:"finished_at,omitempty"`
 }
 
 type Snapshot struct {
@@ -303,6 +304,7 @@ func cloneStep(step Step) Step {
 	step.Value = jsonutil.CloneValue(step.Value)
 	step.Error = cloneFailure(step.Error)
 	step.Artifacts = cloneArtifacts(step.Artifacts)
+	step.Descriptor = cloneDescriptorData(step.Descriptor)
 	return step
 }
 

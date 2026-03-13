@@ -12,35 +12,18 @@ import (
 	"auto/internal/schema"
 )
 
+type ResolvedStep struct {
+	Prompt    string
+	Model     string
+	Reasoning string
+	CWD       string
+	Env       map[string]string
+}
+
 func loadRequest(stepCtx executor.StepContext, providerName string, stepDir string) (Request, *Error) {
-	commonDefaults, providerDefaults, defaultsErr := loadDefaults(stepCtx.Spec.Defaults, providerName)
-	if defaultsErr != nil {
-		return Request{}, defaultsErr
-	}
-
-	prompt, err := resolveRequiredString(stepCtx, selectValue(stepCtx.Step.Fields, providerDefaults, nil, "prompt"))
-	if err != nil {
-		return Request{}, invalidFieldError("prompt", err)
-	}
-
-	model, err := resolveRequiredString(stepCtx, selectValue(stepCtx.Step.Fields, providerDefaults, nil, "model"))
-	if err != nil {
-		return Request{}, invalidFieldError("model", err)
-	}
-
-	reasoning, err := resolveOptionalString(stepCtx, selectValue(stepCtx.Step.Fields, providerDefaults, nil, "reasoning"))
-	if err != nil {
-		return Request{}, invalidFieldError("reasoning", err)
-	}
-
-	cwd, err := resolveCWD(stepCtx, selectValue(stepCtx.Step.Fields, providerDefaults, commonDefaults, "cwd"))
-	if err != nil {
-		return Request{}, invalidFieldError("cwd", err)
-	}
-
-	env, err := resolveEnv(stepCtx, commonDefaults["env"], providerDefaults["env"], stepCtx.Step.Fields["env"])
-	if err != nil {
-		return Request{}, invalidFieldError("env", err)
+	resolved, resolvedErr := ResolveStep(stepCtx, providerName)
+	if resolvedErr != nil {
+		return Request{}, resolvedErr
 	}
 
 	structured, structuredErr := loadStructuredOutput(stepCtx, stepDir)
@@ -49,13 +32,53 @@ func loadRequest(stepCtx executor.StepContext, providerName string, stepDir stri
 	}
 
 	return Request{
-		Prompt:      prompt,
-		Model:       model,
-		Reasoning:   reasoning,
-		CWD:         cwd,
-		Env:         env,
+		Prompt:      resolved.Prompt,
+		Model:       resolved.Model,
+		Reasoning:   resolved.Reasoning,
+		CWD:         resolved.CWD,
+		Env:         resolved.Env,
 		ArtifactDir: stepDir,
 		Structured:  structured,
+	}, nil
+}
+
+func ResolveStep(stepCtx executor.StepContext, providerName string) (ResolvedStep, *Error) {
+	commonDefaults, providerDefaults, defaultsErr := loadDefaults(stepCtx.Spec.Defaults, providerName)
+	if defaultsErr != nil {
+		return ResolvedStep{}, defaultsErr
+	}
+
+	prompt, err := resolveRequiredString(stepCtx, selectValue(stepCtx.Step.Fields, providerDefaults, nil, "prompt"))
+	if err != nil {
+		return ResolvedStep{}, invalidFieldError("prompt", err)
+	}
+
+	model, err := resolveRequiredString(stepCtx, selectValue(stepCtx.Step.Fields, providerDefaults, nil, "model"))
+	if err != nil {
+		return ResolvedStep{}, invalidFieldError("model", err)
+	}
+
+	reasoning, err := resolveOptionalString(stepCtx, selectValue(stepCtx.Step.Fields, providerDefaults, nil, "reasoning"))
+	if err != nil {
+		return ResolvedStep{}, invalidFieldError("reasoning", err)
+	}
+
+	cwd, err := resolveCWD(stepCtx, selectValue(stepCtx.Step.Fields, providerDefaults, commonDefaults, "cwd"))
+	if err != nil {
+		return ResolvedStep{}, invalidFieldError("cwd", err)
+	}
+
+	env, err := resolveEnv(stepCtx, commonDefaults["env"], providerDefaults["env"], stepCtx.Step.Fields["env"])
+	if err != nil {
+		return ResolvedStep{}, invalidFieldError("env", err)
+	}
+
+	return ResolvedStep{
+		Prompt:    prompt,
+		Model:     model,
+		Reasoning: reasoning,
+		CWD:       cwd,
+		Env:       env,
 	}, nil
 }
 

@@ -31,10 +31,25 @@ type CommitOptions struct {
 	ExcludePaths []string
 }
 
+type CommitFileStat struct {
+	Path       string
+	Insertions int
+	Deletions  int
+}
+
+type CommitMetadata struct {
+	ShortCommit      string
+	ChangedFileCount int
+	Insertions       int
+	Deletions        int
+	FileStats        []CommitFileStat
+}
+
 type CommitResult struct {
 	Committed bool
 	Commit    string
 	Paths     []string
+	Metadata  *CommitMetadata
 }
 
 type Client struct {
@@ -111,9 +126,14 @@ func (c *Client) Commit(ctx context.Context, snapshot Snapshot, opts CommitOptio
 	if err != nil {
 		return CommitResult{}, err
 	}
+	metadata, err := c.cli.commitMetadata(ctx, snapshot.Root, commit)
+	if err != nil {
+		return CommitResult{}, err
+	}
 
 	result.Committed = true
 	result.Commit = commit
+	result.Metadata = metadata
 	return result, nil
 }
 
