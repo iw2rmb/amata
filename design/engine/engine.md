@@ -21,9 +21,8 @@ In scope:
 - Explicit workspace and state-directory handling.
 - Persistent run state and basic `resume <run-id>` semantics for completed steps.
 - Typed step outputs with schema validation.
-- Built-in control-flow blocks for sequence, branching, iteration, subflow calls, and assertions.
+- Built-in control-flow blocks for sequence, branching, subflow calls, and assertions.
 - Built-in `shell`, `codex`, `claude`, `git.inspect`, and `git.commit` executors.
-- Pluggable step executors.
 - A reference shape for the `implement-roadmap` workflow where Codex picks the next open item directly from the roadmap file.
 
 Out of scope:
@@ -58,7 +57,7 @@ The first engine version should fix the core failure mode, not solve every advan
 - Make YAML the owner of orchestration logic.
 - Keep shell as a leaf executor, not the control plane.
 - Make folder resolution boring and explicit.
-- Use adjacent data flow through `ctx.prev` and `ctx.next`, not global step-id lookup.
+- Use adjacent data flow through `ctx.prev`, not global step-id lookup.
 - Make every step produce a typed `value` validated against a declared schema when requested.
 - Keep raw process and agent artifacts available without making them the main data model.
 - Persist completed-step results so interrupted runs can continue without rerunning already completed work.
@@ -73,6 +72,10 @@ The first engine version should fix the core failure mode, not solve every advan
 - Supporting parallel fan-out in `amata/v1`.
 - Supporting human approval checkpoints in `amata/v1`.
 - Supporting pause and continue in `amata/v1`.
+- Supporting external plugin registries or plugin process contracts in `amata/v1`.
+- Supporting non-Starlark expression engines in `amata/v1`.
+- Supporting collection iteration helpers such as `foreach` or extra runtime context objects beyond `ctx.prev` in `amata/v1`.
+- Supporting `amata show` in `amata/v1`.
 - Replacing normal shell access when shell is the right tool.
 
 ## Current Baseline (Observed)
@@ -105,8 +108,7 @@ Required runtime invariants:
 - `workspace.root` is the base directory for repo-facing relative paths.
 - `workspace.state_dir` defaults to `.amata`.
 - If `workspace.state_dir` is relative, it resolves from `workspace.root`.
-- Relative paths in imported specs or plugin registries resolve from the declaring file.
-- The engine normalizes declared filesystem paths before step execution and passes absolute paths to plugins.
+- The engine normalizes declared filesystem paths before step execution.
 - Every completed, failed, or skipped step execution produces a structured result object.
 - Completed step results are durably recorded before later steps can consume them.
 
@@ -117,8 +119,7 @@ Suggested run-state layout:
 - `<workspace.root>/<workspace.state_dir>/runs/<run-id>/artifacts/...`
 
 Rules:
-- Repo-facing step paths such as roadmap files, output files, and plugin config paths resolve from `workspace.root` unless they are already absolute.
-- Registry-facing paths such as `plugins.<type>.exec` resolve from the registry file that declared them.
+- Repo-facing step paths such as roadmap files and output files resolve from `workspace.root` unless they are already absolute.
 - `git.commit` should exclude `workspace.state_dir` by default when that directory is inside the target repository tree.
 - `git.inspect` should report repo state as typed data instead of requiring workflows to scrape git stdout.
 - `amata/v1` does not attempt provider-session continuation. If the process stops during an in-flight step, `resume` reruns that step from its last durable boundary.
@@ -132,12 +133,6 @@ amata run <spec.yaml> [--workspace <dir>] [--set key=value ...] [--run-id <id>]
 amata resume <run-id>
 ```
 
-Optional but useful:
-
-```text
-amata show <run-id> [--json]
-```
-
 Contract:
 - `run` copies the resolved spec into the run directory and records the normalized workspace settings used for the run.
 - `--workspace` overrides `workspace.root` for the launched run.
@@ -149,7 +144,7 @@ Contract:
 The core engine is implemented in Go.
 
 Rules:
-- The CLI, spec loader, schema validator, execution runtime, built-in executors, plugin host, and durable run-state store are Go packages in one engine codebase.
+- The CLI, spec loader, schema validator, execution runtime, built-in executors, and durable run-state store are Go packages in one engine codebase.
 - Engine-owned Git operations should use `go-git` as the typed default layer for repository inspection and basic local mutations such as status, add, and commit.
 - Engine-facing workflow contracts for Git state should be derived from typed Go models rather than by scraping porcelain text.
 - The engine may invoke the `git` CLI only behind a narrow internal adapter for operations that `go-git` does not support well enough or where exact Git CLI behavior is explicitly required.
@@ -158,37 +153,14 @@ Rules:
 
 ### 4. Execution Context
 
-`ctx.path` is the append-only execution history. It is available for inspection and debugging, not as the primary data-flow mechanism.
-
-Each `ctx.path` entry contains at least:
-- `ref`
-- `flow`
-- `status`
-- `started_at`
-- `finished_at`
-- `inputs`
-- `value`
-- `error`
-- `artifacts`
-
 Primary runtime references:
 - `ctx.prev`
   - the previous completed step result in the current flow frame, if any
-- `ctx.next`
-  - the next input item in the current repeated scope, if any
-- `ctx.this`
-  - the current loop item or current subflow input
-- `ctx.inputs`
-  - the explicit inputs for the current called flow
-- `ctx.path`
-  - global execution history for diagnostics
 
 Rules:
 - `ctx.prev` is the primary way to consume upstream data in `amata/v1`.
 - Expressions must not reference earlier steps by declared step `id`.
 - If a later step needs older data, the previous step should carry that data forward in its own `value`.
-- `ctx.next` never points to a future step result. It only exposes the next input item in collection-aware scopes.
-- `ctx.path` is for inspection, not normal orchestration.
 
 ### 5. Expressions
 
@@ -206,19 +178,9 @@ when:
   expr: ctx.prev.value["hasOpenItem"]
 ```
 
-Explicit engine selection:
-
-```yaml
-when:
-  lang: js
-  expr: |
-    return ctx.prev.value["hasOpenItem"];
-```
-
 Rules:
 - Starlark is built in and must be available in every run.
-- Other engines are registered by plugin name.
-- Template interpolation uses the same expression registry.
+- Template interpolation uses the same expression evaluator.
 - Fields that may hold either a literal value or a computed value use the object form to distinguish expressions from literals by default.
 - In `amata/v1`, any expression-accepting scalar position may also use whole-scalar root-context shorthand. A scalar whose entire value starts with `$.` desugars to `{ expr: <same expression with `$` replaced by `ctx`> }`.
 - Root-context shorthand is valid only when the entire YAML scalar is the expression. It does not perform string interpolation inside larger strings.
@@ -348,7 +310,7 @@ Rules:
 
 #### Schemas
 
-`schemas` holds named reusable schemas for `response.schema`, plugin `config_schema`, and local `$ref` targets.
+`schemas` holds named reusable schemas for `response.schema` and local `$ref` targets.
 
 Schema shorthand is allowed in schema-valued positions when the schema node is only a built-in scalar or object type:
 
@@ -390,7 +352,6 @@ Rules:
 ```yaml
 flows:
   main:
-    inputs: {}
     steps: []
 ```
 
@@ -398,7 +359,7 @@ flows:
 
 ```yaml
 - id: <optional-diagnostic-label>
-  type: <built-in-or-plugin-type>
+  type: <built-in-type>
   when: <expression-or-null>
   expect: <expression-or-null>
   timeout: 10m
@@ -465,100 +426,15 @@ Rules:
 - assert: $.prev.value["approved"]
 ```
 
-- `foreach`
-  - Iterates over an input collection.
-  - `items` may be supplied as a literal collection, an expression object, or whole-scalar `$.` shorthand.
-  - Child steps execute with `ctx.this`, `ctx.prev`, and `ctx.next`.
-  - Returns an array of child flow results.
-
 - `switch`
   - Evaluates cases in order and executes the first matching branch.
 
 - `call`
-  - Invokes a named subflow with explicit inputs.
-
-#### Plugin step types
-
-Any non-built-in `type` is resolved through the executor registry.
-
-The plugin contract is:
-- receive validated step config
-- receive engine-managed execution metadata appropriate to the runtime boundary
-- return a standard step result object
-
-In the Go implementation, the standard Git executors `git.inspect` and `git.commit` are engine-owned and backed by the typed Git layer. They are not the preferred use case for the external plugin protocol.
-
-The reference example bundle in [example/README.md](example/README.md) does not carry a plugin registry because the current scenario uses only built-in executors plus roadmap helper scripts. External plugin registries are still part of the engine design for later scenarios.
-
-When a workspace does need external plugin types, registry entries may declare `config_schema` so the engine can validate plugin config before launching the external process.
-
-```yaml
-plugins:
-  acme.custom:
-    exec:
-      - sh
-      - scripts/custom_step.sh
-    config_schema:
-      type: object
-      additionalProperties: false
-      properties:
-        path:
-          type: string
-          format: path
-```
-
-Rules:
-- The engine evaluates expressions and applies executor defaults before validating plugin config.
-- `config_schema` uses JSON Schema plus engine-specific annotations such as `format: path` for filesystem-path normalization.
-- The engine should reject invalid plugin config before process spawn rather than asking the plugin script to repeat structural validation.
-- External plugins may assume `request.config` already conforms to the declared schema.
-- External plugins are for non-core executor types and repo-specific extensions. Standard Git executors remain engine-owned and are not required to be declared in a plugin registry.
-- Check-oriented plugins such as `git.inspect` should succeed for normal negative cases and return typed booleans instead of failing for states like "not a git repo".
-- Related repo facts such as "is repo", "has diff", and "files" should come from one plugin result so workflows do not race across several independent git probes.
-
-#### Plugin process request contract
-
-When a plugin runs as an external process, the engine should send a single JSON request on stdin.
-
-Minimum request shape:
-
-```json
-{
-  "run": {
-    "id": "run-20260312-001",
-    "dir": "/abs/repo/.amata/runs/run-20260312-001"
-  },
-  "step": {
-    "id": "commit_item",
-    "ref": "step-7",
-    "artifacts_dir": "/abs/repo/.amata/runs/run-20260312-001/artifacts/step-7"
-  },
-  "workspace": {
-    "root": "/abs/repo",
-    "cwd": "/abs/repo",
-    "state_dir": "/abs/repo/.amata"
-  },
-  "config": {
-    "message": "feat: implement sample feature"
-  }
-}
-```
-
-Rules:
-- `config` contains the plugin-specific step config after expression evaluation, default application, schema validation, and path normalization.
-- The engine, not the plugin, owns process setup such as working directory, run metadata, and artifact-directory allocation.
-- Filesystem path fields should be normalized before plugin invocation when the plugin contract declares them as filesystem paths.
-- Plugins should not recover core execution metadata from process state when the engine can provide it explicitly.
-- The process result still uses the standard step result object on stdout.
-
-SDK guidance:
-- The engine may ship small language-specific SDK helpers for this protocol.
-- Those helpers should focus on request parsing and step-result encoding, not domain-specific behavior.
-- The example bundle may include small SDK or script sketches for the protocol, but the reference Git path for `implement-roadmap` does not depend on them.
+  - Invokes a named subflow.
 
 ### 8. Templates
 
-Fields such as prompts may be templates. Template expressions use the same engine registry as normal expressions.
+Fields such as prompts may be templates. Template expressions use the same expression evaluator as normal expressions.
 
 Example:
 
@@ -582,7 +458,7 @@ The core engine should stay small. The required standard Git executors in `amata
 - `git.commit`
 - `git.inspect`
 
-Other plugin categories may be added later without growing the first-version contract.
+Other executor categories are deferred until the first built-in-only slice is implemented.
 
 `git.commit` accepts:
 
@@ -629,9 +505,8 @@ Suggested internal boundaries:
 - Workflow planner and execution context builder.
 - Event store and snapshot writer.
 - Built-in executor implementations.
-- Expression engine registry.
-- Plugin registry for executor types.
-- CLI layer for `run`, `resume`, and `show`.
+- Expression evaluator.
+- CLI layer for `run` and `resume`.
 
 Important implementation notes:
 - Prefer a single statically linked Go CLI over a polyglot runtime mesh for the engine core.
@@ -639,9 +514,7 @@ Important implementation notes:
 - Do not model downstream state as shell-expanded environment variables.
 - Keep execution records immutable after they are appended.
 - Make template rendering and expression evaluation use the same type system.
-- Treat plugin executors and built-in executors uniformly at the runtime boundary.
 - Make agent structured-output mode derive from `response.schema` rather than repeated prompt boilerplate.
-- Validate plugin step config in the engine, not ad hoc inside every plugin script.
 - Keep the `go-git` boundary narrow and typed. If the engine has to fall back to the `git` CLI, isolate that code behind one package rather than scattering shell-outs across executors.
 
 ## Milestones
@@ -653,7 +526,7 @@ Scope:
 - Workspace root and state-dir normalization.
 - Flow and step model.
 - Event log and snapshot state.
-- `run`, `resume`, and `show`.
+- `run` and `resume`.
 
 Expected results:
 - Simple sequential flows execute with durable completed-step state.
@@ -667,21 +540,20 @@ Testable outcome:
 
 Scope:
 - Starlark engine.
-- `switch`, `call`, and `foreach`.
-- `ctx.prev`, `ctx.next`, `ctx.this`, `ctx.inputs`, and `ctx.path`.
+- `switch` and `call`.
+- `ctx.prev`.
 
 Expected results:
 - Adjacent-step data flow becomes explicit without step-id lookups.
 
 Testable outcome:
-- A workflow with subflows and loops can pass data forward through `ctx.prev` and `ctx.this` only.
+- A workflow with branching and recursive subflows can pass data forward through `ctx.prev` only.
 
-### Milestone 3: Codex, Claude, plugins, and the roadmap example
+### Milestone 3: Codex, Claude, built-in Git, and the roadmap example
 
 Scope:
 - `codex` executor.
 - `claude` executor.
-- Optional plugin registry for non-core step types.
 - Built-in `git.inspect` executor.
 - Built-in `git.commit` executor.
 - Reference `implement-roadmap` workflow.
@@ -697,14 +569,13 @@ Testable outcome:
 
 - The engine can express the reference `implement-roadmap` flow without external shell drivers for queue management or routing.
 - The reference workflow uses the prompt shape `Implement next open item from the <file>`.
-- Step outputs are consumed through `ctx.prev`, `ctx.this`, and templates, not by referencing earlier steps by `id`.
+- Step outputs are consumed through `ctx.prev` and templates, not by referencing earlier steps by `id`.
 - Relative repo-facing paths resolve from `workspace.root`.
-- Registry-side executable paths resolve from the declaring registry file.
 - Completed steps do not rerun after interruption and `resume`.
 - The core engine implementation is Go.
 - Engine-owned Git inspection uses `go-git` as the default typed layer, with any `git` CLI fallback isolated behind an internal adapter.
 - Engine-owned `git.commit` stages and commits only its included path set and does not absorb unrelated staged changes.
-- The reference `implement-roadmap` workflow uses only built-in Git executors and does not require any plugin registry or Python Git adapters.
+- The reference `implement-roadmap` workflow uses only built-in Git executors and does not require any plugin registry or alternate expression engine.
 - Deferred features are tracked in [research/hardcore.md](../../research/hardcore.md).
 
 ## Risks
