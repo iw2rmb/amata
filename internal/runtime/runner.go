@@ -9,6 +9,7 @@ import (
 	executorapi "auto/internal/executor"
 	exprruntime "auto/internal/expr"
 	"auto/internal/jsonutil"
+	"auto/internal/progress"
 	"auto/internal/runtime/response"
 	"auto/internal/schema"
 	"auto/internal/spec"
@@ -16,8 +17,11 @@ import (
 )
 
 type Runner struct {
-	registry *Registry
+	registry     *Registry
+	progressSink progress.Sink
 }
+
+type RunnerOption func(*Runner)
 
 type RunFailedError struct {
 	RunID   string
@@ -28,12 +32,25 @@ func (e RunFailedError) Error() string {
 	return fmt.Sprintf("run %q failed: %s", e.RunID, e.Failure.Message)
 }
 
-func NewRunner(registry *Registry) *Runner {
+func WithRunnerProgressSink(sink progress.Sink) RunnerOption {
+	return func(runner *Runner) {
+		runner.progressSink = sink
+	}
+}
+
+func NewRunner(registry *Registry, options ...RunnerOption) *Runner {
 	if registry == nil {
 		registry = builtinRegistry()
 	}
 
-	return &Runner{registry: registry}
+	runner := &Runner{registry: registry}
+	for _, option := range options {
+		if option != nil {
+			option(runner)
+		}
+	}
+
+	return runner
 }
 
 func (r *Runner) Run(ctx context.Context, config Config) (state.Snapshot, error) {
@@ -54,6 +71,7 @@ func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state
 		return state.Snapshot{}, fmt.Errorf("entry flow %q is not defined", config.Spec.Entry)
 	}
 	responses := response.NewResolver(schema.NewRegistry(config.Spec.Schemas))
+	reporter := progress.NewReporter(config.RunID, r.progressSink)
 
 	store := state.NewStore(config.RunDir)
 	snapshot, err := store.LoadSnapshot()
@@ -90,6 +108,7 @@ func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state
 			if err != nil {
 				return state.Snapshot{}, err
 			}
+			reporter.RunFinished(progress.RunStatusFailed, progressFailure(failure))
 			return snapshot, RunFailedError{
 				RunID:   config.RunID,
 				Failure: *failure,
@@ -104,6 +123,7 @@ func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state
 			if err != nil {
 				return state.Snapshot{}, err
 			}
+			reporter.RunResumed(resumeActiveProgressSteps(snapshot))
 		}
 	} else {
 		if !errors.Is(err, os.ErrNotExist) {
@@ -120,6 +140,7 @@ func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state
 		if err != nil {
 			return state.Snapshot{}, err
 		}
+		reporter.RunStarted("run")
 	}
 
 	for {
@@ -135,10 +156,15 @@ func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state
 
 		if frame.NextStep >= frame.StepCount {
 			if frame.Return == nil {
-				return store.Append(state.RunEvent{
+				snapshot, err = store.Append(state.RunEvent{
 					Kind:   state.EventRunFinished,
 					Status: state.RunStatusSucceeded,
 				})
+				if err != nil {
+					return state.Snapshot{}, err
+				}
+				reporter.RunFinished(progress.RunStatusSucceeded, nil)
+				return snapshot, nil
 			}
 
 			parentFrame := snapshot.Frames[len(snapshot.Frames)-2]
@@ -150,7 +176,7 @@ func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state
 			returned := returnedControlResult(frame.Return, frame.Produced)
 			finalized := r.finalizeStepResult(config, responses, parentFrame.Previous, parentStep, returned)
 
-			if snapshot, err = r.recordResultEvent(store, config.RunID, state.EventControlReturned, finalized); err != nil {
+			if snapshot, err = r.recordResultEvent(store, reporter, config.RunID, parentFrame.Flow, state.EventControlReturned, finalized); err != nil {
 				return snapshot, err
 			}
 			continue
@@ -162,6 +188,7 @@ func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state
 
 		switch step.ExecutorType() {
 		case "call":
+			reporter.StepStarted(progressStep(frame.Flow, stepIndex, step))
 			action, result := r.prepareStepAction(config, runtime, frame.Previous, stepIndex, step)
 			if action.pushFrame != nil {
 				snapshot, err = store.Append(state.RunEvent{
@@ -173,10 +200,11 @@ func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state
 				}
 				continue
 			}
-			if snapshot, err = r.recordResultEvent(store, config.RunID, state.EventStepRecorded, result); err != nil {
+			if snapshot, err = r.recordResultEvent(store, reporter, config.RunID, frame.Flow, state.EventStepRecorded, result); err != nil {
 				return snapshot, err
 			}
 		case "switch":
+			reporter.StepStarted(progressStep(frame.Flow, stepIndex, step))
 			action, result := r.prepareSwitch(config, runtime, plan, responses, frame.Flow, frame.Previous, stepIndex, step)
 			if action.pushFrame != nil {
 				snapshot, err = store.Append(state.RunEvent{
@@ -188,12 +216,13 @@ func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state
 				}
 				continue
 			}
-			if snapshot, err = r.recordResultEvent(store, config.RunID, state.EventStepRecorded, result); err != nil {
+			if snapshot, err = r.recordResultEvent(store, reporter, config.RunID, frame.Flow, state.EventStepRecorded, result); err != nil {
 				return snapshot, err
 			}
 		default:
+			reporter.StepStarted(progressStep(frame.Flow, stepIndex, step))
 			result := r.executeStep(ctx, config, responses, frame.Flow, stepIndex, step, frame.Previous)
-			if snapshot, err = r.recordResultEvent(store, config.RunID, state.EventStepRecorded, result); err != nil {
+			if snapshot, err = r.recordResultEvent(store, reporter, config.RunID, frame.Flow, state.EventStepRecorded, result); err != nil {
 				return snapshot, err
 			}
 		}
@@ -555,7 +584,14 @@ func nestedResultValue(previous *state.StepResult) map[string]any {
 	return value
 }
 
-func (r *Runner) recordResultEvent(store *state.Store, runID string, kind state.EventKind, result state.StepResult) (state.Snapshot, error) {
+func (r *Runner) recordResultEvent(
+	store *state.Store,
+	reporter *progress.Reporter,
+	runID string,
+	flowName string,
+	kind state.EventKind,
+	result state.StepResult,
+) (state.Snapshot, error) {
 	snapshot, err := store.Append(state.RunEvent{
 		Kind: kind,
 		Step: &result,
@@ -563,6 +599,7 @@ func (r *Runner) recordResultEvent(store *state.Store, runID string, kind state.
 	if err != nil {
 		return state.Snapshot{}, err
 	}
+	reporter.StepFinished(progress.StepFromResult(flowName, result))
 
 	if result.Status != state.StepStatusFailed {
 		return snapshot, nil
@@ -577,11 +614,56 @@ func (r *Runner) recordResultEvent(store *state.Store, runID string, kind state.
 	if err != nil {
 		return state.Snapshot{}, err
 	}
+	reporter.RunFinished(progress.RunStatusFailed, progressFailure(failure))
 
 	return snapshot, RunFailedError{
 		RunID:   runID,
 		Failure: *failure,
 	}
+}
+
+func progressStep(flowName string, stepIndex int, step spec.Step) progress.Step {
+	return progress.Step{
+		Flow:   flowName,
+		Index:  stepIndex,
+		ID:     step.ID,
+		Type:   step.ExecutorType(),
+		Status: progress.StepStatusRunning,
+	}
+}
+
+func progressFailure(failure *state.Failure) *progress.Failure {
+	if failure == nil {
+		return nil
+	}
+	return &progress.Failure{
+		Code:    failure.Code,
+		Message: failure.Message,
+	}
+}
+
+func resumeActiveProgressSteps(snapshot state.Snapshot) []progress.Step {
+	if len(snapshot.Frames) < 2 {
+		return []progress.Step{}
+	}
+
+	steps := make([]progress.Step, 0, len(snapshot.Frames)-1)
+	for index := 1; index < len(snapshot.Frames); index++ {
+		frame := snapshot.Frames[index]
+		if frame.Return == nil {
+			continue
+		}
+
+		steps = append(steps, progress.Step{
+			Flow:   snapshot.Frames[index-1].Flow,
+			Index:  frame.Return.StepIndex,
+			ID:     frame.Return.StepID,
+			Type:   frame.Return.StepType,
+			Status: progress.StepStatusRunning,
+		})
+	}
+
+	return steps
 }
 
 func shouldSkipStep(stepIndex int, step spec.Step, runtime exprruntime.Runtime) (bool, *state.Failure) {

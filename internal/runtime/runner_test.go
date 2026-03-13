@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	executorapi "auto/internal/executor"
+	"auto/internal/progress"
 	"auto/internal/spec"
 	"auto/internal/state"
 	"auto/internal/workspace"
@@ -210,6 +211,252 @@ func TestRunnerResumeFinalizesCompletedChildFrameBeforeRunningParentNextStep(t *
 	}
 	if snapshot.Steps[1].ID != "loop" || snapshot.Steps[1].Type != "call" {
 		t.Fatalf("returned control step = %#v, want call result", snapshot.Steps[1])
+	}
+}
+
+func TestRunnerEmitsLiveProgressForNestedSwitchAndCall(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID:   "switch-step",
+						Type: "switch",
+						Fields: map[string]any{
+							"cases": []any{
+								map[string]any{
+									"when": true,
+									"steps": []any{
+										map[string]any{
+											"id":   "branch-step",
+											"type": "fake",
+										},
+									},
+								},
+							},
+						},
+					},
+					{
+						ID:   "call-step",
+						Type: "call",
+						Fields: map[string]any{
+							"flow": "child",
+						},
+					},
+				},
+			},
+			"child": {
+				Steps: []spec.Step{
+					{ID: "child-step", Type: "fake"},
+				},
+			},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	registry := NewRegistry()
+	calls := []string{}
+	if err := registry.Register("fake", func() executorapi.Executor {
+		return &fakeExecutor{
+			calls: &calls,
+			results: map[string]state.StepResult{
+				"branch-step": {Status: state.StepStatusSucceeded},
+				"child-step":  {Status: state.StepStatusSucceeded},
+			},
+		}
+	}); err != nil {
+		t.Fatalf("register fake executor: %v", err)
+	}
+
+	var events []progress.Event
+	sink := progress.SinkFunc(func(event progress.Event) {
+		events = append(events, event)
+	})
+
+	snapshot, err := NewRunner(registry, WithRunnerProgressSink(sink)).Run(context.Background(), config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if snapshot.Status != state.RunStatusSucceeded {
+		t.Fatalf("snapshot status = %q, want succeeded", snapshot.Status)
+	}
+
+	assertProgressKindsAndSteps(t, events,
+		[]progress.EventKind{
+			progress.EventRunStarted,
+			progress.EventStepStarted,
+			progress.EventStepStarted,
+			progress.EventStepFinished,
+			progress.EventStepFinished,
+			progress.EventStepStarted,
+			progress.EventStepStarted,
+			progress.EventStepFinished,
+			progress.EventStepFinished,
+			progress.EventRunFinished,
+		},
+		[]string{
+			"",
+			"switch-step",
+			"branch-step",
+			"branch-step",
+			"switch-step",
+			"call-step",
+			"child-step",
+			"child-step",
+			"call-step",
+			"",
+		},
+	)
+
+	finished := events[len(events)-1]
+	if finished.Status != progress.RunStatusSucceeded {
+		t.Fatalf("final event status = %q, want succeeded", finished.Status)
+	}
+	if got := len(finished.Snapshot.Active); got != 0 {
+		t.Fatalf("active step count = %d, want 0", got)
+	}
+	if got := len(finished.Snapshot.Steps); got != 4 {
+		t.Fatalf("completed step count = %d, want 4", got)
+	}
+}
+
+func TestRunnerResumeEmitsLiveProgressForReturnedControl(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID:   "loop",
+						Type: "call",
+						Fields: map[string]any{
+							"flow": "loop",
+						},
+					},
+					{ID: "after", Type: "fake"},
+				},
+			},
+			"loop": {
+				Steps: []spec.Step{
+					{ID: "loop-step", Type: "fake"},
+				},
+			},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	store := state.NewStore(config.RunDir)
+	if _, err := store.Append(state.RunEvent{
+		Kind: state.EventRunInitialized,
+		Frame: &state.FlowFrame{
+			Flow:      config.Spec.Entry,
+			StepCount: 2,
+		},
+		Command: "run",
+	}); err != nil {
+		t.Fatalf("append init: %v", err)
+	}
+	if _, err := store.Append(state.RunEvent{
+		Kind: state.EventFramePushed,
+		Frame: &state.FlowFrame{
+			Flow:      "loop",
+			StepCount: 1,
+			Return: &state.FrameReturn{
+				StepType:  "call",
+				StepIndex: 0,
+				StepID:    "loop",
+				Flow:      "loop",
+			},
+		},
+	}); err != nil {
+		t.Fatalf("append frame push: %v", err)
+	}
+	if _, err := store.Append(state.RunEvent{
+		Kind: state.EventStepRecorded,
+		Step: &state.StepResult{
+			Index:     0,
+			ID:        "loop-step",
+			Type:      "fake",
+			Status:    state.StepStatusSucceeded,
+			Artifacts: executorapi.EmptyArtifacts(),
+		},
+	}); err != nil {
+		t.Fatalf("append child step: %v", err)
+	}
+
+	resumeConfig, err := LoadRunConfig(config.RunDir)
+	if err != nil {
+		t.Fatalf("load run config: %v", err)
+	}
+
+	registry := NewRegistry()
+	calls := []string{}
+	if err := registry.Register("fake", func() executorapi.Executor {
+		return &fakeExecutor{
+			calls: &calls,
+			results: map[string]state.StepResult{
+				"after": {Status: state.StepStatusSucceeded},
+			},
+		}
+	}); err != nil {
+		t.Fatalf("register fake executor: %v", err)
+	}
+
+	var events []progress.Event
+	sink := progress.SinkFunc(func(event progress.Event) {
+		events = append(events, event)
+	})
+
+	snapshot, err := NewRunner(registry, WithRunnerProgressSink(sink)).Resume(context.Background(), resumeConfig)
+	if err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	if snapshot.Status != state.RunStatusSucceeded {
+		t.Fatalf("snapshot status = %q, want succeeded", snapshot.Status)
+	}
+
+	assertProgressKindsAndSteps(t, events,
+		[]progress.EventKind{
+			progress.EventRunResumed,
+			progress.EventStepFinished,
+			progress.EventStepStarted,
+			progress.EventStepFinished,
+			progress.EventRunFinished,
+		},
+		[]string{
+			"",
+			"loop",
+			"after",
+			"after",
+			"",
+		},
+	)
+	if got := events[1].Step.Type; got != "call" {
+		t.Fatalf("returned control step type = %q, want call", got)
+	}
+	if got, want := len(events[0].Snapshot.Active), 1; got != want {
+		t.Fatalf("resume active step count = %d, want %d", got, want)
+	}
+	if got := events[0].Snapshot.Active[0]; got.ID != "loop" || got.Type != "call" || got.Status != progress.StepStatusRunning {
+		t.Fatalf("resume active step = %#v, want running loop call", got)
+	}
+	if got := len(events[1].Snapshot.Active); got != 0 {
+		t.Fatalf("active step count after returned control = %d, want 0", got)
 	}
 }
 
@@ -2170,6 +2417,35 @@ func resolveResultPaths(runDir string, results map[string]state.StepResult) map[
 		resolved[stepID] = result
 	}
 	return resolved
+}
+
+func assertProgressKindsAndSteps(t *testing.T, events []progress.Event, wantKinds []progress.EventKind, wantStepIDs []string) {
+	t.Helper()
+
+	if len(events) != len(wantKinds) {
+		t.Fatalf("event count = %d, want %d", len(events), len(wantKinds))
+	}
+	if len(wantKinds) != len(wantStepIDs) {
+		t.Fatalf("want step id count = %d, want kinds count = %d", len(wantStepIDs), len(wantKinds))
+	}
+
+	gotKinds := make([]progress.EventKind, 0, len(events))
+	gotStepIDs := make([]string, 0, len(events))
+	for _, event := range events {
+		gotKinds = append(gotKinds, event.Kind)
+		if event.Step == nil {
+			gotStepIDs = append(gotStepIDs, "")
+			continue
+		}
+		gotStepIDs = append(gotStepIDs, event.Step.ID)
+	}
+
+	if !slices.Equal(gotKinds, wantKinds) {
+		t.Fatalf("event kinds = %#v, want %#v", gotKinds, wantKinds)
+	}
+	if !reflect.DeepEqual(gotStepIDs, wantStepIDs) {
+		t.Fatalf("event step ids = %#v, want %#v", gotStepIDs, wantStepIDs)
+	}
 }
 
 func cloneStepResult(result state.StepResult) state.StepResult {

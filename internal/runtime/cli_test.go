@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"auto/internal/progress"
 	"auto/internal/runtime"
 	"auto/internal/state"
 	"gopkg.in/yaml.v3"
@@ -110,6 +111,58 @@ flows:
 	}
 	if got := stdout.String(); got != "run-001\n" {
 		t.Fatalf("stdout = %q, want run id", got)
+	}
+}
+
+func TestRunCLIThreadsProgressSinkIntoRunner(t *testing.T) {
+	specDir := t.TempDir()
+	specPath := filepath.Join(specDir, "workflow.yaml")
+	specBody := `
+version: amata/v1
+name: sample
+entry: main
+flows:
+  main:
+    steps:
+      - id: step-1
+        expr: 1
+`
+	if err := os.WriteFile(specPath, []byte(specBody), 0o644); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var events []progress.Event
+	sink := progress.SinkFunc(func(event progress.Event) {
+		events = append(events, event)
+	})
+
+	if err := runtime.RunCLI(
+		[]string{"run", specPath, "--run-id", "run-001"},
+		&stdout,
+		nil,
+		runtime.WithProgressSink(sink),
+	); err != nil {
+		t.Fatalf("run cli: %v", err)
+	}
+
+	if got := stdout.String(); got != "run-001\n" {
+		t.Fatalf("stdout = %q, want run id", got)
+	}
+	if got, want := len(events), 4; got != want {
+		t.Fatalf("event count = %d, want %d", got, want)
+	}
+	if events[0].Kind != progress.EventRunStarted {
+		t.Fatalf("first event kind = %q, want run_started", events[0].Kind)
+	}
+	if events[1].Kind != progress.EventStepStarted || events[1].Step == nil || events[1].Step.ID != "step-1" {
+		t.Fatalf("step start event = %#v, want step-1 start", events[1])
+	}
+	if events[2].Kind != progress.EventStepFinished || events[2].Step == nil || events[2].Step.ID != "step-1" {
+		t.Fatalf("step finish event = %#v, want step-1 finish", events[2])
+	}
+	if events[3].Kind != progress.EventRunFinished || events[3].Status != progress.RunStatusSucceeded {
+		t.Fatalf("final event = %#v, want succeeded run finish", events[3])
 	}
 }
 

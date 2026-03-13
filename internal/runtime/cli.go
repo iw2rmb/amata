@@ -10,13 +10,26 @@ import (
 	"path/filepath"
 	"strings"
 
+	"auto/internal/progress"
 	"auto/internal/spec"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
 
-func RunCLI(args []string, stdout io.Writer, stderr io.Writer) error {
-	command := newRootCommand(stdout, stderr)
+type CLIOption func(*cliOptions)
+
+type cliOptions struct {
+	progressSink progress.Sink
+}
+
+func WithProgressSink(sink progress.Sink) CLIOption {
+	return func(options *cliOptions) {
+		options.progressSink = sink
+	}
+}
+
+func RunCLI(args []string, stdout io.Writer, stderr io.Writer, options ...CLIOption) error {
+	command := newRootCommand(stdout, stderr, buildCLIOptions(options))
 	command.SetArgs(args)
 
 	if err := command.Execute(); err != nil {
@@ -29,7 +42,17 @@ func RunCLI(args []string, stdout io.Writer, stderr io.Writer) error {
 	return nil
 }
 
-func newRootCommand(stdout io.Writer, stderr io.Writer) *cobra.Command {
+func buildCLIOptions(options []CLIOption) cliOptions {
+	var resolved cliOptions
+	for _, option := range options {
+		if option != nil {
+			option(&resolved)
+		}
+	}
+	return resolved
+}
+
+func newRootCommand(stdout io.Writer, stderr io.Writer, options cliOptions) *cobra.Command {
 	command := &cobra.Command{
 		Use:           "amata",
 		SilenceErrors: true,
@@ -48,11 +71,11 @@ func newRootCommand(stdout io.Writer, stderr io.Writer) *cobra.Command {
 	command.SetOut(writerOrDiscard(stdout))
 	command.SetErr(writerOrDiscard(stderr))
 	command.SetFlagErrorFunc(flagErrorFunc)
-	command.AddCommand(newRunCommand(), newResumeCommand())
+	command.AddCommand(newRunCommand(options), newResumeCommand(options))
 	return command
 }
 
-func newRunCommand() *cobra.Command {
+func newRunCommand(options cliOptions) *cobra.Command {
 	var workspaceOverride string
 	var runID string
 	var rawOverrides []string
@@ -83,6 +106,7 @@ func newRunCommand() *cobra.Command {
 					RunID:             runID,
 				},
 				cmd.OutOrStdout(),
+				options.progressSink,
 			)
 		},
 	}
@@ -94,7 +118,7 @@ func newRunCommand() *cobra.Command {
 	return command
 }
 
-func newResumeCommand() *cobra.Command {
+func newResumeCommand(options cliOptions) *cobra.Command {
 	command := &cobra.Command{
 		Use:           "resume <run-id>",
 		Short:         "Resume a stored run",
@@ -107,7 +131,7 @@ func newResumeCommand() *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return resumeCommand(cmd.Context(), args[0], cmd.OutOrStdout())
+			return resumeCommand(cmd.Context(), args[0], cmd.OutOrStdout(), options.progressSink)
 		},
 	}
 
@@ -159,7 +183,7 @@ func buildParamOverrides(rawOverrides []string) (map[string]any, error) {
 	return paramOverrides, nil
 }
 
-func runCommand(ctx context.Context, specPath string, options LaunchOptions, stdout io.Writer) error {
+func runCommand(ctx context.Context, specPath string, options LaunchOptions, stdout io.Writer, sink progress.Sink) error {
 	loaded, err := spec.Load(specPath)
 	if err != nil {
 		return err
@@ -178,7 +202,7 @@ func runCommand(ctx context.Context, specPath string, options LaunchOptions, std
 		_, _ = fmt.Fprintln(stdout, config.RunID)
 	}
 
-	_, err = NewRunner(nil).Run(ctx, config)
+	_, err = NewRunner(nil, WithRunnerProgressSink(sink)).Run(ctx, config)
 	return err
 }
 
@@ -207,7 +231,7 @@ func parseParamOverride(value string) (paramOverride, error) {
 	return paramOverride{key: key, value: decoded}, nil
 }
 
-func resumeCommand(ctx context.Context, runID string, stdout io.Writer) error {
+func resumeCommand(ctx context.Context, runID string, stdout io.Writer, sink progress.Sink) error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("resolve cwd: %w", err)
@@ -227,7 +251,7 @@ func resumeCommand(ctx context.Context, runID string, stdout io.Writer) error {
 		_, _ = fmt.Fprintln(stdout, config.RunID)
 	}
 
-	_, err = NewRunner(nil).Resume(ctx, config)
+	_, err = NewRunner(nil, WithRunnerProgressSink(sink)).Resume(ctx, config)
 	return err
 }
 
