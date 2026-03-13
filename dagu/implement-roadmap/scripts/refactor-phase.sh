@@ -67,10 +67,8 @@ Roadmap file: ${roadmap_file}
 
 Review the codebase related to the implemented roadmap items.
 Find real refactoring targets for redundancy, overengineering, dead code, unnecessary boilerplate,
-or files that should be split because they mix domains or grew too large.
-Apply the refactors directly when they materially improve the implementation, then rerun relevant checks.
-Keep behavior and scope intact. Do not start new feature work or docs cleanup.
-Leave changes uncommitted.
+or files to split because of domains mix or large LOC number. Address refactors, if any found.
+Do not commit.
 Output ONLY valid JSON:
   {"approved":true,"notes":"..."}
 PROMPT

@@ -13,7 +13,7 @@ amata run <spec.yaml> [--workspace <dir>] [--run-id <id>]
 amata resume <run-id>
 ```
 
-The current implementation includes durable on-disk run state, one shared expression/template runtime, response value and schema handling, three built-in executors (`shell`, `expr`, and `assert`), and first-version control blocks (`switch` and `call`) over a resumable flow stack.
+The current implementation includes durable on-disk run state, one shared expression/template runtime, response value and schema handling, three built-in executors (`shell`, `expr`, and `assert`), and first-version control blocks (`switch` and `call`) over a deterministically planned resumable flow stack.
 
 ## Workflow Spec
 
@@ -69,11 +69,18 @@ The shared runtime context is exposed at `ctx`:
 
 Declared step `id` values remain diagnostics-only. Expressions cannot read `ctx.prev.id` or use step ids as data-flow references.
 
+The same resolver is used for:
+- `expr`
+- `when`
+- `expect`
+- shell `command`, `cwd`, and `files`
+- `call.flow`
+
 Expression-bearing scalar positions also support two whole-scalar shorthands:
 - A value starting with `$.` resolves as a Starlark expression rooted at `ctx`.
 - A value starting with `$$` escapes that shorthand and becomes a literal string with one leading `$`.
 
-Strings containing `{{ ... }}` use the same evaluator for template interpolation. A template consisting of one expression returns that raw JSON-like value instead of stringifying it.
+Strings containing `{{ ... }}` use the same evaluator for template interpolation. A template consisting of one expression returns that raw JSON-like value instead of stringifying it, so array and object values can flow through templated scalar fields unchanged.
 
 ## Workspace and Run Layout
 
@@ -106,6 +113,7 @@ Each run persists under:
 Execution rules:
 - The runner starts from the entry flow and may push child frames for `switch` branches and `call` subflows.
 - Steps run strictly in order within each flow frame.
+- `switch` branch frames are planned before execution and keep stable synthetic flow names across nested branches and `resume`.
 - A new child frame starts with the caller's current `ctx.prev`, then updates only within that frame until it returns.
 - Every durable state transition is appended to `events.ndjson`.
 - `snapshot.json` is rewritten after each appended event.
@@ -149,6 +157,7 @@ Behavior:
 - Cases are evaluated in order and only the first matching branch runs.
 - The selected branch runs in a child flow frame.
 - The step succeeds with a structured `value` containing `matched`, `case`, `status`, `value`, `error`, and `artifacts` from the nested branch result.
+- `case` is the zero-based index of the matched branch.
 - When no case matches, the step still succeeds with `matched: false` and `case: null`.
 
 ### `call`
@@ -228,6 +237,7 @@ Current behavior:
 - `when` runs before executor dispatch in the normal runtime context.
 - `expect` runs only after a succeeded step.
 - `expect` extends the normal runtime context with the current step result at `ctx.status`, `ctx.value`, `ctx.error`, and `ctx.artifacts`.
+- Those temporary bindings exist only during `expect`; downstream steps still read prior results through `ctx.prev`.
 - `expect` must resolve to a boolean. `false` fails the step with code `expectation_failed`.
 
 ## Current Limits
