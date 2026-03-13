@@ -3,11 +3,11 @@ name: implement-roadmap
 entry: main
 
 workspace:
-  root: "design/engine/example/fixture-repo"
+  root: "../../.."
   state_dir: ".amata"
 
 params:
-  roadmap_file: "roadmap/index.md"
+  roadmap_file: "design/engine/example/fixture-repo/roadmap/index.md"
   codex_model: "gpt-5.4"
   codex_correctness_reasoning: "xhigh"
   codex_docs_reasoning: "high"

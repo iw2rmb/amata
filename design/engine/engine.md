@@ -8,9 +8,9 @@ Define a local-first workflow engine for coding-agent-driven development flows.
 
 The implementation stack for the engine itself is Go. The engine should use `go-git` as the typed default Git layer and fall back to the `git` CLI only through narrow internal adapters when exact CLI parity or unsupported behavior is required.
 
-The reference outcome is that the current `implement-roadmap` workflow can be expressed mostly in YAML, with Codex selecting the next open roadmap item directly from the roadmap file and shell used only for true leaf commands or small plugins such as `git.commit` and `git.inspect`.
+The reference outcome is that the current `implement-roadmap` workflow can be expressed mostly in YAML, with Codex selecting the next open roadmap item directly from the roadmap file, engine-owned `git.commit` and `git.inspect` handling repo state through the typed Git layer, and shell used only for true leaf commands or repo-specific plugins.
 
-See the reference example bundle in `design/engine/example/`, especially `example/implement-roadmap.yaml`, `example/plugins.yaml`, and `example/README.md`.
+See the reference example bundle in `design/engine/example/`, especially `example/implement-roadmap.yaml` and `example/README.md`. The registry file at `example/plugins.yaml` is optional and exists only for non-core plugin extensions.
 
 ## Scope
 
@@ -22,7 +22,7 @@ In scope:
 - Persistent run state and basic `resume <run-id>` semantics for completed steps.
 - Typed step outputs with schema validation.
 - Built-in control-flow blocks for sequence, branching, iteration, subflow calls, and assertions.
-- Built-in `shell`, `codex`, and `claude` executors.
+- Built-in `shell`, `codex`, `claude`, `git.inspect`, and `git.commit` executors.
 - Pluggable step executors.
 - A reference shape for the `implement-roadmap` workflow where Codex picks the next open item directly from the roadmap file.
 
@@ -277,7 +277,7 @@ Example:
 
 ```yaml
 workspace:
-  root: design/engine/example/fixture-repo
+  root: .
   state_dir: .amata
 ```
 
@@ -488,38 +488,32 @@ The plugin contract is:
 
 In the Go implementation, the standard Git executors `git.inspect` and `git.commit` are engine-owned and backed by the typed Git layer. They are not the preferred use case for the external plugin protocol.
 
-The example bundle in [example/README.md](example/README.md) includes a concrete, non-normative plugin registry file at [example/plugins.yaml](example/plugins.yaml). That registry demonstrates the external plugin process contract and may still show the standard Git step types wired through scripts as a transitional example, but the engine should treat them as first-class built-in capabilities.
+The example bundle in [example/README.md](example/README.md) includes a concrete, non-normative plugin registry file at [example/plugins.yaml](example/plugins.yaml). That registry is optional and exists for repo-specific extensions only. The reference `implement-roadmap` workflow should run without loading external Git adapters or Python Git scripts.
 
 Plugin registry entries may declare `config_schema` so the engine can validate plugin config before launching the external process.
 
-Example:
+Minimal built-in-only registry file:
+
+```yaml
+version: amata/plugins/v1
+plugins: {}
+```
+
+When a workspace does need external plugin types, registry entries may declare `config_schema`:
 
 ```yaml
 plugins:
-  git.inspect:
+  acme.custom:
     exec:
       - sh
-      - scripts/git_inspect.sh
+      - scripts/custom_step.sh
     config_schema:
       type: object
       additionalProperties: false
       properties:
-        include_untracked: boolean
-  git.commit:
-    exec:
-      - python3
-      - scripts/git_commit.py
-    config_schema:
-      type: object
-      required: [message]
-      additionalProperties: false
-      properties:
-        message: string
-        exclude_paths:
-          type: array
-          items:
-            type: string
-            format: path
+        path:
+          type: string
+          format: path
 ```
 
 Rules:
@@ -527,7 +521,7 @@ Rules:
 - `config_schema` uses JSON Schema plus engine-specific annotations such as `format: path` for filesystem-path normalization.
 - The engine should reject invalid plugin config before process spawn rather than asking the plugin script to repeat structural validation.
 - External plugins may assume `request.config` already conforms to the declared schema.
-- External plugins are for non-core executor types and repo-specific extensions. Standard Git executors remain engine-owned even when the example bundle shows them through the plugin protocol.
+- External plugins are for non-core executor types and repo-specific extensions. Standard Git executors remain engine-owned and are not required to be declared in `plugins.yaml`.
 - Check-oriented plugins such as `git.inspect` should succeed for normal negative cases and return typed booleans instead of failing for states like "not a git repo".
 - Related repo facts such as "is repo", "has diff", and "files" should come from one plugin result so workflows do not race across several independent git probes.
 
@@ -569,7 +563,7 @@ Rules:
 SDK guidance:
 - The engine may ship small language-specific SDK helpers for this protocol.
 - Those helpers should focus on request parsing and step-result encoding, not domain-specific behavior.
-- The example bundle includes a Python SDK sketch at [example/sdk/python.py](example/sdk/python.py).
+- The example bundle may include small SDK or script sketches for the protocol, but the reference Git path for `implement-roadmap` does not depend on them.
 
 ### 8. Templates
 
@@ -591,13 +585,28 @@ Rules:
 - `amata/v1` does not define attempts separately from retries because neither feature is part of the first-version contract.
 - Automatic provider-session recovery, pause/continue behavior, and human intervention are deferred to [research/hardcore.md](../../research/hardcore.md).
 
-### 10. Minimal Standard Plugin Set
+### 10. Minimal Standard Git Executor Set
 
-The core engine should stay small. The required standard plugins in `amata/v1` are:
+The core engine should stay small. The required standard Git executors in `amata/v1` are:
 - `git.commit`
 - `git.inspect`
 
 Other plugin categories may be added later without growing the first-version contract.
+
+`git.commit` accepts:
+
+```yaml
+message: <string>
+exclude_paths: <array of repo-relative path prefixes>
+```
+
+`git.commit` returns:
+
+```yaml
+committed: <boolean>
+commit: <sha|null>
+paths: <array of repo-relative paths>
+```
 
 `git.inspect` returns a typed snapshot of the current working tree:
 
@@ -608,10 +617,18 @@ files: <array of repo-relative paths>
 ```
 
 Rules:
-- In the Go engine, `git.inspect` and `git.commit` are standard engine-owned executors backed by the typed Git layer, even though the example bundle may wire them through external scripts to demonstrate the plugin contract.
+- In the Go engine, `git.inspect` and `git.commit` are standard engine-owned executors backed by the typed Git layer.
+- `git.commit` fails when the step `cwd` is not inside a git work tree.
+- `git.commit` derives candidate paths from one repository snapshot that includes untracked files, filters excluded prefixes on normalized repo-relative paths, stages only that included set, and commits only that included set.
+- `git.commit` must not include unrelated pre-existing staged changes outside the included set.
+- `git.commit` succeeds with `committed: false`, `commit: null`, and `paths: []` when no included changed paths remain after filtering.
+- `git.commit` succeeds with `committed: false`, `commit: null`, and `paths: <included paths>` when staging the included set produces no staged delta.
+- `git.commit` excludes `workspace.state_dir` by default when that directory is inside the target repository tree.
+- `git.commit` uses normalized repo-relative path and directory-prefix matching for `exclude_paths`. It does not expose raw Git pathspec behavior in the workflow contract.
 - `git.inspect` succeeds with `isRepo: false`, `hasDiff: false`, and `files: []` when the current working directory is not inside a git work tree.
-- `hasDiff` and `files` must be derived from the same plugin execution so later steps observe one consistent repo snapshot.
+- `hasDiff` and `files` must be derived from the same step execution so later steps observe one consistent repo snapshot.
 - `git.inspect` includes untracked files by default. Plugin config may allow stricter behavior, but the default must be inclusive.
+- The typed Git layer should use `go-git` by default and may fall back to the `git` CLI only behind one narrow internal adapter when exact parity is required.
 
 ## Implementation Notes
 
@@ -673,13 +690,13 @@ Testable outcome:
 Scope:
 - `codex` executor.
 - `claude` executor.
-- Plugin registry.
-- `git.inspect` plugin.
-- `git.commit` plugin.
+- Optional plugin registry for non-core step types.
+- Built-in `git.inspect` executor.
+- Built-in `git.commit` executor.
 - Reference `implement-roadmap` workflow.
 
 Expected results:
-- The `implement-roadmap` example executes mostly in YAML with Codex selecting the next open item from the roadmap file.
+- The `implement-roadmap` example executes mostly in YAML with Codex selecting the next open item from the roadmap file and built-in Git executors handling repository inspection and commits.
 
 Testable outcome:
 - A smoke workflow equivalent to `implement-roadmap` executes with built-in control flow and the `git.commit` step only.
@@ -695,7 +712,8 @@ Testable outcome:
 - Completed steps do not rerun after interruption and `resume`.
 - The core engine implementation is Go.
 - Engine-owned Git inspection uses `go-git` as the default typed layer, with any `git` CLI fallback isolated behind an internal adapter.
-- The reference `implement-roadmap` workflow uses only `git.commit` as its standard Git step dependency, while the example bundle may still expose `git.inspect` and `git.commit` through transitional script wiring for plugin-protocol examples.
+- Engine-owned `git.commit` stages and commits only its included path set and does not absorb unrelated staged changes.
+- The reference `implement-roadmap` workflow uses only built-in Git executors and runs without loading `example/plugins.yaml` or Python Git adapters.
 - Deferred features are tracked in [research/hardcore.md](../../research/hardcore.md).
 
 ## Risks

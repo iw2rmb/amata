@@ -1,3 +1,3 @@
 # Fixture Repo
 
-This repository is the default `repo_dir` target for the engine example bundle in [../README.md](../README.md).
+This folder is a sample target tree inside the host repository for the engine example bundle in [../README.md](../README.md).

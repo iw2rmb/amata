@@ -1,27 +1,5 @@
 version: amata/plugins/v1
 
-plugins:
-  git.inspect:
-    exec:
-      - sh
-      - scripts/git_inspect.sh
-    config_schema:
-      type: object
-      additionalProperties: false
-      properties:
-        include_untracked: boolean
-  git.commit:
-    exec:
-      - python3
-      - scripts/git_commit.py
-    config_schema:
-      type: object
-      required: [message]
-      additionalProperties: false
-      properties:
-        message: string
-        exclude_paths:
-          type: array
-          items:
-            type: string
-            format: path
+# The reference implement-roadmap workflow uses only built-in executors.
+# Add entries here only for repo-specific external plugin types.
+plugins: {}

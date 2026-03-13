@@ -1,1 +1,1 @@
-# Example SDK package for engine-provided helpers.
+"""SDK helpers for external example scripts."""

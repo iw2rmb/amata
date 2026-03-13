@@ -6,39 +6,36 @@ It contains:
 - `implement-roadmap.yaml`
   - the workflow spec
 - `plugins.yaml`
-  - a concrete plugin registry example for custom step types and plugin config schemas
+  - an optional registry stub for repo-specific external plugin types
 - `sdk/`
-  - small language-specific helpers for the engine/plugin process contract
+  - shared helpers for the remaining example scripts
 - `scripts/`
-  - executable plugin implementations and a fixture bootstrap script
+  - roadmap helper scripts
 - `fixture-repo/`
-  - a minimal repository layout that the workflow can target
+  - a sample target tree inside the host repository
 
 Built-in runtime assumptions from the engine design:
 - `shell`
 - `codex`
 - `claude`
-
-Plugin steps in this example are wired through `plugins.yaml`:
 - `git.inspect`
 - `git.commit`
 
 Example operator flow:
-1. Bootstrap the fixture repository:
-   `sh design/engine/example/scripts/init_fixture_repo.sh`
-2. Load the plugin registry from `design/engine/example/plugins.yaml`.
-3. Run `design/engine/example/implement-roadmap.yaml`.
+1. Run `design/engine/example/implement-roadmap.yaml` from an existing Git-managed repository checkout.
+2. Load `design/engine/example/plugins.yaml` only if the workspace adds non-core external plugin types.
 
 Notes:
-- `plugins.yaml` is a concrete example of registry wiring, not a normative part of the engine spec.
-- In the target Go engine, `git.inspect` and `git.commit` should be engine-owned standard executors backed by the typed Git layer. Their script wiring here is transitional and exists to demonstrate the external plugin protocol.
-- `plugins.yaml` shows plugin-side config schemas so the engine can validate config before spawning a script.
-- `sdk/python.py` contains only protocol-level helpers shared across plugins.
+- `plugins.yaml` is optional and is not part of the `implement-roadmap` path.
+- In the target Go engine, `git.inspect` and `git.commit` are engine-owned standard executors backed by the typed Git layer.
+- The reference `implement-roadmap` scenario should run without loading `plugins.yaml` and without any Python Git adapters.
+- `sdk/python.py` remains because the roadmap helper scripts import the shared request/result helpers.
 - Script paths in `plugins.yaml` are resolved relative to the registry file.
+- The example `implement-roadmap.yaml` resolves `workspace.root` to the host repository root and targets the sample roadmap file under `design/engine/example/fixture-repo/`.
 - Repo-facing relative paths in `implement-roadmap.yaml` resolve from `workspace.root`.
 - The workflow carries data forward through `ctx.prev` instead of referencing earlier steps by `id`.
 - Codex picks the next open roadmap item directly from the roadmap file in this first-version example.
-- `git.inspect` is a shell-backed plugin that reports `isRepo`, `hasDiff`, and `files` from one repo snapshot.
+- `git.inspect` is a standard Git executor that reports `isRepo`, `hasDiff`, and `files` from one repo snapshot.
 - `implement-roadmap.yaml` should not need structural changes when those Git step types move into the Go engine. The workflow contract stays the same; only the executor implementation boundary changes.
 
 Minimal `git.inspect` usage:
