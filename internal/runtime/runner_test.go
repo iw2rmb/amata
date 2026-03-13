@@ -199,7 +199,7 @@ func TestRunnerPersistsRunMetadataAndArtifactsUnderRunDirectory(t *testing.T) {
 		snapshot.Steps[0].Artifacts.Files["report"],
 	}
 	for _, path := range expectedPaths {
-		if !strings.HasPrefix(path, config.RunDir+string(os.PathSeparator)) && path != filepath.Join(config.RunDir, "spec.yaml") && path != filepath.Join(config.RunDir, "events.ndjson") && path != filepath.Join(config.RunDir, "snapshot.json") {
+		if !strings.HasPrefix(path, config.RunDir+string(os.PathSeparator)) {
 			t.Fatalf("path %q does not live under run dir %q", path, config.RunDir)
 		}
 		if _, err := os.Stat(path); err != nil {

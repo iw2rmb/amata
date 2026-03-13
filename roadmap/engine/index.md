@@ -6,12 +6,12 @@ Documentation: [Engine design](../../design/engine/engine.md)
 
 Legend: [ ] todo, [x] done.
 
-- [ ] 1.0 Milestone 1 core runner, workspace, and durable state
+- [x] 1.0 Milestone 1 core runner, workspace, and durable state
   - Repository: auto
   - Component: `cmd/amata`, spec loader, workspace resolver, run-state store
   - Verification: `amata run` normalizes workspace paths, `amata resume` skips completed steps, sequential `shell`/`expr`/`assert` flow survives interruption
   - Reasoning: high
-  1. Complete [mile-1-core-runner-state.md](mile-1-core-runner-state.md).
+  - Implemented the Go CLI entrypoint, normalized workspace and run config persistence, append-only `events.ndjson` plus rebuildable `snapshot.json`, and sequential `shell`/`expr`/`assert` execution with durable `resume` boundaries.
 
 - [ ] 2.0 Milestone 2 expressions and first control blocks
   - Repository: auto

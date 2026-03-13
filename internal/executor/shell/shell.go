@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -51,8 +50,8 @@ func (e *Executor) Execute(ctx context.Context, stepCtx executor.StepContext) st
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	cmd.Stdout = io.MultiWriter(&stdout)
-	cmd.Stderr = io.MultiWriter(&stderr)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 
 	runErr := cmd.Run()
 

@@ -118,21 +118,10 @@ func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state
 		nextStep = snapshot.Frames[0].NextStep
 	}
 	if nextStep >= len(flow.Steps) {
-		switch snapshot.Status {
-		case state.RunStatusSucceeded:
-			return snapshot, nil
-		case state.RunStatusFailed:
-			failure := failureForSnapshot(config.RunID, snapshot)
-			return snapshot, RunFailedError{
-				RunID:   config.RunID,
-				Failure: *failure,
-			}
-		default:
-			return store.Append(state.RunEvent{
-				Kind:   state.EventRunFinished,
-				Status: state.RunStatusSucceeded,
-			})
-		}
+		return store.Append(state.RunEvent{
+			Kind:   state.EventRunFinished,
+			Status: state.RunStatusSucceeded,
+		})
 	}
 
 	previous := previousCompletedStep(snapshot.Steps)
