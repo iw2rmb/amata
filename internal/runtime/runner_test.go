@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -153,6 +154,57 @@ func TestRunnerBuiltinsShellCapturesArtifactsAndNormalizesCWD(t *testing.T) {
 	}
 	if got := strings.TrimSpace(readFile(t, reportPath)); got != filepath.Join(config.Workspace.Root, "nested") {
 		t.Fatalf("captured cwd = %q, want %q", got, filepath.Join(config.Workspace.Root, "nested"))
+	}
+}
+
+func TestRunnerPersistsRunMetadataAndArtifactsUnderRunDirectory(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID: "shell-step",
+						Fields: map[string]any{
+							"command": "printf 'hello'; printf 'warn' >&2; printf 'report' > report.txt",
+							"files": map[string]any{
+								"report": "report.txt",
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	snapshot, err := NewRunner(nil).Run(context.Background(), config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	expectedPaths := []string{
+		filepath.Join(config.RunDir, "spec.yaml"),
+		filepath.Join(config.RunDir, "events.ndjson"),
+		filepath.Join(config.RunDir, "snapshot.json"),
+		snapshot.Steps[0].Artifacts.Stdout,
+		snapshot.Steps[0].Artifacts.Stderr,
+		snapshot.Steps[0].Artifacts.Files["report"],
+	}
+	for _, path := range expectedPaths {
+		if !strings.HasPrefix(path, config.RunDir+string(os.PathSeparator)) && path != filepath.Join(config.RunDir, "spec.yaml") && path != filepath.Join(config.RunDir, "events.ndjson") && path != filepath.Join(config.RunDir, "snapshot.json") {
+			t.Fatalf("path %q does not live under run dir %q", path, config.RunDir)
+		}
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("stat %s: %v", path, err)
+		}
 	}
 }
 
@@ -556,17 +608,261 @@ func TestRunnerResumeKeepsTerminalFailureState(t *testing.T) {
 	}
 }
 
+func TestRunnerResumeReloadsTerminalStateFromEvents(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name              string
+		results           map[string]state.StepResult
+		wantCalls         []string
+		wantStatuses      []state.StepStatus
+		wantRunStatus     state.RunStatus
+		wantFailureCode   string
+		wantFailureStepID string
+	}{
+		{
+			name: "succeeded run",
+			results: map[string]state.StepResult{
+				"step-1": {Status: state.StepStatusSucceeded, Value: "one"},
+				"step-2": {Status: state.StepStatusSkipped},
+				"step-3": {Status: state.StepStatusSucceeded, Value: "three"},
+			},
+			wantCalls:     []string{"step-1", "step-2", "step-3"},
+			wantStatuses:  []state.StepStatus{state.StepStatusSucceeded, state.StepStatusSkipped, state.StepStatusSucceeded},
+			wantRunStatus: state.RunStatusSucceeded,
+		},
+		{
+			name: "failed run",
+			results: map[string]state.StepResult{
+				"step-1": {Status: state.StepStatusSucceeded, Value: "one"},
+				"step-2": {Status: state.StepStatusSkipped},
+				"step-3": {
+					Status: state.StepStatusFailed,
+					Error: &state.Failure{
+						Code:    "boom",
+						Message: "boom",
+					},
+					Artifacts: state.Artifacts{
+						Stdout: "preserved/stdout.txt",
+						Stderr: "preserved/stderr.txt",
+						Files: map[string]string{
+							"report": "preserved/report.txt",
+						},
+					},
+				},
+			},
+			wantCalls:         []string{"step-1", "step-2", "step-3"},
+			wantStatuses:      []state.StepStatus{state.StepStatusSucceeded, state.StepStatusSkipped, state.StepStatusFailed},
+			wantRunStatus:     state.RunStatusFailed,
+			wantFailureCode:   "boom",
+			wantFailureStepID: "step-3",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			config := testConfig(t, spec.Document{
+				Version: spec.Version,
+				Name:    "sample",
+				Entry:   "main",
+				Flows: map[string]spec.Flow{
+					"main": {
+						Steps: []spec.Step{
+							{ID: "step-1", Type: "fake"},
+							{ID: "step-2", Type: "fake"},
+							{ID: "step-3", Type: "fake"},
+						},
+					},
+				},
+			})
+
+			if err := PersistRunSpec(config); err != nil {
+				t.Fatalf("persist run spec: %v", err)
+			}
+
+			writePreservedArtifacts(t, config.RunDir)
+			resolvedResults := resolveResultPaths(config.RunDir, testCase.results)
+
+			initialCalls := []string{}
+			initialRegistry := NewRegistry()
+			if err := initialRegistry.Register("fake", func() executorapi.Executor {
+				return &fakeExecutor{
+					calls:   &initialCalls,
+					results: resolvedResults,
+				}
+			}); err != nil {
+				t.Fatalf("register executor: %v", err)
+			}
+
+			snapshot, err := NewRunner(initialRegistry).Run(context.Background(), config)
+			if testCase.wantRunStatus == state.RunStatusFailed {
+				var failedErr RunFailedError
+				if !errors.As(err, &failedErr) {
+					t.Fatalf("run error = %v, want RunFailedError", err)
+				}
+				snapshot, err = state.NewStore(config.RunDir).LoadSnapshot()
+				if err != nil {
+					t.Fatalf("load failed snapshot: %v", err)
+				}
+			} else if err != nil {
+				t.Fatalf("run: %v", err)
+			}
+
+			if !reflect.DeepEqual(initialCalls, testCase.wantCalls) {
+				t.Fatalf("initial calls = %#v, want %#v", initialCalls, testCase.wantCalls)
+			}
+			assertSnapshotStatuses(t, snapshot, testCase.wantStatuses, testCase.wantRunStatus)
+
+			store := state.NewStore(config.RunDir)
+			if err := os.Remove(store.SnapshotPath()); err != nil {
+				t.Fatalf("remove snapshot: %v", err)
+			}
+
+			resumeConfig, err := LoadRunConfig(config.RunDir)
+			if err != nil {
+				t.Fatalf("load run config: %v", err)
+			}
+
+			resumeCalls := []string{}
+			resumeRegistry := NewRegistry()
+			if err := resumeRegistry.Register("fake", func() executorapi.Executor {
+				return &fakeExecutor{
+					calls:   &resumeCalls,
+					results: resolvedResults,
+				}
+			}); err != nil {
+				t.Fatalf("register resume executor: %v", err)
+			}
+
+			resumedSnapshot, err := NewRunner(resumeRegistry).Resume(context.Background(), resumeConfig)
+			if testCase.wantRunStatus == state.RunStatusFailed {
+				var failedErr RunFailedError
+				if !errors.As(err, &failedErr) {
+					t.Fatalf("resume error = %v, want RunFailedError", err)
+				}
+				if failedErr.Failure.Code != testCase.wantFailureCode {
+					t.Fatalf("resume failure code = %q, want %q", failedErr.Failure.Code, testCase.wantFailureCode)
+				}
+				resumedSnapshot, err = store.LoadSnapshot()
+				if err != nil {
+					t.Fatalf("load rebuilt snapshot: %v", err)
+				}
+			} else if err != nil {
+				t.Fatalf("resume: %v", err)
+			}
+
+			if len(resumeCalls) != 0 {
+				t.Fatalf("resume calls = %#v, want none", resumeCalls)
+			}
+			assertSnapshotStatuses(t, resumedSnapshot, testCase.wantStatuses, testCase.wantRunStatus)
+
+			if testCase.wantFailureStepID != "" {
+				failedStep := resumedSnapshot.Steps[len(resumedSnapshot.Steps)-1]
+				if failedStep.ID != testCase.wantFailureStepID {
+					t.Fatalf("failed step id = %q, want %q", failedStep.ID, testCase.wantFailureStepID)
+				}
+				if failedStep.Error == nil || failedStep.Error.Code != testCase.wantFailureCode {
+					t.Fatalf("failed step error = %#v, want code %q", failedStep.Error, testCase.wantFailureCode)
+				}
+				for _, artifactPath := range []string{
+					failedStep.Artifacts.Stdout,
+					failedStep.Artifacts.Stderr,
+					failedStep.Artifacts.Files["report"],
+				} {
+					if !strings.HasPrefix(artifactPath, filepath.Join(config.RunDir, "preserved")+string(os.PathSeparator)) {
+						t.Fatalf("artifact path = %q, want under preserved run dir", artifactPath)
+					}
+					if _, err := os.Stat(artifactPath); err != nil {
+						t.Fatalf("stat preserved artifact %s: %v", artifactPath, err)
+					}
+				}
+			}
+		})
+	}
+}
+
 type fakeExecutor struct {
 	calls   *[]string
 	results map[string]state.StepResult
+	execute func(executorapi.StepContext) state.StepResult
 }
 
 func (e *fakeExecutor) Execute(_ context.Context, ctx executorapi.StepContext) state.StepResult {
 	*e.calls = append(*e.calls, ctx.Step.ID)
+	if e.execute != nil {
+		return e.execute(ctx)
+	}
 	if result, ok := e.results[ctx.Step.ID]; ok {
 		return result
 	}
 	return state.StepResult{Status: state.StepStatusSucceeded}
+}
+
+func writePreservedArtifacts(t *testing.T, runDir string) {
+	t.Helper()
+
+	preservedDir := filepath.Join(runDir, "preserved")
+	if err := os.MkdirAll(preservedDir, 0o755); err != nil {
+		t.Fatalf("mkdir preserved dir: %v", err)
+	}
+
+	files := map[string]string{
+		"stdout.txt": "stdout",
+		"stderr.txt": "stderr",
+		"report.txt": "report",
+	}
+	for name, contents := range files {
+		if err := os.WriteFile(filepath.Join(preservedDir, name), []byte(contents), 0o644); err != nil {
+			t.Fatalf("write preserved artifact %s: %v", name, err)
+		}
+	}
+}
+
+func resolveResultPaths(runDir string, results map[string]state.StepResult) map[string]state.StepResult {
+	resolved := make(map[string]state.StepResult, len(results))
+	for stepID, result := range results {
+		if result.Artifacts.Stdout != "" && !filepath.IsAbs(result.Artifacts.Stdout) {
+			result.Artifacts.Stdout = filepath.Join(runDir, result.Artifacts.Stdout)
+		}
+		if result.Artifacts.Stderr != "" && !filepath.IsAbs(result.Artifacts.Stderr) {
+			result.Artifacts.Stderr = filepath.Join(runDir, result.Artifacts.Stderr)
+		}
+		if len(result.Artifacts.Files) > 0 {
+			files := make(map[string]string, len(result.Artifacts.Files))
+			for name, path := range result.Artifacts.Files {
+				if filepath.IsAbs(path) {
+					files[name] = path
+					continue
+				}
+				files[name] = filepath.Join(runDir, path)
+			}
+			result.Artifacts.Files = files
+		}
+		resolved[stepID] = result
+	}
+	return resolved
+}
+
+func assertSnapshotStatuses(t *testing.T, snapshot state.Snapshot, wantStatuses []state.StepStatus, wantRunStatus state.RunStatus) {
+	t.Helper()
+
+	if snapshot.Status != wantRunStatus {
+		t.Fatalf("snapshot.status = %q, want %q", snapshot.Status, wantRunStatus)
+	}
+	if len(snapshot.Steps) != len(wantStatuses) {
+		t.Fatalf("step count = %d, want %d", len(snapshot.Steps), len(wantStatuses))
+	}
+
+	gotStatuses := make([]state.StepStatus, 0, len(snapshot.Steps))
+	for _, step := range snapshot.Steps {
+		gotStatuses = append(gotStatuses, step.Status)
+	}
+	if !slices.Equal(gotStatuses, wantStatuses) {
+		t.Fatalf("step statuses = %#v, want %#v", gotStatuses, wantStatuses)
+	}
 }
 
 func testConfig(t *testing.T, document spec.Document) Config {

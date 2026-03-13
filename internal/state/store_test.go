@@ -2,6 +2,7 @@ package state_test
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -172,6 +173,113 @@ func TestStoreRejectsOutOfOrderStepEvents(t *testing.T) {
 		},
 	}); err == nil {
 		t.Fatalf("expected out-of-order step append to fail")
+	}
+}
+
+func TestStoreRebuildsSnapshotWithFailureArtifactsIntact(t *testing.T) {
+	t.Parallel()
+
+	runDir := t.TempDir()
+	store := state.NewStore(runDir)
+
+	preservedDir := filepath.Join(runDir, "artifacts", "step-02-failed")
+	if err := os.MkdirAll(filepath.Join(preservedDir, "files"), 0o755); err != nil {
+		t.Fatalf("mkdir preserved dir: %v", err)
+	}
+	paths := map[string]string{
+		filepath.Join(preservedDir, "stdout.txt"):          "stdout",
+		filepath.Join(preservedDir, "stderr.txt"):          "stderr",
+		filepath.Join(preservedDir, "files", "report.txt"): "report",
+	}
+	for path, contents := range paths {
+		if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+
+	events := []state.RunEvent{
+		{
+			Kind: state.EventRunInitialized,
+			Frame: &state.FlowFrame{
+				Flow:      "main",
+				StepCount: 3,
+			},
+			Command: "run",
+		},
+		{
+			Kind: state.EventStepRecorded,
+			Step: &state.StepResult{
+				Index:  0,
+				ID:     "step-1",
+				Type:   "fake",
+				Status: state.StepStatusSucceeded,
+			},
+		},
+		{
+			Kind: state.EventStepRecorded,
+			Step: &state.StepResult{
+				Index:  1,
+				ID:     "step-2",
+				Type:   "fake",
+				Status: state.StepStatusSkipped,
+			},
+		},
+		{
+			Kind: state.EventStepRecorded,
+			Step: &state.StepResult{
+				Index:  2,
+				ID:     "step-3",
+				Type:   "fake",
+				Status: state.StepStatusFailed,
+				Error: &state.Failure{
+					Code:    "boom",
+					Message: "boom",
+				},
+				Artifacts: state.Artifacts{
+					Stdout: filepath.Join(preservedDir, "stdout.txt"),
+					Stderr: filepath.Join(preservedDir, "stderr.txt"),
+					Files: map[string]string{
+						"report": filepath.Join(preservedDir, "files", "report.txt"),
+					},
+				},
+			},
+		},
+		{
+			Kind:   state.EventRunFinished,
+			Status: state.RunStatusFailed,
+			Failure: &state.Failure{
+				Code:    "boom",
+				Message: "boom",
+			},
+		},
+	}
+
+	for _, event := range events {
+		if _, err := store.Append(event); err != nil {
+			t.Fatalf("append event %q: %v", event.Kind, err)
+		}
+	}
+
+	if err := os.Remove(store.SnapshotPath()); err != nil {
+		t.Fatalf("remove snapshot: %v", err)
+	}
+
+	snapshot, err := store.LoadSnapshot()
+	if err != nil {
+		t.Fatalf("load snapshot: %v", err)
+	}
+	if snapshot.Status != state.RunStatusFailed {
+		t.Fatalf("snapshot.status = %q, want failed", snapshot.Status)
+	}
+	failedStep := snapshot.Steps[2]
+	if failedStep.Error == nil || failedStep.Error.Code != "boom" {
+		t.Fatalf("failed step error = %#v, want boom", failedStep.Error)
+	}
+	if failedStep.Artifacts.Stdout != filepath.Join(preservedDir, "stdout.txt") {
+		t.Fatalf("stdout path = %q, want preserved stdout", failedStep.Artifacts.Stdout)
+	}
+	if failedStep.Artifacts.Files["report"] != filepath.Join(preservedDir, "files", "report.txt") {
+		t.Fatalf("report path = %q, want preserved report", failedStep.Artifacts.Files["report"])
 	}
 }
 

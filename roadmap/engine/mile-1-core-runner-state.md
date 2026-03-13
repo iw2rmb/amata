@@ -23,12 +23,7 @@ Legend: [ ] todo, [x] done.
   - Tightened `resume` so it reuses only durable succeeded results as previous context, restarts from the first missing step after interruption, and finalizes durable failed steps without replaying later work.
   - Verified with `go test ./...`, including runtime coverage for shell artifacts, typed `expr` values, skipped `when` steps, structural `assert` failures, interrupted-run resume, and durable-failure resume boundaries.
 
-- [ ] 1.4 Add tests for workspace resolution, state durability, and interruption boundaries
-  - Repository: auto
-  - Component: CLI integration tests, runtime tests, state-store tests
-  - Verification: repo-facing paths resolve from `workspace.root`, interrupted runs resume cleanly, failed steps keep their recorded error and artifacts
-  - Reasoning: medium
-  1. Add table-driven tests for `workspace.root` and `workspace.state_dir` normalization across spec-relative and CLI override cases.
-  2. Add runtime tests for sequential success, skip, failure, and snapshot reload on `resume`.
-  3. Add an integration test that interrupts after one completed step and proves the next `resume` run starts from the following step.
-  4. Add assertions that persisted artifacts and run metadata live under the configured run directory layout.
+- [x] 1.4 Add tests for workspace resolution, state durability, and interruption boundaries
+  - Added table-driven CLI coverage for spec-relative `workspace.root`, default `.amata` state layout, and CLI `--workspace` overrides, asserting persisted spec and launch settings normalize from the resolved workspace root.
+  - Added runtime and state-store durability tests that rebuild snapshots from `events.ndjson`, preserve succeeded, skipped, and failed step results across `resume`, and keep recorded failure errors and artifact paths intact after snapshot deletion.
+  - Added an interruption integration test that kills `run` after the first completed step, resumes from the durable run directory, and proves only the remaining steps execute while persisted metadata and artifacts stay under the configured run layout.
