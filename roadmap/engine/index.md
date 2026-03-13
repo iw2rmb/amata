@@ -2,7 +2,7 @@
 
 Scope: Implement `amata/v1` from [design/engine/engine.md](../../design/engine/engine.md) so the reference roadmap workflow moves from Dagu shell control flow to engine-owned runtime state, control blocks, and built-in executors.
 
-Documentation: [Engine design](../../design/engine/engine.md)
+Documentation: [Engine docs](../../docs/engine/index.md), [Engine design](../../design/engine/engine.md)
 
 Legend: [ ] todo, [x] done.
 
@@ -12,6 +12,7 @@ Legend: [ ] todo, [x] done.
   - Verification: `amata run` normalizes workspace paths, `amata resume` skips completed steps, sequential `shell`/`expr`/`assert` flow survives interruption
   - Reasoning: high
   - Implemented the Go CLI entrypoint, normalized workspace and run config persistence, append-only `events.ndjson` plus rebuildable `snapshot.json`, and sequential `shell`/`expr`/`assert` execution with durable `resume` boundaries.
+  - Durable current-state documentation: [Engine docs](../../docs/engine/index.md)
 
 - [ ] 2.0 Milestone 2 expressions and first control blocks
   - Repository: auto

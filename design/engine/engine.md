@@ -4,6 +4,8 @@
 
 Define a local-first workflow engine for coding-agent-driven development flows.
 
+Shipped behavior for the current implementation lives in [docs/engine/index.md](../../docs/engine/index.md). This design document remains the target contract for unfinished engine milestones.
+
 `amata/v1` is intentionally small. It should replace stringly typed shell orchestration with typed step results, simple built-in control flow, straightforward folder handling, durable on-disk run state, and leaf executors for shell, Codex, Claude, git, and small domain helpers.
 
 The implementation stack for the engine itself is Go. The engine should use `go-git` as the typed default Git layer and fall back to the `git` CLI only through narrow internal adapters when exact CLI parity or unsupported behavior is required.
