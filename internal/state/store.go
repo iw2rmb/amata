@@ -28,10 +28,12 @@ const (
 type EventKind string
 
 const (
-	EventRunInitialized EventKind = "run_initialized"
-	EventRunResumed     EventKind = "run_resumed"
-	EventStepRecorded   EventKind = "step_recorded"
-	EventRunFinished    EventKind = "run_finished"
+	EventRunInitialized  EventKind = "run_initialized"
+	EventRunResumed      EventKind = "run_resumed"
+	EventFramePushed     EventKind = "frame_pushed"
+	EventControlReturned EventKind = "control_returned"
+	EventStepRecorded    EventKind = "step_recorded"
+	EventRunFinished     EventKind = "run_finished"
 )
 
 type Failure struct {
@@ -45,10 +47,21 @@ type Artifacts struct {
 	Files  map[string]string `json:"files,omitempty"`
 }
 
+type FrameReturn struct {
+	StepType  string `json:"step_type"`
+	StepIndex int    `json:"step_index"`
+	StepID    string `json:"step_id,omitempty"`
+	Flow      string `json:"flow,omitempty"`
+	CaseIndex *int   `json:"case_index,omitempty"`
+}
+
 type FlowFrame struct {
-	Flow      string `json:"flow"`
-	StepCount int    `json:"step_count"`
-	NextStep  int    `json:"next_step"`
+	Flow      string       `json:"flow"`
+	StepCount int          `json:"step_count"`
+	NextStep  int          `json:"next_step"`
+	Previous  *StepResult  `json:"previous,omitempty"`
+	Produced  *StepResult  `json:"produced,omitempty"`
+	Return    *FrameReturn `json:"return,omitempty"`
 }
 
 type StepResult struct {
@@ -228,12 +241,17 @@ func apply(snapshot Snapshot, event RunEvent) (Snapshot, error) {
 			return Snapshot{}, fmt.Errorf("run initialization event is missing frame")
 		}
 		snapshot.Status = RunStatusRunning
-		snapshot.Frames = []FlowFrame{*event.Frame}
+		snapshot.Frames = []FlowFrame{cloneFlowFrame(*event.Frame)}
 		snapshot.Steps = nil
 		snapshot.Failure = nil
 	case EventRunResumed:
 		snapshot.Status = RunStatusRunning
 		snapshot.Failure = nil
+	case EventFramePushed:
+		if event.Frame == nil {
+			return Snapshot{}, fmt.Errorf("frame push event is missing frame")
+		}
+		snapshot.Frames = append(snapshot.Frames, cloneFlowFrame(*event.Frame))
 	case EventStepRecorded:
 		if event.Step == nil {
 			return Snapshot{}, fmt.Errorf("step event is missing step result")
@@ -245,8 +263,45 @@ func apply(snapshot Snapshot, event RunEvent) (Snapshot, error) {
 		if event.Step.Index != expected {
 			return Snapshot{}, fmt.Errorf("step event index %d does not match expected next step %d", event.Step.Index, expected)
 		}
-		snapshot.Steps = append(snapshot.Steps, *event.Step)
+		step := cloneStepResult(*event.Step)
+		snapshot.Steps = append(snapshot.Steps, step)
 		snapshot.Frames[len(snapshot.Frames)-1].NextStep = event.Step.Index + 1
+		if step.Status == StepStatusSucceeded {
+			snapshot.Frames[len(snapshot.Frames)-1].Previous = &step
+			snapshot.Frames[len(snapshot.Frames)-1].Produced = &step
+		}
+	case EventControlReturned:
+		if event.Step == nil {
+			return Snapshot{}, fmt.Errorf("control return event is missing step result")
+		}
+		if len(snapshot.Frames) < 2 {
+			return Snapshot{}, fmt.Errorf("control return event has no child and parent frame")
+		}
+		top := snapshot.Frames[len(snapshot.Frames)-1]
+		if top.Return == nil {
+			return Snapshot{}, fmt.Errorf("control return event has no return metadata")
+		}
+		if top.NextStep < top.StepCount {
+			return Snapshot{}, fmt.Errorf("control return for flow %q before completion", top.Flow)
+		}
+		if event.Step.Type != top.Return.StepType {
+			return Snapshot{}, fmt.Errorf("control return step type %q does not match expected %q", event.Step.Type, top.Return.StepType)
+		}
+		if top.Return.StepID != "" && event.Step.ID != top.Return.StepID {
+			return Snapshot{}, fmt.Errorf("control return step id %q does not match expected %q", event.Step.ID, top.Return.StepID)
+		}
+		snapshot.Frames = snapshot.Frames[:len(snapshot.Frames)-1]
+		expected := snapshot.Frames[len(snapshot.Frames)-1].NextStep
+		if event.Step.Index != expected {
+			return Snapshot{}, fmt.Errorf("control return step index %d does not match expected next step %d", event.Step.Index, expected)
+		}
+		step := cloneStepResult(*event.Step)
+		snapshot.Steps = append(snapshot.Steps, step)
+		snapshot.Frames[len(snapshot.Frames)-1].NextStep = event.Step.Index + 1
+		if step.Status == StepStatusSucceeded {
+			snapshot.Frames[len(snapshot.Frames)-1].Previous = &step
+			snapshot.Frames[len(snapshot.Frames)-1].Produced = &step
+		}
 	case EventRunFinished:
 		snapshot.Status = event.Status
 		snapshot.Failure = cloneFailure(event.Failure)
@@ -265,4 +320,81 @@ func cloneFailure(in *Failure) *Failure {
 
 	out := *in
 	return &out
+}
+
+func cloneFlowFrame(in FlowFrame) FlowFrame {
+	return FlowFrame{
+		Flow:      in.Flow,
+		StepCount: in.StepCount,
+		NextStep:  in.NextStep,
+		Previous:  cloneStepResultPtr(in.Previous),
+		Produced:  cloneStepResultPtr(in.Produced),
+		Return:    cloneFrameReturn(in.Return),
+	}
+}
+
+func cloneFrameReturn(in *FrameReturn) *FrameReturn {
+	if in == nil {
+		return nil
+	}
+
+	out := *in
+	if in.CaseIndex != nil {
+		caseIndex := *in.CaseIndex
+		out.CaseIndex = &caseIndex
+	}
+	return &out
+}
+
+func cloneStepResultPtr(in *StepResult) *StepResult {
+	if in == nil {
+		return nil
+	}
+
+	out := cloneStepResult(*in)
+	return &out
+}
+
+func cloneStepResult(in StepResult) StepResult {
+	out := in
+	out.Value = cloneValue(in.Value)
+	out.Error = cloneFailure(in.Error)
+	out.Artifacts = cloneArtifacts(in.Artifacts)
+	return out
+}
+
+func cloneArtifacts(in Artifacts) Artifacts {
+	out := Artifacts{
+		Stdout: in.Stdout,
+		Stderr: in.Stderr,
+	}
+	if len(in.Files) == 0 {
+		out.Files = map[string]string{}
+		return out
+	}
+
+	out.Files = make(map[string]string, len(in.Files))
+	for name, path := range in.Files {
+		out.Files[name] = path
+	}
+	return out
+}
+
+func cloneValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		cloned := make(map[string]any, len(typed))
+		for key, item := range typed {
+			cloned[key] = cloneValue(item)
+		}
+		return cloned
+	case []any:
+		cloned := make([]any, len(typed))
+		for index, item := range typed {
+			cloned[index] = cloneValue(item)
+		}
+		return cloned
+	default:
+		return value
+	}
 }

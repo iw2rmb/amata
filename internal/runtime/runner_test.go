@@ -98,6 +98,121 @@ func TestRunnerResumeContinuesFromFirstIncompleteStep(t *testing.T) {
 	}
 }
 
+func TestRunnerResumeFinalizesCompletedChildFrameBeforeRunningParentNextStep(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID:   "loop",
+						Type: "call",
+						Fields: map[string]any{
+							"flow": "loop",
+						},
+					},
+					{ID: "after", Type: "fake"},
+				},
+			},
+			"loop": {
+				Steps: []spec.Step{
+					{ID: "loop-step", Type: "fake"},
+				},
+			},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	store := state.NewStore(config.RunDir)
+	if _, err := store.Append(state.RunEvent{
+		Kind: state.EventRunInitialized,
+		Frame: &state.FlowFrame{
+			Flow:      config.Spec.Entry,
+			StepCount: 2,
+		},
+		Command: "run",
+	}); err != nil {
+		t.Fatalf("append init: %v", err)
+	}
+	if _, err := store.Append(state.RunEvent{
+		Kind: state.EventFramePushed,
+		Frame: &state.FlowFrame{
+			Flow:      "loop",
+			StepCount: 1,
+			Return: &state.FrameReturn{
+				StepType:  "call",
+				StepIndex: 0,
+				StepID:    "loop",
+				Flow:      "loop",
+			},
+		},
+	}); err != nil {
+		t.Fatalf("append frame push: %v", err)
+	}
+	if _, err := store.Append(state.RunEvent{
+		Kind: state.EventStepRecorded,
+		Step: &state.StepResult{
+			Index:  0,
+			ID:     "loop-step",
+			Type:   "fake",
+			Status: state.StepStatusSucceeded,
+			Value: map[string]any{
+				"n": 1,
+			},
+			Artifacts: executorapi.EmptyArtifacts(),
+		},
+	}); err != nil {
+		t.Fatalf("append child step: %v", err)
+	}
+
+	resumeConfig, err := LoadRunConfig(config.RunDir)
+	if err != nil {
+		t.Fatalf("load run config: %v", err)
+	}
+
+	calls := []string{}
+	registry := NewRegistry()
+	if err := registry.Register("fake", func() executorapi.Executor {
+		return &fakeExecutor{
+			calls: &calls,
+			results: map[string]state.StepResult{
+				"after": {
+					Status: state.StepStatusSucceeded,
+				},
+				"loop-step": {
+					Status: state.StepStatusSucceeded,
+				},
+			},
+		}
+	}); err != nil {
+		t.Fatalf("register fake executor: %v", err)
+	}
+
+	snapshot, err := NewRunner(registry).Resume(context.Background(), resumeConfig)
+	if err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	if got, want := calls, []string{"after"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("resume calls = %#v, want %#v", got, want)
+	}
+	if snapshot.Status != state.RunStatusSucceeded {
+		t.Fatalf("snapshot status = %q, want succeeded", snapshot.Status)
+	}
+	if got, want := len(snapshot.Steps), 3; got != want {
+		t.Fatalf("step count = %d, want %d", got, want)
+	}
+	if snapshot.Steps[1].ID != "loop" || snapshot.Steps[1].Type != "call" {
+		t.Fatalf("returned control step = %#v, want call result", snapshot.Steps[1])
+	}
+}
+
 func TestRunnerBuiltinsShellCapturesArtifactsAndNormalizesCWD(t *testing.T) {
 	t.Parallel()
 
@@ -427,6 +542,437 @@ func TestRunnerBuiltinsExprAndWhenSkip(t *testing.T) {
 	}
 	if snapshot.Steps[3].Status != state.StepStatusSkipped {
 		t.Fatalf("skip-assert status = %q, want skipped", snapshot.Steps[3].Status)
+	}
+}
+
+func TestRunnerSwitchUsesFirstMatchingCaseAndReturnsStructuredResult(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID: "seed",
+						Fields: map[string]any{
+							"expr": map[string]any{
+								"selection": "first",
+								"seed":      "carried",
+							},
+						},
+					},
+					{
+						ID:   "choose",
+						Type: "switch",
+						Fields: map[string]any{
+							"cases": []any{
+								map[string]any{
+									"when": map[string]any{"expr": `ctx.prev.value["selection"] == "first"`},
+									"steps": []spec.Step{
+										{
+											ID: "first-branch",
+											Fields: map[string]any{
+												"expr": map[string]any{
+													"picked": "first",
+													"seed":   `$.prev.value["seed"]`,
+												},
+											},
+										},
+									},
+								},
+								map[string]any{
+									"when": true,
+									"steps": []spec.Step{
+										{
+											ID: "second-branch",
+											Fields: map[string]any{
+												"expr": "second",
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+					{
+						ID: "after",
+						Fields: map[string]any{
+							"expr": map[string]any{
+								"matched": `$.prev.value["matched"]`,
+								"case":    `$.prev.value["case"]`,
+								"picked":  `$.prev.value["value"]["picked"]`,
+								"seed":    `$.prev.value["value"]["seed"]`,
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	snapshot, err := NewRunner(nil).Run(context.Background(), config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if snapshot.Status != state.RunStatusSucceeded {
+		t.Fatalf("snapshot status = %q, want succeeded", snapshot.Status)
+	}
+	if got, want := len(snapshot.Steps), 4; got != want {
+		t.Fatalf("step count = %d, want %d", got, want)
+	}
+	if snapshot.Steps[1].ID != "first-branch" {
+		t.Fatalf("branch step id = %q, want first-branch", snapshot.Steps[1].ID)
+	}
+	if snapshot.Steps[2].ID != "choose" {
+		t.Fatalf("switch result id = %q, want choose", snapshot.Steps[2].ID)
+	}
+	if snapshot.Steps[2].Type != "switch" {
+		t.Fatalf("switch result type = %q, want switch", snapshot.Steps[2].Type)
+	}
+
+	switchValue := snapshot.Steps[2].Value.(map[string]any)
+	if got := switchValue["matched"]; got != true {
+		t.Fatalf("switch matched = %#v, want true", got)
+	}
+	if got := intValue(t, switchValue["case"]); got != 0 {
+		t.Fatalf("switch case = %d, want 0", got)
+	}
+	if got := switchValue["value"].(map[string]any)["picked"]; got != "first" {
+		t.Fatalf("switch nested value = %#v, want first", got)
+	}
+
+	for _, step := range snapshot.Steps {
+		if step.ID == "second-branch" {
+			t.Fatalf("second branch executed unexpectedly")
+		}
+	}
+
+	after := snapshot.Steps[3].Value.(map[string]any)
+	if got := after["matched"]; got != true {
+		t.Fatalf("after matched = %#v, want true", got)
+	}
+	if got := intValue(t, after["case"]); got != 0 {
+		t.Fatalf("after case = %d, want 0", got)
+	}
+	if got := after["picked"]; got != "first" {
+		t.Fatalf("after picked = %#v, want first", got)
+	}
+	if got := after["seed"]; got != "carried" {
+		t.Fatalf("after seed = %#v, want carried", got)
+	}
+}
+
+func TestRunnerSwitchWithoutMatchDoesNotReuseIncomingPrevAsBranchOutput(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID: "seed",
+						Fields: map[string]any{
+							"expr": map[string]any{
+								"carry": "value",
+							},
+						},
+					},
+					{
+						ID:   "choose",
+						Type: "switch",
+						Fields: map[string]any{
+							"cases": []any{
+								map[string]any{
+									"when": false,
+									"steps": []spec.Step{
+										{
+											ID: "never",
+											Fields: map[string]any{
+												"expr": "unexpected",
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+					{
+						ID: "after",
+						Fields: map[string]any{
+							"expr": map[string]any{
+								"matched": `$.prev.value["matched"]`,
+								"value":   `$.prev.value["value"]`,
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	snapshot, err := NewRunner(nil).Run(context.Background(), config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	switchValue := snapshot.Steps[1].Value.(map[string]any)
+	if got := switchValue["matched"]; got != false {
+		t.Fatalf("switch matched = %#v, want false", got)
+	}
+	if got := switchValue["value"]; got != nil {
+		t.Fatalf("switch value = %#v, want nil", got)
+	}
+
+	after := snapshot.Steps[2].Value.(map[string]any)
+	if got := after["matched"]; got != false {
+		t.Fatalf("after matched = %#v, want false", got)
+	}
+	if got := after["value"]; got != nil {
+		t.Fatalf("after value = %#v, want nil", got)
+	}
+}
+
+func TestRunnerRecursiveCallCarriesFrameLocalPrevAndReturnsOneStack(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID: "seed",
+						Fields: map[string]any{
+							"expr": map[string]any{
+								"n":   3,
+								"sum": 0,
+							},
+						},
+					},
+					{
+						ID:   "loop",
+						Type: "call",
+						Fields: map[string]any{
+							"flow": "loop",
+						},
+					},
+					{
+						ID: "after",
+						Fields: map[string]any{
+							"expr": `$.prev.value["value"]`,
+						},
+					},
+				},
+			},
+			"loop": {
+				Steps: []spec.Step{
+					{
+						ID:   "branch",
+						Type: "switch",
+						Fields: map[string]any{
+							"cases": []any{
+								map[string]any{
+									"when": map[string]any{"expr": `ctx.prev.value["n"] <= 0`},
+									"steps": []spec.Step{
+										{
+											ID: "done",
+											Fields: map[string]any{
+												"expr": `$.prev.value`,
+											},
+										},
+									},
+								},
+								map[string]any{
+									"when": map[string]any{"expr": `ctx.prev.value["n"] > 0`},
+									"steps": []spec.Step{
+										{
+											ID: "decrement",
+											Fields: map[string]any{
+												"expr": map[string]any{
+													"n":   map[string]any{"expr": `ctx.prev.value["n"] - 1`},
+													"sum": map[string]any{"expr": `ctx.prev.value["sum"] + ctx.prev.value["n"]`},
+												},
+											},
+										},
+										{
+											ID:   "recurse",
+											Type: "call",
+											Fields: map[string]any{
+												"flow": "loop",
+											},
+										},
+										{
+											ID: "unwrap",
+											Fields: map[string]any{
+												"expr": `$.prev.value["value"]`,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+					{
+						ID: "return",
+						Fields: map[string]any{
+							"expr": `$.prev.value["value"]`,
+						},
+					},
+				},
+			},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	snapshot, err := NewRunner(nil).Run(context.Background(), config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if snapshot.Status != state.RunStatusSucceeded {
+		t.Fatalf("snapshot status = %q, want succeeded", snapshot.Status)
+	}
+	if got, want := len(snapshot.Frames), 1; got != want {
+		t.Fatalf("frame count = %d, want %d", got, want)
+	}
+	if got := snapshot.Frames[0].Flow; got != "main" {
+		t.Fatalf("top frame flow = %q, want main", got)
+	}
+	if got := snapshot.Frames[0].NextStep; got != 3 {
+		t.Fatalf("top frame next step = %d, want 3", got)
+	}
+
+	final := snapshot.Steps[len(snapshot.Steps)-1].Value.(map[string]any)
+	if got := intValue(t, final["n"]); got != 0 {
+		t.Fatalf("final n = %d, want 0", got)
+	}
+	if got := intValue(t, final["sum"]); got != 6 {
+		t.Fatalf("final sum = %d, want 6", got)
+	}
+
+	callResult := snapshot.Steps[len(snapshot.Steps)-2]
+	if callResult.Type != "call" {
+		t.Fatalf("call result type = %q, want call", callResult.Type)
+	}
+	if got := callResult.Value.(map[string]any)["flow"]; got != "loop" {
+		t.Fatalf("call flow = %#v, want loop", got)
+	}
+}
+
+func TestRunnerCallEmptyFlowReturnsNoNestedOutput(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID: "seed",
+						Fields: map[string]any{
+							"expr": map[string]any{
+								"carry": "value",
+							},
+						},
+					},
+					{
+						ID:   "empty",
+						Type: "call",
+						Fields: map[string]any{
+							"flow": "empty",
+						},
+					},
+				},
+			},
+			"empty": {},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	snapshot, err := NewRunner(nil).Run(context.Background(), config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	value := snapshot.Steps[1].Value.(map[string]any)
+	if got := value["flow"]; got != "empty" {
+		t.Fatalf("call flow = %#v, want empty", got)
+	}
+	if got := value["status"]; got != string(state.StepStatusSucceeded) {
+		t.Fatalf("call status = %#v, want succeeded", got)
+	}
+	if got := value["value"]; got != nil {
+		t.Fatalf("call value = %#v, want nil", got)
+	}
+}
+
+func TestRunnerCtxPrevIDIsNotAvailableToExpressions(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID: "seed",
+						Fields: map[string]any{
+							"expr": "value",
+						},
+					},
+					{
+						ID: "read-id",
+						Fields: map[string]any{
+							"expr": `$.prev.id`,
+						},
+					},
+				},
+			},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	snapshot, err := NewRunner(nil).Run(context.Background(), config)
+	var failedErr RunFailedError
+	if !errors.As(err, &failedErr) {
+		t.Fatalf("run error = %v, want RunFailedError", err)
+	}
+	if failedErr.Failure.Code != "invalid_expr" {
+		t.Fatalf("failure code = %q, want invalid_expr", failedErr.Failure.Code)
+	}
+	if !strings.Contains(failedErr.Failure.Message, "id") {
+		t.Fatalf("failure message = %q, want id lookup failure", failedErr.Failure.Message)
+	}
+	if got := snapshot.Steps[1].Status; got != state.StepStatusFailed {
+		t.Fatalf("step status = %q, want failed", got)
 	}
 }
 
@@ -1442,6 +1988,22 @@ func assertSnapshotStatuses(t *testing.T, snapshot state.Snapshot, wantStatuses 
 	}
 	if !slices.Equal(gotStatuses, wantStatuses) {
 		t.Fatalf("step statuses = %#v, want %#v", gotStatuses, wantStatuses)
+	}
+}
+
+func intValue(t *testing.T, value any) int64 {
+	t.Helper()
+
+	switch typed := value.(type) {
+	case int:
+		return int64(typed)
+	case int64:
+		return typed
+	case float64:
+		return int64(typed)
+	default:
+		t.Fatalf("numeric value type = %T, want int-like", value)
+		return 0
 	}
 }
 

@@ -283,6 +283,110 @@ func TestStoreRebuildsSnapshotWithFailureArtifactsIntact(t *testing.T) {
 	}
 }
 
+func TestStoreRebuildsNestedFlowFrames(t *testing.T) {
+	t.Parallel()
+
+	runDir := t.TempDir()
+	store := state.NewStore(runDir)
+
+	parentPrev := &state.StepResult{
+		Index:  0,
+		ID:     "seed",
+		Type:   "expr",
+		Status: state.StepStatusSucceeded,
+		Value: map[string]any{
+			"n": 2,
+		},
+		Artifacts: state.Artifacts{Files: map[string]string{}},
+	}
+
+	events := []state.RunEvent{
+		{
+			Kind: state.EventRunInitialized,
+			Frame: &state.FlowFrame{
+				Flow:      "main",
+				StepCount: 2,
+			},
+			Command: "run",
+		},
+		{
+			Kind: state.EventStepRecorded,
+			Step: parentPrev,
+		},
+		{
+			Kind: state.EventFramePushed,
+			Frame: &state.FlowFrame{
+				Flow:      "child",
+				StepCount: 1,
+				Previous:  parentPrev,
+				Return: &state.FrameReturn{
+					StepType:  "call",
+					StepIndex: 1,
+					StepID:    "recurse",
+					Flow:      "child",
+				},
+			},
+		},
+		{
+			Kind: state.EventStepRecorded,
+			Step: &state.StepResult{
+				Index:  0,
+				ID:     "child-step",
+				Type:   "expr",
+				Status: state.StepStatusSucceeded,
+				Value: map[string]any{
+					"n": 1,
+				},
+				Artifacts: state.Artifacts{Files: map[string]string{}},
+			},
+		},
+		{
+			Kind: state.EventControlReturned,
+			Step: &state.StepResult{
+				Index:  1,
+				ID:     "recurse",
+				Type:   "call",
+				Status: state.StepStatusSucceeded,
+				Value: map[string]any{
+					"flow":  "child",
+					"value": map[string]any{"n": 1},
+				},
+				Artifacts: state.Artifacts{Files: map[string]string{}},
+			},
+		},
+	}
+
+	for _, event := range events {
+		if _, err := store.Append(event); err != nil {
+			t.Fatalf("append event %q: %v", event.Kind, err)
+		}
+	}
+
+	if err := os.Remove(store.SnapshotPath()); err != nil {
+		t.Fatalf("remove snapshot: %v", err)
+	}
+
+	snapshot, err := store.LoadSnapshot()
+	if err != nil {
+		t.Fatalf("load snapshot: %v", err)
+	}
+	if got, want := len(snapshot.Frames), 1; got != want {
+		t.Fatalf("frame count = %d, want %d", got, want)
+	}
+	if got := snapshot.Frames[0].NextStep; got != 2 {
+		t.Fatalf("next step = %d, want 2", got)
+	}
+	if snapshot.Frames[0].Previous == nil {
+		t.Fatalf("top frame previous missing")
+	}
+	if got := snapshot.Frames[0].Previous.Type; got != "call" {
+		t.Fatalf("top frame previous type = %q, want call", got)
+	}
+	if got := snapshot.Frames[0].Previous.Value.(map[string]any)["flow"]; got != "child" {
+		t.Fatalf("top frame previous flow = %#v, want child", got)
+	}
+}
+
 func readFile(t *testing.T, path string) string {
 	t.Helper()
 

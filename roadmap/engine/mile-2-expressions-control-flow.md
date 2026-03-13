@@ -17,15 +17,11 @@ Legend: [ ] todo, [x] done.
   - Failed response schema compilation now stops the step with `invalid_response_schema`, while structural mismatches stop it with `response_schema_mismatch`.
   - Kept raw process output in artifacts and added runner coverage that downstream steps consume validated `value` instead of raw artifact paths.
 
-- [ ] 2.3 Implement `switch`, `call`, and recursive flow frames
-  - Repository: auto
-  - Component: `internal/runtime`, flow planner, call-stack model
-  - Verification: `switch` picks the first matching branch, recursive `call` returns through one flow stack, `ctx.prev` carries all upstream data needed by later steps
-  - Reasoning: high
-  1. Add named-flow lookup and flow-frame push/pop handling for `call`.
-  2. Implement `switch` case evaluation in order with first-match execution and structured branch results.
-  3. Keep `ctx.prev` scoped to the current flow frame and require prior steps to carry forward any older data explicitly.
-  4. Treat step `id` as diagnostics-only metadata and block any runtime data access path that depends on `id`.
+- [x] 2.3 Implement `switch`, `call`, and recursive flow frames
+  - Added a deterministic flow planner plus persisted frame-push and atomic control-return events so `call` and `switch` execute through one resumable flow stack, including recursive subflow returns.
+  - `switch` now evaluates cases in order, runs only the first matching branch, and records a structured result that carries branch metadata and the nested step output forward.
+  - New flow frames start with the caller's current `ctx.prev`, then update only within that frame so recursive flows can receive upstream data without restoring step-id lookup semantics.
+  - Removed `id` from runtime step-result bindings and made `id` lookups fail in the expression object so step ids stay diagnostics-only.
 
 - [ ] 2.4 Add tests for branching, recursive flows, templates, and validation failures
   - Repository: auto

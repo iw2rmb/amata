@@ -44,7 +44,11 @@ func (r *Runner) Resume(ctx context.Context, config Config) (state.Snapshot, err
 }
 
 func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state.Snapshot, error) {
-	flow, ok := config.Spec.Flows[config.Spec.Entry]
+	plan, err := buildFlowPlan(config.Spec)
+	if err != nil {
+		return state.Snapshot{}, err
+	}
+	entryFlow, ok := plan.Lookup(config.Spec.Entry)
 	if !ok {
 		return state.Snapshot{}, fmt.Errorf("entry flow %q is not defined", config.Spec.Entry)
 	}
@@ -91,7 +95,7 @@ func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state
 			}
 		}
 
-		if snapshot.Frames[0].NextStep < snapshot.Frames[0].StepCount {
+		if len(snapshot.Frames) > 0 {
 			snapshot, err = store.Append(state.RunEvent{
 				Kind:    state.EventRunResumed,
 				Command: "resume",
@@ -108,7 +112,7 @@ func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state
 			Kind: state.EventRunInitialized,
 			Frame: &state.FlowFrame{
 				Flow:      config.Spec.Entry,
-				StepCount: len(flow.Steps),
+				StepCount: len(entryFlow.Steps),
 			},
 			Command: "run",
 		})
@@ -117,90 +121,97 @@ func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state
 		}
 	}
 
-	nextStep := 0
-	if len(snapshot.Frames) > 0 {
-		nextStep = snapshot.Frames[0].NextStep
-	}
-	if nextStep >= len(flow.Steps) {
-		return store.Append(state.RunEvent{
-			Kind:   state.EventRunFinished,
-			Status: state.RunStatusSucceeded,
-		})
-	}
-
-	previous := previousCompletedStep(snapshot.Steps)
-
-	for index := nextStep; index < len(flow.Steps); index++ {
-		step := flow.Steps[index]
-		result := r.executeStep(ctx, config, responses, index, step, previous)
-
-		snapshot, err = store.Append(state.RunEvent{
-			Kind: state.EventStepRecorded,
-			Step: &result,
-		})
-		if err != nil {
-			return state.Snapshot{}, err
+	for {
+		if len(snapshot.Frames) == 0 {
+			return state.Snapshot{}, fmt.Errorf("run %q has no flow frame state", config.RunID)
 		}
 
-		if result.Status == state.StepStatusFailed {
-			failure := failureForStep(result)
-			snapshot, err = store.Append(state.RunEvent{
-				Kind:    state.EventRunFinished,
-				Status:  state.RunStatusFailed,
-				Failure: failure,
-			})
-			if err != nil {
-				return state.Snapshot{}, err
+		frame := snapshot.Frames[len(snapshot.Frames)-1]
+		flow, ok := plan.Lookup(frame.Flow)
+		if !ok {
+			return state.Snapshot{}, fmt.Errorf("flow %q is not defined", frame.Flow)
+		}
+
+		if frame.NextStep >= frame.StepCount {
+			if frame.Return == nil {
+				return store.Append(state.RunEvent{
+					Kind:   state.EventRunFinished,
+					Status: state.RunStatusSucceeded,
+				})
 			}
 
-			return snapshot, RunFailedError{
-				RunID:   config.RunID,
-				Failure: *failure,
+			parentFrame := snapshot.Frames[len(snapshot.Frames)-2]
+			parentFlow, ok := plan.Lookup(parentFrame.Flow)
+			if !ok {
+				return state.Snapshot{}, fmt.Errorf("flow %q is not defined", parentFrame.Flow)
+			}
+			parentStep := parentFlow.Steps[frame.Return.StepIndex]
+			returned := returnedControlResult(frame.Return, frame.Produced)
+			finalized := r.finalizeStepResult(config, responses, parentFrame.Previous, parentStep, returned)
+
+			if snapshot, err = r.recordResultEvent(store, config.RunID, state.EventControlReturned, finalized); err != nil {
+				return snapshot, err
+			}
+			continue
+		}
+
+		stepIndex := frame.NextStep
+		step := flow.Steps[stepIndex]
+		runtime := exprruntime.NewRuntime(buildRuntimeContext(config, frame.Previous))
+
+		switch step.ExecutorType() {
+		case "call":
+			action, result := r.prepareStepAction(config, runtime, frame.Previous, stepIndex, step)
+			if action.pushFrame != nil {
+				snapshot, err = store.Append(state.RunEvent{
+					Kind:  state.EventFramePushed,
+					Frame: action.pushFrame,
+				})
+				if err != nil {
+					return state.Snapshot{}, err
+				}
+				continue
+			}
+			if snapshot, err = r.recordResultEvent(store, config.RunID, state.EventStepRecorded, result); err != nil {
+				return snapshot, err
+			}
+		case "switch":
+			action, result := r.prepareSwitch(config, runtime, plan, responses, frame.Flow, frame.Previous, stepIndex, step)
+			if action.pushFrame != nil {
+				snapshot, err = store.Append(state.RunEvent{
+					Kind:  state.EventFramePushed,
+					Frame: action.pushFrame,
+				})
+				if err != nil {
+					return state.Snapshot{}, err
+				}
+				continue
+			}
+			if snapshot, err = r.recordResultEvent(store, config.RunID, state.EventStepRecorded, result); err != nil {
+				return snapshot, err
+			}
+		default:
+			result := r.executeStep(ctx, config, responses, frame.Flow, stepIndex, step, frame.Previous)
+			if snapshot, err = r.recordResultEvent(store, config.RunID, state.EventStepRecorded, result); err != nil {
+				return snapshot, err
 			}
 		}
-
-		if result.Status == state.StepStatusSucceeded {
-			previous = &result
-		}
 	}
-
-	return store.Append(state.RunEvent{
-		Kind:   state.EventRunFinished,
-		Status: state.RunStatusSucceeded,
-	})
 }
 
 func (r *Runner) executeStep(
 	ctx context.Context,
 	config Config,
 	responses response.Resolver,
+	flowName string,
 	stepIndex int,
 	step spec.Step,
 	previous *state.StepResult,
 ) state.StepResult {
-	result := executorapi.NormalizeResult(state.StepResult{
-		Index: stepIndex,
-		ID:    step.ID,
-		Type:  step.ExecutorType(),
-	})
 	runtime := exprruntime.NewRuntime(buildRuntimeContext(config, previous))
-
-	if skip, failure := shouldSkipStep(stepIndex, step, runtime); failure != nil {
-		result.Status = state.StepStatusFailed
-		result.Error = failure
-		return result
-	} else if skip {
-		result.Status = state.StepStatusSkipped
-		return result
-	}
-
-	if result.Type == "" {
-		result.Status = state.StepStatusFailed
-		result.Error = &state.Failure{
-			Code:    "missing_executor",
-			Message: fmt.Sprintf("step %d does not declare an executor", stepIndex),
-		}
-		return result
+	action, result := r.prepareStepAction(config, runtime, previous, stepIndex, step)
+	if result.Status != "" || action.pushFrame != nil {
+		return finalizeStatus(result)
 	}
 
 	factory, ok := r.registry.Lookup(result.Type)
@@ -228,7 +239,7 @@ func (r *Runner) executeStep(
 		RunDir:    config.RunDir,
 		SpecPath:  config.SpecPath,
 		Workspace: config.Workspace,
-		FlowName:  config.Spec.Entry,
+		FlowName:  flowName,
 		StepIndex: stepIndex,
 		Step:      step,
 		Previous:  previous,
@@ -243,8 +254,203 @@ func (r *Runner) executeStep(
 		result.Type = step.ExecutorType()
 	}
 
+	return r.finalizeStepResult(config, responses, previous, step, result)
+}
+
+type stepAction struct {
+	pushFrame *state.FlowFrame
+}
+
+func (r *Runner) prepareStepAction(
+	config Config,
+	runtime exprruntime.Runtime,
+	previous *state.StepResult,
+	stepIndex int,
+	step spec.Step,
+) (stepAction, state.StepResult) {
+	result := executorapi.NormalizeResult(state.StepResult{
+		Index: stepIndex,
+		ID:    step.ID,
+		Type:  step.ExecutorType(),
+	})
+
+	if skip, failure := shouldSkipStep(stepIndex, step, runtime); failure != nil {
+		result.Status = state.StepStatusFailed
+		result.Error = failure
+		return stepAction{}, finalizeStatus(result)
+	} else if skip {
+		result.Status = state.StepStatusSkipped
+		return stepAction{}, finalizeStatus(result)
+	}
+
+	if result.Type == "" {
+		result.Status = state.StepStatusFailed
+		result.Error = &state.Failure{
+			Code:    "missing_executor",
+			Message: fmt.Sprintf("step %d does not declare an executor", stepIndex),
+		}
+		return stepAction{}, finalizeStatus(result)
+	}
+
+	if result.Type != "call" {
+		return stepAction{}, result
+	}
+
+	flowValue, ok := step.Fields["flow"]
+	if !ok {
+		result.Status = state.StepStatusFailed
+		result.Error = &state.Failure{
+			Code:    "invalid_call",
+			Message: fmt.Sprintf("step %d call is missing flow", stepIndex),
+		}
+		return stepAction{}, finalizeStatus(result)
+	}
+
+	targetFlow, err := runtime.ResolveString(flowValue)
+	if err != nil {
+		result.Status = state.StepStatusFailed
+		result.Error = &state.Failure{
+			Code:    "invalid_call",
+			Message: fmt.Sprintf("step %d call flow is invalid: %v", stepIndex, err),
+		}
+		return stepAction{}, finalizeStatus(result)
+	}
+
+	target, ok := config.Spec.Flows[targetFlow]
+	if !ok {
+		result.Status = state.StepStatusFailed
+		result.Error = &state.Failure{
+			Code:    "unknown_flow",
+			Message: fmt.Sprintf("step %d references undefined flow %q", stepIndex, targetFlow),
+		}
+		return stepAction{}, finalizeStatus(result)
+	}
+
+	return stepAction{
+		pushFrame: &state.FlowFrame{
+			Flow:      targetFlow,
+			StepCount: len(target.Steps),
+			Previous:  previous,
+			Return: &state.FrameReturn{
+				StepType:  result.Type,
+				StepIndex: stepIndex,
+				StepID:    step.ID,
+				Flow:      targetFlow,
+			},
+		},
+	}, result
+}
+
+func (r *Runner) prepareSwitch(
+	config Config,
+	runtime exprruntime.Runtime,
+	plan *flowPlan,
+	responses response.Resolver,
+	flowName string,
+	previous *state.StepResult,
+	stepIndex int,
+	step spec.Step,
+) (stepAction, state.StepResult) {
+	action, result := r.prepareStepAction(config, runtime, previous, stepIndex, step)
+	if result.Type != "switch" || result.Status != "" || action.pushFrame != nil {
+		return action, result
+	}
+
+	cases, err := decodeSwitchCases(step)
+	if err != nil {
+		result.Status = state.StepStatusFailed
+		result.Error = &state.Failure{
+			Code:    "invalid_switch",
+			Message: fmt.Sprintf("step %d switch is invalid: %v", stepIndex, err),
+		}
+		return stepAction{}, finalizeStatus(result)
+	}
+
+	for caseIndex, branch := range cases {
+		matched, failure := switchCaseMatches(stepIndex, caseIndex, branch, runtime)
+		if failure != nil {
+			result.Status = state.StepStatusFailed
+			result.Error = failure
+			return stepAction{}, finalizeStatus(result)
+		}
+		if !matched {
+			continue
+		}
+
+		branchFlow, ok := plan.SwitchBranchFlow(flowName, stepIndex, caseIndex)
+		if !ok {
+			result.Status = state.StepStatusFailed
+			result.Error = &state.Failure{
+				Code:    "invalid_switch",
+				Message: fmt.Sprintf("step %d switch branch %d is not planned", stepIndex, caseIndex),
+			}
+			return stepAction{}, finalizeStatus(result)
+		}
+
+		planned, ok := plan.Lookup(branchFlow)
+		if !ok {
+			result.Status = state.StepStatusFailed
+			result.Error = &state.Failure{
+				Code:    "invalid_switch",
+				Message: fmt.Sprintf("step %d switch branch %d flow %q is missing", stepIndex, caseIndex, branchFlow),
+			}
+			return stepAction{}, finalizeStatus(result)
+		}
+
+		return stepAction{
+			pushFrame: &state.FlowFrame{
+				Flow:      branchFlow,
+				StepCount: len(planned.Steps),
+				Previous:  previous,
+				Return: &state.FrameReturn{
+					StepType:  result.Type,
+					StepIndex: stepIndex,
+					StepID:    step.ID,
+					CaseIndex: intPtr(caseIndex),
+				},
+			},
+		}, result
+	}
+
+	result.Status = state.StepStatusSucceeded
+	result.Value = switchResultValue(nil, nil)
+	return stepAction{}, r.finalizeStepResult(config, responses, previous, step, result)
+}
+
+func switchCaseMatches(stepIndex int, caseIndex int, branch switchCase, runtime exprruntime.Runtime) (bool, *state.Failure) {
+	if branch.When == nil {
+		return true, nil
+	}
+
+	resolved, err := runtime.Resolve(branch.When)
+	if err != nil {
+		return false, &state.Failure{
+			Code:    "invalid_switch",
+			Message: fmt.Sprintf("step %d switch case %d when is invalid: %v", stepIndex, caseIndex, err),
+		}
+	}
+
+	matched, ok := resolved.(bool)
+	if !ok {
+		return false, &state.Failure{
+			Code:    "invalid_switch",
+			Message: fmt.Sprintf("step %d switch case %d when must be a boolean", stepIndex, caseIndex),
+		}
+	}
+	return matched, nil
+}
+
+func (r *Runner) finalizeStepResult(
+	config Config,
+	responses response.Resolver,
+	previous *state.StepResult,
+	step spec.Step,
+	result state.StepResult,
+) state.StepResult {
+	runtime := exprruntime.NewRuntime(buildRuntimeContext(config, previous))
+
 	if result.Status == state.StepStatusSucceeded {
-		resolved, failure := responses.Apply(stepIndex, step, result)
+		resolved, failure := responses.Apply(result.Index, step, result)
 		result = resolved
 		if failure != nil {
 			result.Status = state.StepStatusFailed
@@ -253,12 +459,16 @@ func (r *Runner) executeStep(
 	}
 
 	if result.Status == state.StepStatusSucceeded {
-		if failure := expectStep(stepIndex, step, runtime, result); failure != nil {
+		if failure := expectStep(result.Index, step, runtime, result); failure != nil {
 			result.Status = state.StepStatusFailed
 			result.Error = failure
 		}
 	}
 
+	return finalizeStatus(result)
+}
+
+func finalizeStatus(result state.StepResult) state.StepResult {
 	switch result.Status {
 	case state.StepStatusSucceeded, state.StepStatusSkipped:
 		return result
@@ -266,7 +476,7 @@ func (r *Runner) executeStep(
 		if result.Error == nil {
 			result.Error = &state.Failure{
 				Code:    "step_failed",
-				Message: fmt.Sprintf("step %d failed", stepIndex),
+				Message: fmt.Sprintf("step %d failed", result.Index),
 			}
 		}
 		return result
@@ -274,9 +484,104 @@ func (r *Runner) executeStep(
 		result.Status = state.StepStatusFailed
 		result.Error = &state.Failure{
 			Code:    "invalid_status",
-			Message: fmt.Sprintf("step %d returned unsupported status %q", stepIndex, result.Status),
+			Message: fmt.Sprintf("step %d returned unsupported status %q", result.Index, result.Status),
 		}
 		return result
+	}
+}
+
+func returnedControlResult(meta *state.FrameReturn, produced *state.StepResult) state.StepResult {
+	result := executorapi.NormalizeResult(state.StepResult{
+		Index:  meta.StepIndex,
+		ID:     meta.StepID,
+		Type:   meta.StepType,
+		Status: state.StepStatusSucceeded,
+	})
+
+	switch meta.StepType {
+	case "call":
+		result.Value = callResultValue(meta.Flow, produced)
+	case "switch":
+		result.Value = switchResultValue(meta.CaseIndex, produced)
+	default:
+		result.Status = state.StepStatusFailed
+		result.Error = &state.Failure{
+			Code:    "invalid_return",
+			Message: fmt.Sprintf("step %d returned unsupported control type %q", meta.StepIndex, meta.StepType),
+		}
+	}
+
+	return result
+}
+
+func callResultValue(flow string, previous *state.StepResult) map[string]any {
+	value := nestedResultValue(previous)
+	value["flow"] = flow
+	return value
+}
+
+func switchResultValue(caseIndex *int, previous *state.StepResult) map[string]any {
+	value := nestedResultValue(previous)
+	value["matched"] = caseIndex != nil
+	if caseIndex == nil {
+		value["case"] = nil
+		return value
+	}
+
+	value["case"] = *caseIndex
+	return value
+}
+
+func nestedResultValue(previous *state.StepResult) map[string]any {
+	value := map[string]any{
+		"status":    string(state.StepStatusSucceeded),
+		"value":     nil,
+		"error":     nil,
+		"artifacts": artifactsContext(state.Artifacts{Files: map[string]string{}}),
+	}
+	if previous == nil {
+		return value
+	}
+
+	value["index"] = previous.Index
+	value["type"] = previous.Type
+	value["status"] = string(previous.Status)
+	value["value"] = cloneValue(previous.Value)
+	value["error"] = failureContext(previous.Error)
+	value["artifacts"] = artifactsContext(previous.Artifacts)
+	return value
+}
+
+func intPtr(value int) *int {
+	return &value
+}
+
+func (r *Runner) recordResultEvent(store *state.Store, runID string, kind state.EventKind, result state.StepResult) (state.Snapshot, error) {
+	snapshot, err := store.Append(state.RunEvent{
+		Kind: kind,
+		Step: &result,
+	})
+	if err != nil {
+		return state.Snapshot{}, err
+	}
+
+	if result.Status != state.StepStatusFailed {
+		return snapshot, nil
+	}
+
+	failure := failureForStep(result)
+	snapshot, err = store.Append(state.RunEvent{
+		Kind:    state.EventRunFinished,
+		Status:  state.RunStatusFailed,
+		Failure: failure,
+	})
+	if err != nil {
+		return state.Snapshot{}, err
+	}
+
+	return snapshot, RunFailedError{
+		RunID:   runID,
+		Failure: *failure,
 	}
 }
 
@@ -372,16 +677,4 @@ func failureForStep(step state.StepResult) *state.Failure {
 		Code:    "step_failed",
 		Message: fmt.Sprintf("step %d failed", step.Index),
 	}
-}
-
-func previousCompletedStep(steps []state.StepResult) *state.StepResult {
-	for index := len(steps) - 1; index >= 0; index-- {
-		if steps[index].Status != state.StepStatusSucceeded {
-			continue
-		}
-		step := steps[index]
-		return &step
-	}
-
-	return nil
 }

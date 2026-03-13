@@ -32,7 +32,6 @@ func previousContext(previous *state.StepResult) any {
 func stepResultContext(result state.StepResult) map[string]any {
 	return map[string]any{
 		"index":     result.Index,
-		"id":        result.ID,
 		"type":      result.Type,
 		"status":    string(result.Status),
 		"value":     cloneValue(result.Value),

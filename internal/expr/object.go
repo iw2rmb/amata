@@ -45,6 +45,9 @@ func (o *object) Hash() (uint32, error) {
 func (o *object) Attr(name string) (starlark.Value, error) {
 	value, ok := o.fields[name]
 	if !ok {
+		if name == "id" {
+			return nil, fmt.Errorf("field %q is not available", name)
+		}
 		return nil, nil
 	}
 	return value, nil
@@ -61,6 +64,9 @@ func (o *object) Get(key starlark.Value) (starlark.Value, bool, error) {
 	}
 	value, ok := o.fields[name]
 	if !ok {
+		if name == "id" {
+			return nil, false, fmt.Errorf("key %q is not available", name)
+		}
 		return nil, false, nil
 	}
 	return value, true, nil
