@@ -1,5 +1,0 @@
-version: amata/plugins/v1
-
-# The reference implement-roadmap workflow uses only built-in executors.
-# Add entries here only for repo-specific external plugin types.
-plugins: {}

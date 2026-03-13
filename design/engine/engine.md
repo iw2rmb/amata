@@ -8,9 +8,9 @@ Define a local-first workflow engine for coding-agent-driven development flows.
 
 The implementation stack for the engine itself is Go. The engine should use `go-git` as the typed default Git layer and fall back to the `git` CLI only through narrow internal adapters when exact CLI parity or unsupported behavior is required.
 
-The reference outcome is that the current `implement-roadmap` workflow can be expressed mostly in YAML, with Codex selecting the next open roadmap item directly from the roadmap file, engine-owned `git.commit` and `git.inspect` handling repo state through the typed Git layer, and shell used only for true leaf commands or repo-specific plugins.
+The reference outcome is that the current `implement-roadmap` workflow can be expressed mostly in YAML, with Codex selecting the next open roadmap item directly from the roadmap file, engine-owned `git.commit` and `git.inspect` handling repo state through the typed Git layer, and shell used only for true leaf commands or repo-specific helpers.
 
-See the reference example bundle in `design/engine/example/`, especially `example/implement-roadmap.yaml` and `example/README.md`. The registry file at `example/plugins.yaml` is optional and exists only for non-core plugin extensions.
+See the reference example bundle in `design/engine/example/`, especially `example/implement-roadmap.yaml` and `example/README.md`.
 
 ## Scope
 
@@ -488,18 +488,9 @@ The plugin contract is:
 
 In the Go implementation, the standard Git executors `git.inspect` and `git.commit` are engine-owned and backed by the typed Git layer. They are not the preferred use case for the external plugin protocol.
 
-The example bundle in [example/README.md](example/README.md) includes a concrete, non-normative plugin registry file at [example/plugins.yaml](example/plugins.yaml). That registry is optional and exists for repo-specific extensions only. The reference `implement-roadmap` workflow should run without loading external Git adapters or Python Git scripts.
+The reference example bundle in [example/README.md](example/README.md) does not carry a plugin registry because the current scenario uses only built-in executors plus roadmap helper scripts. External plugin registries are still part of the engine design for later scenarios.
 
-Plugin registry entries may declare `config_schema` so the engine can validate plugin config before launching the external process.
-
-Minimal built-in-only registry file:
-
-```yaml
-version: amata/plugins/v1
-plugins: {}
-```
-
-When a workspace does need external plugin types, registry entries may declare `config_schema`:
+When a workspace does need external plugin types, registry entries may declare `config_schema` so the engine can validate plugin config before launching the external process.
 
 ```yaml
 plugins:
@@ -521,7 +512,7 @@ Rules:
 - `config_schema` uses JSON Schema plus engine-specific annotations such as `format: path` for filesystem-path normalization.
 - The engine should reject invalid plugin config before process spawn rather than asking the plugin script to repeat structural validation.
 - External plugins may assume `request.config` already conforms to the declared schema.
-- External plugins are for non-core executor types and repo-specific extensions. Standard Git executors remain engine-owned and are not required to be declared in `plugins.yaml`.
+- External plugins are for non-core executor types and repo-specific extensions. Standard Git executors remain engine-owned and are not required to be declared in a plugin registry.
 - Check-oriented plugins such as `git.inspect` should succeed for normal negative cases and return typed booleans instead of failing for states like "not a git repo".
 - Related repo facts such as "is repo", "has diff", and "files" should come from one plugin result so workflows do not race across several independent git probes.
 
@@ -713,7 +704,7 @@ Testable outcome:
 - The core engine implementation is Go.
 - Engine-owned Git inspection uses `go-git` as the default typed layer, with any `git` CLI fallback isolated behind an internal adapter.
 - Engine-owned `git.commit` stages and commits only its included path set and does not absorb unrelated staged changes.
-- The reference `implement-roadmap` workflow uses only built-in Git executors and runs without loading `example/plugins.yaml` or Python Git adapters.
+- The reference `implement-roadmap` workflow uses only built-in Git executors and does not require any plugin registry or Python Git adapters.
 - Deferred features are tracked in [research/hardcore.md](../../research/hardcore.md).
 
 ## Risks

@@ -5,8 +5,6 @@ This folder is a self-contained reference bundle for the engine contract in [../
 It contains:
 - `implement-roadmap.yaml`
   - the workflow spec
-- `plugins.yaml`
-  - an optional registry stub for repo-specific external plugin types
 - `sdk/`
   - shared helpers for the remaining example scripts
 - `scripts/`
@@ -23,14 +21,11 @@ Built-in runtime assumptions from the engine design:
 
 Example operator flow:
 1. Run `design/engine/example/implement-roadmap.yaml` from an existing Git-managed repository checkout.
-2. Load `design/engine/example/plugins.yaml` only if the workspace adds non-core external plugin types.
 
 Notes:
-- `plugins.yaml` is optional and is not part of the `implement-roadmap` path.
 - In the target Go engine, `git.inspect` and `git.commit` are engine-owned standard executors backed by the typed Git layer.
-- The reference `implement-roadmap` scenario should run without loading `plugins.yaml` and without any Python Git adapters.
+- The reference `implement-roadmap` scenario uses only built-in executors plus the roadmap helper scripts. It does not need a plugin registry or any Python Git adapters.
 - `sdk/python.py` remains because the roadmap helper scripts import the shared request/result helpers.
-- Script paths in `plugins.yaml` are resolved relative to the registry file.
 - The example `implement-roadmap.yaml` resolves `workspace.root` to the host repository root and targets the sample roadmap file under `design/engine/example/fixture-repo/`.
 - Repo-facing relative paths in `implement-roadmap.yaml` resolve from `workspace.root`.
 - The workflow carries data forward through `ctx.prev` instead of referencing earlier steps by `id`.
