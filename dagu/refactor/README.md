@@ -23,6 +23,15 @@ Runtime helpers live in `./scripts/`:
 - `run-codex-prompt.sh`
 - `refactor-loop.sh`
 
+`TARGET_FILTER` is optional. When set, it is matched as a bash glob against
+repo-relative supported source file paths before those files are grouped into
+refactor directories. Examples:
+
+- `TARGET_FILTER='*.swift'` limits the run to refactor units that contain
+  matching Swift files.
+- `TARGET_FILTER='Sources/**'` limits the run to supported source files under
+  `Sources/`.
+
 The agent wrappers accept normal text output. If a model wraps a JSON payload in
 fences or extra prose, the wrappers normalize that down to the first valid JSON
 payload when one is present; otherwise they preserve the plain text output.
@@ -32,6 +41,7 @@ Example run:
 ```bash
 dagu start dagu/refactor/refactor.yaml -- \
   REPO_DIR="$PWD" \
+  TARGET_FILTER='Sources/**' \
   CLAUDE_MODEL=sonnet \
   CODEX_MODEL=gpt-5.4
 ```

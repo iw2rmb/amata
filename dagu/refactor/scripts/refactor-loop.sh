@@ -10,6 +10,7 @@ claude_model=""
 claude_reasoning=""
 codex_model=""
 codex_reasoning=""
+target_filter=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -41,6 +42,11 @@ while [ "$#" -gt 0 ]; do
     --codex-reasoning)
       [ "$#" -ge 2 ] || die "--codex-reasoning requires a value"
       codex_reasoning="$2"
+      shift 2
+      ;;
+    --target-filter)
+      [ "$#" -ge 2 ] || die "--target-filter requires a value"
+      target_filter="$2"
       shift 2
       ;;
     *)
@@ -75,7 +81,9 @@ require_clean_worktree
 paths_file="$(mktemp)"
 trap 'rm -f "$paths_file"' EXIT
 
-bash "${scripts_dir}/list-target-paths.sh" --repo "$repo" >"$paths_file"
+bash "${scripts_dir}/list-target-paths.sh" \
+  --repo "$repo" \
+  --filter "$target_filter" >"$paths_file"
 
 scanned_count=0
 changed_count=0

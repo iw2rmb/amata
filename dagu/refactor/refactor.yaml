@@ -7,6 +7,7 @@ params:
   - CLAUDE_REFACTOR_REASONING: "high"
   - CODEX_MODEL: "gpt-5.4"
   - CODEX_REVIEW_REASONING: "high"
+  - TARGET_FILTER: ""
 
 steps:
   - name: refactor-all-paths
@@ -18,4 +19,5 @@ steps:
         --claude-model "${CLAUDE_MODEL}" \
         --claude-reasoning "${CLAUDE_REFACTOR_REASONING}" \
         --codex-model "${CODEX_MODEL}" \
-        --codex-reasoning "${CODEX_REVIEW_REASONING}"
+        --codex-reasoning "${CODEX_REVIEW_REASONING}" \
+        --target-filter "${TARGET_FILTER}"

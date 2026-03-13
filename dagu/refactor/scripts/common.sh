@@ -182,3 +182,11 @@ current_head() {
   ensure_git_repo
   git rev-parse HEAD
 }
+
+path_matches_glob() (
+  local path="$1"
+  local pattern="$2"
+
+  shopt -s globstar
+  [[ "$path" == $pattern ]]
+)
