@@ -42,7 +42,7 @@ Current behavior:
 - `params` are exposed to expressions and templates under `ctx.params`.
 - Repeated `--set key=value` flags override declared `spec.params` entries for the launched run and persist inside the stored normalized spec.
 - `defaults` are parsed and persisted. Agent executors currently interpret `defaults.cwd`, `defaults.env`, and `defaults.executors.codex|claude`.
-- `schemas` provides workflow-local JSON Schema definitions for `response.schema`.
+- `schemas` provides workflow-local JSON Schema definitions for inline `response.schema` refs.
 - A step may declare `type`, or omit it when one of these shorthands is present:
   - `command` -> `shell`
   - `expr` -> `expr`
@@ -255,7 +255,9 @@ Supported fields:
 Behavior:
 - `prompt`, `model`, `reasoning`, `cwd`, and `env` resolve through the shared expression/template runtime before execution.
 - `cwd` falls back to `defaults.cwd`, then `workspace.root`.
-- When `response.schema` targets `value`, the executor writes a schema artifact and requests structured JSON output through `codex exec --output-schema`.
+- When `response.schema` targets `value`, the executor accepts either an inline schema/ref or a path-like string to a `.json` schema file relative to the workflow file.
+- Inline Codex schemas are expanded into a provider-safe object schema artifact before `codex exec --output-schema`.
+- File-backed Codex schemas are passed through to `codex exec --output-schema` by absolute path instead of being copied into the prompt.
 - Raw provider stdout, stderr, the rendered prompt, the final transcript, and provider metadata persist as step artifacts.
 - Without `response.schema`, the step `value` is the raw final transcript text.
 
@@ -319,7 +321,7 @@ Steps may declare:
 ```yaml
 response:
   from: value | stdout | stderr | artifact:<name>
-  schema: <json-schema-object-or-ref>
+  schema: <json-schema-object-or-ref-or-path>
 ```
 
 Current behavior:
@@ -328,7 +330,9 @@ Current behavior:
 - Artifact-backed values JSON-decode when the artifact contains valid JSON; otherwise they stay plain strings.
 - `response.schema` validates the resolved `value` before `expect` runs or later steps can consume `ctx.prev.value`.
 - `response.schema` may use workflow-owned refs such as `#/schemas/review_result`.
+- `response.schema` may also be a path-like string to a `.json` schema file, resolved relative to `ctx.spec.dir`.
 - Named schemas support the local shorthand forms used in the design examples, such as `approved: boolean`.
+- For Codex structured output, the resolved top-level response schema must be an object schema. Provider-unsupported schema keywords fail the step with `invalid_response_schema` before `codex exec` runs.
 - Invalid response schemas fail the step with `invalid_response_schema`.
 - Schema mismatches fail the step with `response_schema_mismatch`.
 - Raw stdout, stderr, and named file paths remain available under `artifacts`.

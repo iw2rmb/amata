@@ -482,7 +482,7 @@ func (r *Runner) finalizeStepResult(
 	runtime := exprruntime.NewRuntime(buildRuntimeContext(config, previous))
 
 	if result.Status == state.StepStatusSucceeded {
-		resolved, failure := responses.Apply(result.Index, step, result)
+		resolved, failure := responses.Apply(result.Index, config.SpecPath, step, result)
 		result = resolved
 		if failure != nil {
 			result.Status = state.StepStatusFailed

@@ -26,7 +26,7 @@ func loadRequest(stepCtx executor.StepContext, providerName string, stepDir stri
 		return Request{}, resolvedErr
 	}
 
-	structured, structuredErr := loadStructuredOutput(stepCtx, stepDir)
+	structured, structuredErr := loadStructuredOutput(stepCtx, providerName, stepDir)
 	if structuredErr != nil {
 		return Request{}, structuredErr
 	}
@@ -220,7 +220,7 @@ func resolveEnv(stepCtx executor.StepContext, values ...any) (map[string]string,
 	return resolved, nil
 }
 
-func loadStructuredOutput(stepCtx executor.StepContext, stepDir string) (*StructuredOutput, *Error) {
+func loadStructuredOutput(stepCtx executor.StepContext, providerName string, stepDir string) (*StructuredOutput, *Error) {
 	responseValue, ok := stepCtx.Step.Fields["response"]
 	if !ok {
 		return nil, nil
@@ -252,19 +252,11 @@ func loadStructuredOutput(stepCtx executor.StepContext, stepDir string) (*Struct
 		}
 	}
 
-	document, jsonText, err := buildSchemaDocument(rawSchema, stepCtx.Spec.Schemas)
+	document, jsonText, schemaPath, err := buildStructuredSchema(stepCtx, providerName, stepDir, rawSchema)
 	if err != nil {
 		return nil, &Error{
 			Code:    "invalid_response_schema",
 			Message: fmt.Sprintf("response.schema is invalid: %v", err),
-		}
-	}
-
-	schemaPath := filepath.Join(stepDir, "response-schema.json")
-	if err := os.WriteFile(schemaPath, []byte(jsonText), 0o644); err != nil {
-		return nil, &Error{
-			Code:    "artifact_capture_failed",
-			Message: fmt.Sprintf("write response schema artifact: %v", err),
 		}
 	}
 
@@ -275,38 +267,43 @@ func loadStructuredOutput(stepCtx executor.StepContext, stepDir string) (*Struct
 	}, nil
 }
 
-func buildSchemaDocument(responseSchema any, workflowSchemas map[string]any) (any, string, error) {
-	normalizedResponse, err := schema.Normalize(responseSchema)
-	if err != nil {
-		return nil, "", err
-	}
-
-	if document, ok := normalizedResponse.(map[string]any); ok {
-		withSchemas := jsonutil.CloneMap(document)
-		if len(workflowSchemas) > 0 {
-			normalizedSchemas := make(map[string]any, len(workflowSchemas))
-			for name, rawSchema := range workflowSchemas {
-				normalized, err := schema.Normalize(rawSchema)
-				if err != nil {
-					return nil, "", fmt.Errorf("schemas.%s: %w", name, err)
-				}
-				normalizedSchemas[name] = normalized
-			}
-			withSchemas["schemas"] = normalizedSchemas
-		}
-
-		data, err := json.Marshal(withSchemas)
+func buildStructuredSchema(stepCtx executor.StepContext, providerName string, stepDir string, rawSchema any) (any, string, string, error) {
+	if sourcePath, ok, err := schema.ResolveResponseSchemaPath(rawSchema, stepCtx.SpecPath); err != nil {
+		return nil, "", "", err
+	} else if ok {
+		document, jsonText, err := schema.LoadResponseSchemaFile(sourcePath)
 		if err != nil {
-			return nil, "", err
+			return nil, "", "", err
 		}
-		return withSchemas, string(data), nil
+		if providerName == "codex" {
+			document, err = schema.ValidateProviderDocument(document)
+			if err != nil {
+				return nil, "", "", err
+			}
+		}
+		return document, jsonText, sourcePath, nil
 	}
 
-	data, err := json.Marshal(normalizedResponse)
+	document, err := schema.ExpandedDocument(rawSchema, stepCtx.Spec.Schemas)
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
-	return normalizedResponse, string(data), nil
+	if providerName == "codex" {
+		document, err = schema.ValidateProviderDocument(document)
+		if err != nil {
+			return nil, "", "", err
+		}
+	}
+
+	data, err := json.Marshal(document)
+	if err != nil {
+		return nil, "", "", err
+	}
+	schemaPath := filepath.Join(stepDir, "response-schema.json")
+	if err := os.WriteFile(schemaPath, data, 0o644); err != nil {
+		return nil, "", "", fmt.Errorf("write response schema artifact: %w", err)
+	}
+	return document, string(data), schemaPath, nil
 }
 
 func invalidFieldError(field string, err error) *Error {

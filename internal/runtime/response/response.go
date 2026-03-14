@@ -37,7 +37,7 @@ func NewResolver(schemas *schema.Registry) Resolver {
 	return Resolver{schemas: schemas}
 }
 
-func (r Resolver) Apply(stepIndex int, step spec.Step, result state.StepResult) (state.StepResult, *state.Failure) {
+func (r Resolver) Apply(stepIndex int, specPath string, step spec.Step, result state.StepResult) (state.StepResult, *state.Failure) {
 	cfg, ok, err := load(step)
 	if err != nil {
 		return result, failure(codeInvalidResponse, stepIndex, "response is invalid", err)
@@ -60,7 +60,12 @@ func (r Resolver) Apply(stepIndex int, step spec.Step, result state.StepResult) 
 		r.schemas = schema.NewRegistry(nil)
 	}
 
-	compiled, err := r.schemas.Compile(cfg.schema)
+	compiledSchema, err := resolveSchema(cfg.schema, specPath)
+	if err != nil {
+		return result, failure(codeInvalidResponseSchema, stepIndex, "response.schema is invalid", err)
+	}
+
+	compiled, err := r.schemas.Compile(compiledSchema)
 	if err != nil {
 		return result, failure(codeInvalidResponseSchema, stepIndex, "response.schema is invalid", err)
 	}
@@ -69,6 +74,22 @@ func (r Resolver) Apply(stepIndex int, step spec.Step, result state.StepResult) 
 	}
 
 	return result, nil
+}
+
+func resolveSchema(rawSchema any, specPath string) (any, error) {
+	path, ok, err := schema.ResolveResponseSchemaPath(rawSchema, specPath)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return rawSchema, nil
+	}
+
+	document, _, err := schema.LoadResponseSchemaFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return document, nil
 }
 
 func load(step spec.Step) (config, bool, error) {

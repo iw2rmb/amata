@@ -7,7 +7,7 @@ workspace:
   state_dir: ".amata"
 
 params:
-  roadmap_file: "design/engine/example/fixture-repo/roadmap/index.md"
+  roadmap_file: "tests/fixtures/reference-workflow/fixture-repo/roadmap/index.md"
   codex_model: "gpt-5.4"
   codex_correctness_reasoning: "xhigh"
   codex_docs_reasoning: "high"

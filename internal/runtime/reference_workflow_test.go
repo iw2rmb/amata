@@ -188,8 +188,8 @@ func setupReferenceWorkflowHarness(t *testing.T, blockLabel string) referenceWor
 	t.Helper()
 
 	repoRoot := testRepositoryRoot(t)
-	specPath := filepath.Join(repoRoot, "design", "engine", "example", "implement-roadmap.yaml")
-	fixtureSource := filepath.Join(repoRoot, "design", "engine", "example", "fixture-repo")
+	specPath := filepath.Join(repoRoot, "tests", "fixtures", "reference-workflow", "implement-roadmap.yaml")
+	fixtureSource := filepath.Join(repoRoot, "tests", "fixtures", "reference-workflow", "fixture-repo")
 
 	repoDir := t.TempDir()
 	copyFixtureTree(t, fixtureSource, repoDir)

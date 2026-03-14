@@ -104,8 +104,22 @@ func TestExecutorResolvesDefaultsTemplatesAndPersistsArtifacts(t *testing.T) {
 			if err != nil {
 				t.Fatalf("read schema file: %v", err)
 			}
-			if !containsJSONPointer(schemaFile, "#/schemas/result") {
-				t.Fatalf("schema artifact = %s, want embedded response schema", string(schemaFile))
+			var schemaDocument map[string]any
+			if err := json.Unmarshal(schemaFile, &schemaDocument); err != nil {
+				t.Fatalf("decode schema file: %v", err)
+			}
+			if schemaDocument["type"] != "object" {
+				t.Fatalf("schema type = %#v, want object", schemaDocument["type"])
+			}
+			if _, ok := schemaDocument["$ref"]; ok {
+				t.Fatalf("schema artifact kept top-level $ref: %s", string(schemaFile))
+			}
+			defs, ok := schemaDocument["$defs"].(map[string]any)
+			if !ok {
+				t.Fatalf("schema artifact missing $defs: %s", string(schemaFile))
+			}
+			if _, ok := defs["workflow:result"]; !ok {
+				t.Fatalf("schema artifact missing workflow:result definition: %s", string(schemaFile))
 			}
 
 			return agent.Response{
@@ -137,7 +151,7 @@ func TestExecutorResolvesDefaultsTemplatesAndPersistsArtifacts(t *testing.T) {
 		t.Fatalf("raw result value = %#v", result.Value)
 	}
 
-	resolved, failure := response.NewResolver(schema.NewRegistry(document.Schemas)).Apply(0, step, result)
+	resolved, failure := response.NewResolver(schema.NewRegistry(document.Schemas)).Apply(0, "", step, result)
 	if failure != nil {
 		t.Fatalf("response failure = %#v", failure)
 	}
@@ -239,7 +253,7 @@ func TestExecutorOnlyRequestsStructuredOutputForResponseValue(t *testing.T) {
 		}, nil),
 	})
 
-	resolved, failure := response.NewResolver(nil).Apply(1, step, result)
+	resolved, failure := response.NewResolver(nil).Apply(1, "", step, result)
 	if failure != nil {
 		t.Fatalf("response failure = %#v", failure)
 	}
@@ -247,6 +261,145 @@ func TestExecutorOnlyRequestsStructuredOutputForResponseValue(t *testing.T) {
 	wantValue := map[string]any{"approved": true}
 	if !reflect.DeepEqual(resolved.Value, wantValue) {
 		t.Fatalf("value = %#v, want %#v", resolved.Value, wantValue)
+	}
+}
+
+func TestExecutorUsesSchemaFilePathForCodexStructuredOutput(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	specPath := filepath.Join(rootDir, "workflow.yaml")
+	schemaPath := filepath.Join(rootDir, "review_result.schema.json")
+	if err := os.WriteFile(schemaPath, []byte(`{"type":"object","required":["approved"],"additionalProperties":false,"properties":{"approved":{"type":"boolean"}}}`), 0o644); err != nil {
+		t.Fatalf("write schema file: %v", err)
+	}
+
+	workspaceConfig := workspace.Config{
+		Root:     rootDir,
+		StateDir: filepath.Join(rootDir, ".amata"),
+	}
+	step := spec.Step{
+		ID:   "schema-path",
+		Type: "codex",
+		Fields: map[string]any{
+			"prompt": "Return review",
+			"response": map[string]any{
+				"schema": "./review_result.schema.json",
+			},
+		},
+	}
+
+	provider := &fakeProvider{
+		name: "codex",
+		execute: func(_ context.Context, request agent.Request) (agent.Response, *agent.Error) {
+			if request.Structured == nil {
+				t.Fatalf("structured output request missing")
+			}
+			if request.Structured.SchemaPath != schemaPath {
+				t.Fatalf("schema path = %q, want %q", request.Structured.SchemaPath, schemaPath)
+			}
+			if !strings.Contains(request.Structured.JSON, `"approved"`) {
+				t.Fatalf("schema json = %q, want schema file content", request.Structured.JSON)
+			}
+			return agent.Response{
+				Value:      map[string]any{"approved": true},
+				HasValue:   true,
+				Transcript: []byte("{\"approved\":true}\n"),
+			}, nil
+		},
+	}
+
+	result := agent.New(provider).Execute(context.Background(), executor.StepContext{
+		RunDir:   filepath.Join(rootDir, ".amata", "runs", "run-path"),
+		SpecPath: specPath,
+		Spec: spec.Document{
+			Defaults: map[string]any{
+				"executors": map[string]any{
+					"codex": map[string]any{
+						"model": "gpt-5.4",
+					},
+				},
+			},
+		},
+		Workspace: workspaceConfig,
+		StepIndex: 0,
+		Step:      step,
+		Runtime:   runtimeForWorkspace(workspaceConfig, nil),
+	})
+	if result.Status != state.StepStatusSucceeded {
+		t.Fatalf("result status = %q, error = %#v", result.Status, result.Error)
+	}
+
+	resolved, failure := response.NewResolver(nil).Apply(0, specPath, step, result)
+	if failure != nil {
+		t.Fatalf("response failure = %#v", failure)
+	}
+	if !reflect.DeepEqual(resolved.Value, map[string]any{"approved": true}) {
+		t.Fatalf("value = %#v", resolved.Value)
+	}
+}
+
+func TestExecutorRejectsUnsupportedCodexStructuredSchemaKeyword(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	workspaceConfig := workspace.Config{
+		Root:     rootDir,
+		StateDir: filepath.Join(rootDir, ".amata"),
+	}
+	step := spec.Step{
+		ID:   "invalid-schema",
+		Type: "codex",
+		Fields: map[string]any{
+			"prompt": "Return review",
+			"response": map[string]any{
+				"schema": map[string]any{
+					"type": "object",
+					"allOf": []any{
+						map[string]any{
+							"required": []any{"approved"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	provider := &fakeProvider{
+		name: "codex",
+		execute: func(_ context.Context, request agent.Request) (agent.Response, *agent.Error) {
+			t.Fatalf("provider should not be called for unsupported schema")
+			return agent.Response{}, nil
+		},
+	}
+
+	result := agent.New(provider).Execute(context.Background(), executor.StepContext{
+		RunDir: filepath.Join(rootDir, ".amata", "runs", "run-invalid"),
+		Spec: spec.Document{
+			Defaults: map[string]any{
+				"executors": map[string]any{
+					"codex": map[string]any{
+						"model": "gpt-5.4",
+					},
+				},
+			},
+		},
+		Workspace: workspaceConfig,
+		StepIndex: 0,
+		Step:      step,
+		Runtime:   runtimeForWorkspace(workspaceConfig, nil),
+	})
+	if result.Status != state.StepStatusFailed {
+		t.Fatalf("result status = %q, want failed", result.Status)
+	}
+	if result.Error == nil {
+		t.Fatalf("expected result error")
+	}
+	if result.Error.Code != "invalid_response_schema" {
+		t.Fatalf("error code = %q, want invalid_response_schema", result.Error.Code)
+	}
+	if got := result.Error.Message; !strings.Contains(got, `does not support "allOf"`) {
+		t.Fatalf("error message = %q", got)
 	}
 }
 
@@ -449,12 +602,4 @@ func assertArtifactPathPrefix(t *testing.T, path string, wantPrefix string) {
 	if !strings.HasPrefix(path, wantPrefix+string(os.PathSeparator)) && path != wantPrefix {
 		t.Fatalf("artifact path %q, want prefix %q", path, wantPrefix)
 	}
-}
-
-func containsJSONPointer(data []byte, pointer string) bool {
-	var value map[string]any
-	if err := json.Unmarshal(data, &value); err != nil {
-		return false
-	}
-	return value["$ref"] == pointer
 }

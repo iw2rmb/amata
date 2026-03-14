@@ -3,6 +3,8 @@ package schema
 import (
 	"fmt"
 	"net/url"
+	"sort"
+	"strconv"
 	"strings"
 
 	"auto/internal/jsonutil"
@@ -11,6 +13,7 @@ import (
 
 const responseResourceURL = "workflow:///response"
 const schemaResourcePrefix = "workflow:///schemas/"
+const providerDefsPrefix = "workflow:"
 
 type Registry struct {
 	schemas map[string]any
@@ -30,6 +33,108 @@ func NewRegistry(workflowSchemas map[string]any) *Registry {
 
 func Normalize(value any) (any, error) {
 	return normalizeSchema(value)
+}
+
+func ProviderDocument(responseSchema any, workflowSchemas map[string]any) (map[string]any, error) {
+	document, err := ExpandedDocument(responseSchema, workflowSchemas)
+	if err != nil {
+		return nil, err
+	}
+	return ValidateProviderDocument(document)
+}
+
+func ExpandedDocument(responseSchema any, workflowSchemas map[string]any) (map[string]any, error) {
+	normalizedResponse, err := normalizeSchema(responseSchema)
+	if err != nil {
+		return nil, err
+	}
+	rewrittenResponse := rewriteProviderRefs(normalizedResponse)
+
+	document, ok := rewrittenResponse.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("response schema must resolve to a top-level object schema")
+	}
+
+	referencedNames := collectWorkflowSchemaRefs(normalizedResponse)
+	normalizedDefs := make(map[string]any, len(referencedNames))
+	queue := make([]string, 0, len(referencedNames))
+	for name := range referencedNames {
+		queue = append(queue, name)
+	}
+	sort.Strings(queue)
+
+	for len(queue) > 0 {
+		name := queue[0]
+		queue = queue[1:]
+		if _, ok := normalizedDefs[providerDefinitionName(name)]; ok {
+			continue
+		}
+
+		rawSchema, ok := workflowSchemas[name]
+		if !ok {
+			return nil, fmt.Errorf("response schema ref %q is not defined", "#/schemas/"+encodeJSONPointerSegment(name))
+		}
+
+		normalized, err := normalizeSchema(rawSchema)
+		if err != nil {
+			return nil, fmt.Errorf("schemas.%s: %w", name, err)
+		}
+
+		for refName := range collectWorkflowSchemaRefs(normalized) {
+			if _, ok := normalizedDefs[providerDefinitionName(refName)]; ok {
+				continue
+			}
+			queue = append(queue, refName)
+		}
+		normalizedDefs[providerDefinitionName(name)] = rewriteProviderRefs(normalized)
+	}
+
+	if ref, ok := document["$ref"].(string); ok && len(document) == 1 {
+		resolved, found := resolveProviderRef(ref, normalizedDefs)
+		if !found {
+			return nil, fmt.Errorf("response schema ref %q is not defined", ref)
+		}
+
+		resolvedDocument, ok := resolved.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("response schema must resolve to a top-level object schema")
+		}
+		document = jsonutil.CloneMap(resolvedDocument)
+	} else {
+		document = jsonutil.CloneMap(document)
+	}
+
+	if len(normalizedDefs) > 0 {
+		defs := map[string]any{}
+		if existingDefs, ok := document["$defs"].(map[string]any); ok {
+			defs = jsonutil.CloneMap(existingDefs)
+		}
+		for name, definition := range normalizedDefs {
+			defs[name] = jsonutil.CloneValue(definition)
+		}
+		document["$defs"] = defs
+	}
+
+	if document["type"] != "object" {
+		return nil, fmt.Errorf("response schema must resolve to a top-level object schema")
+	}
+
+	return document, nil
+}
+
+func ValidateProviderDocument(document any) (map[string]any, error) {
+	if err := validateProviderSchemaKeywords(document, "#"); err != nil {
+		return nil, err
+	}
+
+	objectDocument, ok := document.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("response schema must resolve to a top-level object schema")
+	}
+	if objectDocument["type"] != "object" {
+		return nil, fmt.Errorf("response schema must resolve to a top-level object schema")
+	}
+	return jsonutil.CloneMap(objectDocument), nil
 }
 
 func (r *Registry) Compile(responseSchema any) (*Compiled, error) {
@@ -225,7 +330,169 @@ func rewriteLocalRef(ref string) string {
 	return target + "#" + fragment.String()
 }
 
+func rewriteProviderRefs(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		rewritten := make(map[string]any, len(typed))
+		for key, child := range typed {
+			if key == "$ref" {
+				if ref, ok := child.(string); ok {
+					rewritten[key] = rewriteProviderRef(ref)
+					continue
+				}
+			}
+			rewritten[key] = rewriteProviderRefs(child)
+		}
+		return rewritten
+	case []any:
+		rewritten := make([]any, len(typed))
+		for index, child := range typed {
+			rewritten[index] = rewriteProviderRefs(child)
+		}
+		return rewritten
+	default:
+		return typed
+	}
+}
+
+func rewriteProviderRef(ref string) string {
+	if !strings.HasPrefix(ref, "#/schemas/") {
+		return ref
+	}
+
+	segments := strings.Split(strings.TrimPrefix(ref, "#/schemas/"), "/")
+	if len(segments) == 0 || segments[0] == "" {
+		return ref
+	}
+
+	name := providerDefinitionName(decodeJSONPointerSegment(segments[0]))
+	target := "#/$defs/" + encodeJSONPointerSegment(name)
+	if len(segments) == 1 {
+		return target
+	}
+
+	var fragment strings.Builder
+	for _, segment := range segments[1:] {
+		fragment.WriteByte('/')
+		fragment.WriteString(segment)
+	}
+	return target + fragment.String()
+}
+
+func validateProviderSchemaKeywords(value any, path string) error {
+	switch typed := value.(type) {
+	case map[string]any:
+		keys := make([]string, 0, len(typed))
+		for key := range typed {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			childPath := jsonPointerPath(path, key)
+			switch key {
+			case "allOf", "not", "dependentRequired", "dependentSchemas", "if", "then", "else":
+				return fmt.Errorf("codex structured output schema does not support %q at %s", key, childPath)
+			}
+			if err := validateProviderSchemaKeywords(typed[key], childPath); err != nil {
+				return err
+			}
+		}
+	case []any:
+		for index, child := range typed {
+			if err := validateProviderSchemaKeywords(child, fmt.Sprintf("%s/%d", path, index)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func collectWorkflowSchemaRefs(value any) map[string]struct{} {
+	refs := map[string]struct{}{}
+	collectWorkflowSchemaRefsInto(value, refs)
+	return refs
+}
+
+func collectWorkflowSchemaRefsInto(value any, refs map[string]struct{}) {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			if key == "$ref" {
+				ref, ok := child.(string)
+				if ok {
+					if name, ok := workflowSchemaRefName(ref); ok {
+						refs[name] = struct{}{}
+					}
+				}
+			}
+			collectWorkflowSchemaRefsInto(child, refs)
+		}
+	case []any:
+		for _, child := range typed {
+			collectWorkflowSchemaRefsInto(child, refs)
+		}
+	}
+}
+
+func workflowSchemaRefName(ref string) (string, bool) {
+	if !strings.HasPrefix(ref, "#/schemas/") {
+		return "", false
+	}
+
+	segments := strings.Split(strings.TrimPrefix(ref, "#/schemas/"), "/")
+	if len(segments) == 0 || segments[0] == "" {
+		return "", false
+	}
+	return decodeJSONPointerSegment(segments[0]), true
+}
+
+func providerDefinitionName(name string) string {
+	return providerDefsPrefix + name
+}
+
+func resolveProviderRef(ref string, defs map[string]any) (any, bool) {
+	if !strings.HasPrefix(ref, "#/$defs/") {
+		return nil, false
+	}
+
+	segments := strings.Split(strings.TrimPrefix(ref, "#/"), "/")
+	return resolveJSONPointer(map[string]any{"$defs": defs}, segments)
+}
+
+func resolveJSONPointer(value any, segments []string) (any, bool) {
+	current := value
+	for _, rawSegment := range segments {
+		segment := decodeJSONPointerSegment(rawSegment)
+		switch typed := current.(type) {
+		case map[string]any:
+			next, ok := typed[segment]
+			if !ok {
+				return nil, false
+			}
+			current = next
+		case []any:
+			index, err := strconv.Atoi(segment)
+			if err != nil || index < 0 || index >= len(typed) {
+				return nil, false
+			}
+			current = typed[index]
+		default:
+			return nil, false
+		}
+	}
+	return current, true
+}
+
 func decodeJSONPointerSegment(value string) string {
 	value = strings.ReplaceAll(value, "~1", "/")
 	return strings.ReplaceAll(value, "~0", "~")
+}
+
+func encodeJSONPointerSegment(value string) string {
+	value = strings.ReplaceAll(value, "~", "~0")
+	return strings.ReplaceAll(value, "/", "~1")
+}
+
+func jsonPointerPath(base string, segment string) string {
+	return base + "/" + encodeJSONPointerSegment(segment)
 }
