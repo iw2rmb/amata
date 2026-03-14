@@ -210,7 +210,7 @@ rm -f "${trace_dir}/claude-paths.log" "${trace_dir}/codex-paths.log" "${trace_di
 
 ( cd "$repo_dir" && PATH="${bin_dir}:$PATH" TRACE_DIR="${trace_dir}" dagu start "$DAG_FILE" -- \
   REPO_DIR="$repo_dir" \
-  SCRIPTS_DIR="~/@iw2rmb/auto/dagu/refactor/scripts" \
+  SCRIPTS_DIR="~/@iw2rmb/amata/dagu/refactor/scripts" \
   CLAUDE_MODEL=fake-claude \
   CLAUDE_REFACTOR_REASONING=low \
   CODEX_MODEL=fake-codex \

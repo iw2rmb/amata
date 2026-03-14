@@ -1,7 +1,7 @@
 # What will help me to do my job better and easier
 - Need a reliable documented non-interactive `claude -p` wrapper (with auth/state checks and timeout) because direct CLI invocation intermittently reports missing prompt input or hangs without output.
-> Wrapper: ~/@iw2rmb/auto/claude-wrapper.sh.
-> Instructions: ~/@iw2rmb/auto/claude-wrapper.md.
+> Wrapper: ~/@iw2rmb/amata/claude-wrapper.sh.
+> Instructions: ~/@iw2rmb/amata/claude-wrapper.md.
 - Add a repo-standard docs cross-reference checker script (e.g., tests/check_docs_cross_refs.sh) that validates concrete local doc/code links and ignores symbol/glob backticks.
 - 2026-03-06: Add a repo script (e.g. `tests/check_docs_links.sh`) that validates markdown cross-references under `design/ docs/ research/ roadmap/` and fails on missing local files; this would avoid manual `rg` ad-hoc checks.
 > Script implemented and instructions provided in the global AGENTS.md.

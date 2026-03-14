@@ -2,7 +2,7 @@ name: refactor
 shell: ["bash", "-e", "-u", "-o", "pipefail"]
 params:
   - REPO_DIR: "."
-  - SCRIPTS_DIR: "/Users/vk/@iw2rmb/auto/dagu/refactor/scripts"
+  - SCRIPTS_DIR: "/Users/vk/@iw2rmb/amata/dagu/refactor/scripts"
   - CLAUDE_MODEL: "sonnet"
   - CLAUDE_REFACTOR_REASONING: "high"
   - CODEX_MODEL: "gpt-5.4"

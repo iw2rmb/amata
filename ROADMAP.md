@@ -4,7 +4,7 @@ Scope: <One short statement of boundary and intended outcome.>
 
 Documentation: <Relevant docs. Use design docs or roadmap docs for this subject, not both.>
 
-> Method: `Users/vk/@iw2rmb/auto/COSMIC.md` <Use for functional-process granularity and decomposition. Do not mix it with subject documentation. Omit this line in the resulting roadmap.>
+> Method: `Users/vk/@iw2rmb/amata/COSMIC.md` <Use for functional-process granularity and decomposition. Do not mix it with subject documentation. Omit this line in the resulting roadmap.>
 
 Legend: [ ] todo, [x] done.
 

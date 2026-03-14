@@ -47,6 +47,6 @@ dagu start dagu/refactor/refactor.yaml -- \
 ```
 
 By default `SCRIPTS_DIR` points at this repository's
-`/Users/vk/@iw2rmb/auto/dagu/refactor/scripts` directory so the workflow can run
+`/Users/vk/@iw2rmb/amata/dagu/refactor/scripts` directory so the workflow can run
 against a separate `REPO_DIR`. `SCRIPTS_DIR` may also use `~/...`. Override it
 only if you intentionally move the workflow helpers.

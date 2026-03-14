@@ -11,8 +11,8 @@ Direct `claude -p` invocation intermittently:
 ## Setup
 
 ```bash
-chmod +x ~/\@iw2rmb/auto/claude-wrapper.sh
-ln -sf ~/\@iw2rmb/auto/claude-wrapper.sh ~/bin/claude-wrapper
+chmod +x ~/\@iw2rmb/amata/claude-wrapper.sh
+ln -sf ~/\@iw2rmb/amata/claude-wrapper.sh ~/bin/claude-wrapper
 ```
 
 ## Usage

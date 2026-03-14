@@ -52,7 +52,7 @@ Example run:
 ```bash
 dagu start dagu/implement-roadmap/implement-roadmap.yaml -- \
   ROADMAP_FILE=roadmap/my-feature/index.md \
-  SCRIPTS_DIR=~/@iw2rmb/auto/dagu/implement-roadmap/scripts \
+  SCRIPTS_DIR=~/@iw2rmb/amata/dagu/implement-roadmap/scripts \
   CODEX_MODEL=gpt-5.4 \
   CLAUDE_MODEL=sonnet
 ```
