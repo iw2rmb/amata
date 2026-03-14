@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	lipgloss "charm.land/lipgloss/v2"
 	"github.com/charmbracelet/bubbles/spinner"
 )
 
@@ -40,9 +41,10 @@ func TestBlockForEventFormatsPlainText(t *testing.T) {
 			width: 40,
 			want: strings.Join([]string{
 				"• 00:05 codex gpt-5.4 high",
-				"  Implement descriptor-repo with enough",
-				"  detail to wrap across multiple",
-				"  descriptor lines cleanly.",
+				"  ",
+				"   Implement descriptor-repo with enough",
+				"   detail to wrap across multiple",
+				"   descriptor lines cleanly.",
 			}, "\n"),
 		},
 		{
@@ -562,6 +564,52 @@ func TestNewStreamControllerDefaultNowAdvances(t *testing.T) {
 	second := renderer.settings.now()
 	if !second.After(first) {
 		t.Fatalf("default now callback is frozen: first=%s second=%s", first, second)
+	}
+}
+
+func TestRenderAgentPromptMarkdownAppliesPaddingAndWidth(t *testing.T) {
+	t.Parallel()
+
+	lines, err := renderAgentPromptMarkdown(
+		"First paragraph with enough words to wrap across multiple lines.\n\n```go\nfmt.Println(\"hi\")\n```",
+		32,
+	)
+	if err != nil {
+		t.Fatalf("renderAgentPromptMarkdown: %v", err)
+	}
+	if len(lines) < 4 {
+		t.Fatalf("lines = %#v, want rendered markdown output", lines)
+	}
+	if lines[0] != "" {
+		t.Fatalf("top padding line = %q, want empty", lines[0])
+	}
+	for _, line := range lines[1:] {
+		if !strings.HasPrefix(line, " ") {
+			t.Fatalf("line = %q, want one-space left padding", line)
+		}
+		if got := lipgloss.Width(line); got > 32+agentPromptLeftPadding {
+			t.Fatalf("line width = %d for %q, want <= %d", got, line, 32+agentPromptLeftPadding)
+		}
+	}
+}
+
+func TestRenderAgentPromptMarkdownColorizesBodyAndKeepsCodeWhite(t *testing.T) {
+	t.Parallel()
+
+	rendered, err := renderAgentPromptMarkdown("Paragraph\n\n```go\nfmt.Println(\"hi\")\n```", 40)
+	if err != nil {
+		t.Fatalf("renderAgentPromptMarkdown: %v", err)
+	}
+
+	joined := strings.Join(rendered, "\n")
+	if !strings.Contains(joined, "\x1b[") {
+		t.Fatalf("rendered = %q, want ANSI styling", joined)
+	}
+	if !strings.Contains(joined, "[38;5;252mParagraph") {
+		t.Fatalf("rendered = %q, want dim white paragraph text", joined)
+	}
+	if !strings.Contains(joined, "[38;5;231mfmt") && !strings.Contains(joined, "[38;5;255mfmt") {
+		t.Fatalf("rendered = %q, want white code block text", joined)
 	}
 }
 

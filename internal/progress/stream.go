@@ -419,6 +419,9 @@ func renderStepHeadline(step Step, descriptor StepDescriptor, prefix string, opt
 }
 
 func renderStepDetails(step Step, descriptor StepDescriptor, options renderStepOptions) []string {
+	if step.Type == "codex" || step.Type == "claude" {
+		return renderAgentPromptDetails(step, descriptor, options)
+	}
 	if step.Type != "git.commit" {
 		return descriptor.DetailLines
 	}
