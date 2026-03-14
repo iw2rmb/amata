@@ -59,12 +59,13 @@ func TestRunCLIUnknownFlag(t *testing.T) {
 	}
 }
 
-func TestRunCLINormalizesWorkspaceFromSpecAndPersistsLaunchSettings(t *testing.T) {
+func TestRunCLIDefaultWorkspaceUsesCWDAndPersistsLaunchSettings(t *testing.T) {
 	specDir := t.TempDir()
 	repoRoot := filepath.Join(specDir, "repo")
 	if err := os.MkdirAll(repoRoot, 0o755); err != nil {
 		t.Fatalf("mkdir repo root: %v", err)
 	}
+	chdirForTest(t, specDir)
 
 	specPath := filepath.Join(specDir, "workflow.yaml")
 	specBody := `
@@ -87,7 +88,7 @@ flows:
 		t.Fatalf("run cli: %v", err)
 	}
 
-	persistedPath := filepath.Join(repoRoot, "state", "runs", "run-001", "spec.yaml")
+	persistedPath := filepath.Join(specDir, "state", "runs", "run-001", "spec.yaml")
 	persisted := loadPersistedRunSpec(t, persistedPath)
 
 	if persisted.Launch.RunID != "run-001" {
@@ -96,17 +97,17 @@ flows:
 	if persisted.Launch.Command != "run" {
 		t.Fatalf("launch.command = %q, want run", persisted.Launch.Command)
 	}
-	if persisted.Spec.Workspace.Root != repoRoot {
-		t.Fatalf("spec.workspace.root = %q, want %q", persisted.Spec.Workspace.Root, repoRoot)
+	if canonicalPath(t, persisted.Spec.Workspace.Root) != canonicalPath(t, specDir) {
+		t.Fatalf("spec.workspace.root = %q, want %q", persisted.Spec.Workspace.Root, specDir)
 	}
-	expectedStateDir := filepath.Join(repoRoot, "state")
-	if persisted.Spec.Workspace.StateDir != expectedStateDir {
+	expectedStateDir := filepath.Join(specDir, "state")
+	if canonicalPath(t, persisted.Spec.Workspace.StateDir) != canonicalPath(t, expectedStateDir) {
 		t.Fatalf("spec.workspace.state_dir = %q, want %q", persisted.Spec.Workspace.StateDir, expectedStateDir)
 	}
-	if persisted.Launch.Workspace.Root != repoRoot {
-		t.Fatalf("launch.workspace.root = %q, want %q", persisted.Launch.Workspace.Root, repoRoot)
+	if canonicalPath(t, persisted.Launch.Workspace.Root) != canonicalPath(t, specDir) {
+		t.Fatalf("launch.workspace.root = %q, want %q", persisted.Launch.Workspace.Root, specDir)
 	}
-	if persisted.Launch.Workspace.StateDir != expectedStateDir {
+	if canonicalPath(t, persisted.Launch.Workspace.StateDir) != canonicalPath(t, expectedStateDir) {
 		t.Fatalf("launch.workspace.state_dir = %q, want %q", persisted.Launch.Workspace.StateDir, expectedStateDir)
 	}
 	if got := stdout.String(); got != "run-001\n" {
@@ -116,6 +117,7 @@ flows:
 
 func TestRunCLIThreadsProgressSinkIntoRunner(t *testing.T) {
 	specDir := t.TempDir()
+	chdirForTest(t, specDir)
 	specPath := filepath.Join(specDir, "workflow.yaml")
 	specBody := `
 version: amata/v1
@@ -168,6 +170,7 @@ flows:
 
 func TestRunCLIPlainFallbackWritesProgressToStderr(t *testing.T) {
 	specDir := t.TempDir()
+	chdirForTest(t, specDir)
 	specPath := filepath.Join(specDir, "workflow.yaml")
 	specBody := `
 version: amata/v1
@@ -202,6 +205,7 @@ flows:
 
 func TestRunCLIExplicitProgressSinkSuppressesDefaultStderrRenderer(t *testing.T) {
 	specDir := t.TempDir()
+	chdirForTest(t, specDir)
 	specPath := filepath.Join(specDir, "workflow.yaml")
 	specBody := `
 version: amata/v1
@@ -255,31 +259,31 @@ func TestRunCLIWorkspaceNormalizationCases(t *testing.T) {
 		expectedSpecPath func(base string) string
 	}{
 		{
-			name:          "spec relative root and state dir",
+			name:          "default workspace ignores spec root but keeps state dir",
 			specDir:       "specs",
 			workspaceRoot: "../repo",
 			stateDir:      "state",
 			expectedRoot: func(base string) string {
-				return filepath.Join(base, "repo")
+				return base
 			},
 			expectedStateDir: func(base string) string {
-				return filepath.Join(base, "repo", "state")
+				return filepath.Join(base, "state")
 			},
 			expectedSpecPath: func(base string) string {
-				return filepath.Join(base, "repo", "state", "runs", "run-001", "spec.yaml")
+				return filepath.Join(base, "state", "runs", "run-001", "spec.yaml")
 			},
 		},
 		{
-			name:    "defaults to spec dir and default state dir",
+			name:    "defaults to cwd and default state dir",
 			specDir: "workflow",
 			expectedRoot: func(base string) string {
-				return filepath.Join(base, "workflow")
+				return base
 			},
 			expectedStateDir: func(base string) string {
-				return filepath.Join(base, "workflow", ".amata")
+				return filepath.Join(base, ".amata")
 			},
 			expectedSpecPath: func(base string) string {
-				return filepath.Join(base, "workflow", ".amata", "runs", "run-001", "spec.yaml")
+				return filepath.Join(base, ".amata", "runs", "run-001", "spec.yaml")
 			},
 		},
 		{
@@ -457,6 +461,7 @@ func TestRunCLISetOverridesPersistedParams(t *testing.T) {
 	if err := os.MkdirAll(repoRoot, 0o755); err != nil {
 		t.Fatalf("mkdir repo root: %v", err)
 	}
+	chdirForTest(t, repoRoot)
 
 	specPath := filepath.Join(specDir, "workflow.yaml")
 	specBody := `
@@ -565,7 +570,7 @@ flows:
 	cmd := exec.Command(os.Args[0], "-test.run=^TestRunCLIInterruptHelperProcess$")
 	cmd.Env = append(os.Environ(),
 		"AMATA_RUNCLI_HELPER=1",
-		"AMATA_RUNCLI_CWD="+cwd,
+		"AMATA_RUNCLI_CWD="+repoRoot,
 		"AMATA_RUNCLI_SPEC="+specPath,
 		"AMATA_RUNCLI_RUN_ID=run-001",
 	)
@@ -627,6 +632,23 @@ func waitForInterruptBoundary(t *testing.T, eventsPath string, firstCountPath st
 	}
 
 	t.Fatalf("timed out waiting for first completed step to persist")
+}
+
+func chdirForTest(t *testing.T, dir string) {
+	t.Helper()
+
+	originalWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir %s: %v", dir, err)
+	}
+	t.Cleanup(func() {
+		if chdirErr := os.Chdir(originalWD); chdirErr != nil {
+			t.Fatalf("restore cwd: %v", chdirErr)
+		}
+	})
 }
 
 func loadPersistedRunSpec(t *testing.T, path string) runtime.PersistedRunSpec {

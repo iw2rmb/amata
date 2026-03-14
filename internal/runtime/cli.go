@@ -79,7 +79,7 @@ func newRootCommand(stdout io.Writer, stderr io.Writer, options cliOptions) *cob
 }
 
 func newRunCommand(stderr io.Writer, options cliOptions) *cobra.Command {
-	var workspaceOverride string
+	workspaceOverride := "."
 	var runID string
 	var rawOverrides []string
 
@@ -123,7 +123,7 @@ func newRunCommand(stderr io.Writer, options cliOptions) *cobra.Command {
 		},
 	}
 
-	command.Flags().StringVar(&workspaceOverride, "workspace", "", "Override workspace root")
+	command.Flags().StringVar(&workspaceOverride, "workspace", ".", "Workspace root")
 	command.Flags().StringVar(&runID, "run-id", "", "Explicit run id")
 	command.Flags().StringArrayVar(&rawOverrides, "set", nil, "Override declared params with key=value")
 	command.SetFlagErrorFunc(flagErrorFunc)

@@ -89,8 +89,9 @@ Strings containing `{{ ... }}` use the same evaluator for template interpolation
 
 Workspace resolution rules:
 - `run` resolves the spec path to an absolute path first.
-- If `--workspace` is not set, `workspace.root` resolves relative to the spec directory. When omitted, it defaults to the spec directory itself.
-- If `--workspace` is set, the override resolves relative to the CLI process working directory and replaces the spec value.
+- `--workspace` defaults to `.`.
+- The workspace root therefore resolves relative to the CLI process working directory unless an explicit `--workspace` value is provided.
+- `workspace.root` from the spec is still parsed and persisted, but CLI launches normalize the effective root from `--workspace`.
 - `--set key=value` overrides only declared `params` keys and decodes each value through YAML scalar or collection parsing before persistence.
 - `workspace.state_dir` defaults to `.amata`. Relative values resolve from the normalized workspace root.
 
