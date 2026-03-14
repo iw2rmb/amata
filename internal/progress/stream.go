@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/url"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -62,6 +61,7 @@ type streamStyles struct {
 	detail      lipgloss.Style
 	diffPlus    lipgloss.Style
 	diffMinus   lipgloss.Style
+	strong      lipgloss.Style
 	pathAdded   lipgloss.Style
 	pathDeleted lipgloss.Style
 }
@@ -293,6 +293,7 @@ func newStreamStyles(colorize bool) streamStyles {
 		detail:      lipgloss.NewStyle().PaddingLeft(2),
 		diffPlus:    lipgloss.NewStyle().Foreground(lipgloss.Color("#98c379")),
 		diffMinus:   lipgloss.NewStyle().Foreground(lipgloss.Color("#e06c75")),
+		strong:      lipgloss.NewStyle().Bold(true),
 		pathAdded:   lipgloss.NewStyle().Foreground(lipgloss.Color("#98c379")),
 		pathDeleted: lipgloss.NewStyle().Foreground(lipgloss.Color("#e06c75")),
 	}
@@ -393,22 +394,28 @@ func renderStepBlock(step Step, options renderStepOptions) string {
 }
 
 func renderStepHeadline(step Step, descriptor StepDescriptor, prefix string, options renderStepOptions) []string {
-	if step.Type != "git.commit" || !options.styles.colorize {
+	if step.Type != "git.commit" {
 		return wrapWithPrefix(prefix, descriptor.PrimaryText, options.width, options.styles.detail)
 	}
 
-	shortCommit, changedFiles, insertions, deletions, _, ok := gitCommitRenderData(step)
+	shortCommit, _, _, _, _, ok := gitCommitRenderData(step)
 	if !ok {
 		return wrapWithPrefix(prefix, descriptor.PrimaryText, options.width, options.styles.detail)
 	}
 
-	return wrapStyledWordsWithPrefix(prefix, []styledWord{
-		{text: shortCommit},
-		{text: "files"},
-		{text: strconv.Itoa(changedFiles)},
-		{text: fmt.Sprintf("+%d", insertions), render: func(text string) string { return options.styles.diffPlus.Render(text) }},
-		{text: fmt.Sprintf("-%d", deletions), render: func(text string) string { return options.styles.diffMinus.Render(text) }},
-	}, options.width, options.styles.detail)
+	message := gitCommitMessage(step)
+	if message == "" {
+		return wrapWithPrefix(prefix, shortCommit, options.width, options.styles.detail)
+	}
+	if !options.styles.colorize {
+		return wrapWithPrefix(prefix, shortCommit+" "+message, options.width, options.styles.detail)
+	}
+
+	words := []styledWord{{text: shortCommit}}
+	words = append(words, styledWords(message, func(text string) string {
+		return options.styles.strong.Render(text)
+	})...)
+	return wrapStyledWordsWithPrefix(prefix, words, options.width, options.styles.detail)
 }
 
 func renderStepDetails(step Step, descriptor StepDescriptor, options renderStepOptions) []string {
@@ -423,15 +430,16 @@ func renderStepDetails(step Step, descriptor StepDescriptor, options renderStepO
 
 	lines := []string{}
 	currentDetailWidth := detailWidth(options.width, options.styles)
-	if len(data.DetailText) > 0 {
-		lines = append(lines, wrapDescriptorText(data.DetailText[0], currentDetailWidth)...)
+	_, changedFiles, insertions, deletions, files, ok := gitCommitRenderData(step)
+	if !ok {
+		return descriptor.DetailLines
 	}
 
-	_, _, _, _, files, ok := gitCommitRenderData(step)
-	if !ok || len(files) == 0 {
-		for _, text := range data.DetailText[1:] {
-			lines = append(lines, wrapDescriptorText(text, currentDetailWidth)...)
-		}
+	lines = append(lines, wrapDescriptorText(
+		fmt.Sprintf("+%d -%d files: %d", insertions, deletions, changedFiles),
+		currentDetailWidth,
+	)...)
+	if len(files) == 0 {
 		return lines
 	}
 
@@ -442,6 +450,15 @@ func renderStepDetails(step Step, descriptor StepDescriptor, options renderStepO
 type styledWord struct {
 	text   string
 	render func(string) string
+}
+
+func styledWords(text string, render func(string) string) []styledWord {
+	parts := strings.Fields(text)
+	words := make([]styledWord, 0, len(parts))
+	for _, part := range parts {
+		words = append(words, styledWord{text: part, render: render})
+	}
+	return words
 }
 
 func wrapStyledWordsWithPrefix(prefix string, words []styledWord, width int, continuation lipgloss.Style) []string {
@@ -524,6 +541,14 @@ func gitCommitRenderData(step Step) (string, int, int, int, []commitFileDescript
 	insertions, _ := intField(metadataValue, "insertions")
 	deletions, _ := intField(metadataValue, "deletions")
 	return shortCommit, changedFiles, insertions, deletions, fileStats(metadataValue), shortCommit != ""
+}
+
+func gitCommitMessage(step Step) string {
+	data := cloneDescriptorData(step.Descriptor)
+	if data == nil || len(data.DetailText) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(data.DetailText[0])
 }
 
 func renderGitCommitFileTable(step Step, files []commitFileDescriptor, width int, styles streamStyles) []string {

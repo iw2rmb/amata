@@ -168,6 +168,7 @@ CLI stream split:
 - Live progress rendering writes to `stderr`.
 - The default CLI renderer uses Bubble Tea only when `stderr` is a TTY. Non-TTY `stderr` falls back to a plain line renderer with the same event order and descriptor data.
 - Both renderers suppress nested control-step scaffolding in the user-facing output. Recursive `call`/`switch`/`for_each` frames nested under another control step are omitted from rendered history, and nested descriptor-less `expr` steps are omitted alongside them.
+- For completed `git.commit` steps, the default renderer places `<shortCommit> <message>` on the headline and renders `+<ins> -<del> files: <n>` as the first detail line before per-file stats.
 
 Renderer metadata guarantees:
 - Every `step_started` and `step_finished` event includes `flow`, `index`, `type`, `status`, and step artifacts/value/error fields that match the live transition being reported.
