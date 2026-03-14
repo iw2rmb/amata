@@ -129,7 +129,7 @@ func parseSource(value any) (source, error) {
 	}
 
 	switch {
-	case text == "value", text == "stdout", text == "stderr":
+	case text == "value", text == "stdout", text == "stderr", text == "stdout_lines", text == "stderr_lines":
 		return source{kind: text}, nil
 	case strings.HasPrefix(text, "artifact:"):
 		name := strings.TrimPrefix(text, "artifact:")
@@ -150,6 +150,10 @@ func (s source) resolve(result state.StepResult) (any, error) {
 		return readArtifactValue("stdout", result.Artifacts.Stdout)
 	case "stderr":
 		return readArtifactValue("stderr", result.Artifacts.Stderr)
+	case "stdout_lines":
+		return readArtifactLines("stdout", result.Artifacts.Stdout)
+	case "stderr_lines":
+		return readArtifactLines("stderr", result.Artifacts.Stderr)
 	case "artifact":
 		path, ok := result.Artifacts.Files[s.artifact]
 		if !ok || path == "" {
@@ -182,6 +186,30 @@ func decodeTextValue(data []byte) any {
 		}
 	}
 	return string(data)
+}
+
+func readArtifactLines(label string, path string) ([]any, error) {
+	if path == "" {
+		return nil, fmt.Errorf("%s is unavailable", label)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", label, err)
+	}
+
+	text := strings.ReplaceAll(string(data), "\r\n", "\n")
+	text = strings.TrimRight(text, "\n")
+	if text == "" {
+		return []any{}, nil
+	}
+
+	rawLines := strings.Split(text, "\n")
+	lines := make([]any, 0, len(rawLines))
+	for _, line := range rawLines {
+		lines = append(lines, strings.TrimSuffix(line, "\r"))
+	}
+	return lines, nil
 }
 
 func failure(code string, stepIndex int, summary string, err error) *state.Failure {

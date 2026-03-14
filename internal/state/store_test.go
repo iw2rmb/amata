@@ -147,6 +147,80 @@ func TestStoreRebuildsSnapshotWhenSnapshotFileIsCorrupt(t *testing.T) {
 	}
 }
 
+func TestStoreControlContinuedReplacesCompletedChildFrame(t *testing.T) {
+	t.Parallel()
+
+	runDir := t.TempDir()
+	store := state.NewStore(runDir)
+
+	if _, err := store.Append(state.RunEvent{
+		Kind: state.EventRunInitialized,
+		Frame: &state.FlowFrame{
+			Flow:      "main",
+			StepCount: 1,
+		},
+	}); err != nil {
+		t.Fatalf("append init event: %v", err)
+	}
+
+	if _, err := store.Append(state.RunEvent{
+		Kind: state.EventFramePushed,
+		Frame: &state.FlowFrame{
+			Flow:      "@for_each:main:0",
+			StepCount: 1,
+			NextStep:  1,
+			Return: &state.FrameReturn{
+				StepType:  "for_each",
+				StepIndex: 0,
+				StepID:    "loop",
+				ForEach: &state.ForEachState{
+					Items: []any{"alpha", "beta"},
+					Index: 0,
+					As:    "folder",
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("append frame event: %v", err)
+	}
+
+	snapshot, err := store.Append(state.RunEvent{
+		Kind: state.EventControlContinued,
+		Frame: &state.FlowFrame{
+			Flow:      "@for_each:main:0",
+			StepCount: 1,
+			Bindings: map[string]any{
+				"item":   "beta",
+				"folder": "beta",
+				"index":  1,
+			},
+			Return: &state.FrameReturn{
+				StepType:  "for_each",
+				StepIndex: 0,
+				StepID:    "loop",
+				ForEach: &state.ForEachState{
+					Items: []any{"alpha", "beta"},
+					Index: 1,
+					As:    "folder",
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("append control continued event: %v", err)
+	}
+
+	if got, want := len(snapshot.Frames), 2; got != want {
+		t.Fatalf("frame count = %d, want %d", got, want)
+	}
+	if got := snapshot.Frames[1].Bindings["folder"]; got != "beta" {
+		t.Fatalf("continued frame alias = %#v, want beta", got)
+	}
+	if got := snapshot.Frames[1].Return.ForEach.Index; got != 1 {
+		t.Fatalf("continued frame index = %d, want 1", got)
+	}
+}
+
 func TestStoreRejectsOutOfOrderStepEvents(t *testing.T) {
 	t.Parallel()
 

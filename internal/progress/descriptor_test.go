@@ -161,6 +161,31 @@ func TestStepDescriptorShapes(t *testing.T) {
 			wantDetailLines: []string{},
 		},
 		{
+			name: "for_each running",
+			step: func(t *testing.T) progress.Step {
+				t.Helper()
+
+				step, err := progress.StepFromContext(stepContext(spec.Document{}, spec.Step{
+					ID:   "loop-step",
+					Type: "for_each",
+					Fields: map[string]any{
+						"items": []any{"alpha", "beta", "gamma"},
+						"steps": []any{},
+					},
+				}, nil))
+				if err != nil {
+					t.Fatalf("StepFromContext: %v", err)
+				}
+				step.StartedAt = startedAt
+				return step
+			},
+			wantStatus:      progress.StatusSymbolRunning,
+			wantType:        "for_each",
+			wantPrimary:     "3 items",
+			wantSummary:     []string{"3 items"},
+			wantDetailLines: []string{},
+		},
+		{
 			name: "shell running",
 			step: func(t *testing.T) progress.Step {
 				t.Helper()

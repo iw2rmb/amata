@@ -137,6 +137,15 @@ func descriptorDataFromContext(stepCtx executor.StepContext) (*DescriptorData, e
 			PrimaryText:         fmt.Sprintf("%d cases", caseCount),
 			FinalSummaryDetails: []string{fmt.Sprintf("%d cases", caseCount)},
 		}, nil
+	case "for_each":
+		itemCount, err := forEachItemCount(stepCtx)
+		if err != nil {
+			return nil, err
+		}
+		return &DescriptorData{
+			PrimaryText:         fmt.Sprintf("%d items", itemCount),
+			FinalSummaryDetails: []string{fmt.Sprintf("%d items", itemCount)},
+		}, nil
 	case "codex", "claude":
 		return agentDescriptor(stepCtx, stepCtx.Step.ExecutorType())
 	case "shell":
@@ -202,6 +211,12 @@ func descriptorDataFromResult(stepCtx executor.StepContext, result state.StepRes
 		case !matched:
 			data.PrimaryText = "no match"
 			data.FinalSummaryDetails = []string{"no match"}
+		}
+	case "for_each":
+		if count, ok := intField(result.Value, "count"); ok {
+			summary := fmt.Sprintf("%d items", count)
+			data.PrimaryText = summary
+			data.FinalSummaryDetails = []string{summary}
 		}
 	case "shell":
 		if exitCode, ok := intField(result.Value, "exitCode"); ok {
@@ -283,6 +298,27 @@ func switchCaseCount(stepCtx executor.StepContext) (int, error) {
 		return len(typed), nil
 	default:
 		return 0, fmt.Errorf("cases must be an array")
+	}
+}
+
+func forEachItemCount(stepCtx executor.StepContext) (int, error) {
+	value, ok := stepCtx.Step.Fields["items"]
+	if !ok {
+		return 0, fmt.Errorf("for_each step is missing items")
+	}
+
+	resolved, err := stepCtx.Runtime.Resolve(value)
+	if err != nil {
+		return 0, err
+	}
+
+	switch typed := resolved.(type) {
+	case []any:
+		return len(typed), nil
+	case []string:
+		return len(typed), nil
+	default:
+		return 0, fmt.Errorf("for_each items must resolve to an array")
 	}
 }
 

@@ -33,6 +33,7 @@ const (
 	EventRunInitialized  EventKind = "run_initialized"
 	EventRunResumed      EventKind = "run_resumed"
 	EventFramePushed     EventKind = "frame_pushed"
+	EventControlContinued EventKind = "control_continued"
 	EventControlReturned EventKind = "control_returned"
 	EventStepRecorded    EventKind = "step_recorded"
 	EventRunFinished     EventKind = "run_finished"
@@ -49,12 +50,19 @@ type Artifacts struct {
 	Files  map[string]string `json:"files,omitempty"`
 }
 
+type ForEachState struct {
+	Items []any  `json:"items,omitempty"`
+	Index int    `json:"index"`
+	As    string `json:"as,omitempty"`
+}
+
 type FrameReturn struct {
-	StepType  string `json:"step_type"`
-	StepIndex int    `json:"step_index"`
-	StepID    string `json:"step_id,omitempty"`
-	Flow      string `json:"flow,omitempty"`
-	CaseIndex *int   `json:"case_index,omitempty"`
+	StepType  string         `json:"step_type"`
+	StepIndex int            `json:"step_index"`
+	StepID    string         `json:"step_id,omitempty"`
+	Flow      string         `json:"flow,omitempty"`
+	CaseIndex *int           `json:"case_index,omitempty"`
+	ForEach   *ForEachState  `json:"for_each,omitempty"`
 }
 
 type FlowFrame struct {
@@ -63,6 +71,7 @@ type FlowFrame struct {
 	NextStep  int          `json:"next_step"`
 	Previous  *StepResult  `json:"previous,omitempty"`
 	Produced  *StepResult  `json:"produced,omitempty"`
+	Bindings  map[string]any `json:"bindings,omitempty"`
 	Return    *FrameReturn `json:"return,omitempty"`
 }
 
@@ -254,6 +263,21 @@ func apply(snapshot Snapshot, event RunEvent) (Snapshot, error) {
 			return Snapshot{}, fmt.Errorf("frame push event is missing frame")
 		}
 		snapshot.Frames = append(snapshot.Frames, cloneFlowFrame(*event.Frame))
+	case EventControlContinued:
+		if event.Frame == nil {
+			return Snapshot{}, fmt.Errorf("control continue event is missing frame")
+		}
+		if len(snapshot.Frames) < 2 {
+			return Snapshot{}, fmt.Errorf("control continue event has no child and parent frame")
+		}
+		top := snapshot.Frames[len(snapshot.Frames)-1]
+		if top.Return == nil {
+			return Snapshot{}, fmt.Errorf("control continue event has no return metadata")
+		}
+		if top.NextStep < top.StepCount {
+			return Snapshot{}, fmt.Errorf("control continue for flow %q before completion", top.Flow)
+		}
+		snapshot.Frames[len(snapshot.Frames)-1] = cloneFlowFrame(*event.Frame)
 	case EventStepRecorded:
 		if event.Step == nil {
 			return Snapshot{}, fmt.Errorf("step event is missing step result")
@@ -331,6 +355,7 @@ func cloneFlowFrame(in FlowFrame) FlowFrame {
 		NextStep:  in.NextStep,
 		Previous:  cloneStepResultPtr(in.Previous),
 		Produced:  cloneStepResultPtr(in.Produced),
+		Bindings:  cloneBindings(in.Bindings),
 		Return:    cloneFrameReturn(in.Return),
 	}
 }
@@ -345,7 +370,27 @@ func cloneFrameReturn(in *FrameReturn) *FrameReturn {
 		caseIndex := *in.CaseIndex
 		out.CaseIndex = &caseIndex
 	}
+	out.ForEach = cloneForEachState(in.ForEach)
 	return &out
+}
+
+func cloneForEachState(in *ForEachState) *ForEachState {
+	if in == nil {
+		return nil
+	}
+
+	return &ForEachState{
+		Items: jsonutil.CloneValue(in.Items).([]any),
+		Index: in.Index,
+		As:    in.As,
+	}
+}
+
+func cloneBindings(in map[string]any) map[string]any {
+	if len(in) == 0 {
+		return nil
+	}
+	return jsonutil.CloneMap(in)
 }
 
 func cloneStepResultPtr(in *StepResult) *StepResult {

@@ -13,7 +13,7 @@ amata run <spec.yaml> [--workspace <dir>] [--set key=value ...] [--run-id <id>]
 amata resume <run-id>
 ```
 
-The current implementation includes durable on-disk run state, one shared expression/template runtime, response value and schema handling, seven built-in executors (`shell`, `expr`, `assert`, `codex`, `claude`, `git.inspect`, and `git.commit`), and first-version control blocks (`switch` and `call`) over a deterministically planned resumable flow stack.
+The current implementation includes durable on-disk run state, one shared expression/template runtime, response value and schema handling, seven built-in executors (`shell`, `expr`, `assert`, `codex`, `claude`, `git.inspect`, and `git.commit`), and first-version control blocks (`switch`, `call`, and `for_each`) over a deterministically planned resumable flow stack.
 
 ## Workflow Spec
 
@@ -37,7 +37,7 @@ flows:
 Current behavior:
 - `version`, `name`, `entry`, and `flows` are required.
 - `entry` must name a flow present in `flows`.
-- `flows` may include named subflows that are reachable through `type: call` and synthetic `switch` branch frames.
+- `flows` may include named subflows that are reachable through `type: call` and synthetic `switch` and `for_each` child frames.
 - `workspace.root` and `workspace.state_dir` are accepted and normalized before execution.
 - `params` are exposed to expressions and templates under `ctx.params`.
 - Repeated `--set key=value` flags override declared `spec.params` entries for the launched run and persist inside the stored normalized spec.
@@ -48,7 +48,7 @@ Current behavior:
   - `expr` -> `expr`
   - `assert` -> `assert`
 - `when` resolves through the shared expression runtime and must evaluate to a boolean. `false` skips the step before executor dispatch.
-- `switch` and `call` currently require an explicit `type`.
+- `switch`, `call`, and `for_each` currently require an explicit `type`.
 
 ## Expression Runtime
 
@@ -59,6 +59,8 @@ The shared runtime context is exposed at `ctx`:
 - `ctx.workspace.state_dir`
 - `ctx.params`
 - `ctx.prev`
+- `ctx.item`
+- `ctx.index`
 
 `ctx.prev` contains the last succeeded step result in the current flow frame:
 - `index`
@@ -78,6 +80,7 @@ The same resolver is used for:
 - `expect`
 - shell `command`, `cwd`, and `files`
 - `call.flow`
+- `for_each.items`
 
 Expression-bearing scalar positions also support two whole-scalar shorthands:
 - A value starting with `$.` resolves as a Starlark expression rooted at `ctx`.
@@ -116,7 +119,7 @@ Each run persists under:
 ## Execution and Durable State
 
 Execution rules:
-- The runner starts from the entry flow and may push child frames for `switch` branches and `call` subflows.
+- The runner starts from the entry flow and may push child frames for `switch` branches, `call` subflows, and `for_each` body iterations.
 - Steps run strictly in order within each flow frame.
 - `switch` branch frames are planned before execution and keep stable synthetic flow names across nested branches and `resume`.
 - A new child frame starts with the caller's current `ctx.prev`, then updates only within that frame until it returns.
@@ -158,7 +161,7 @@ Stream contract:
 - `run` emits `run_started`, then paired `step_started` and `step_finished` events for each executed control or executor step, then one terminal `run_finished`.
 - `resume` emits `run_resumed` instead of `run_started`, seeds `snapshot.active` with unfinished parent control steps reconstructed from durable frames, then continues with normal `step_finished`, `step_started`, and terminal `run_finished` events.
 - Every live event carries a full `snapshot` with `run_id`, current run `status`, `active` steps, completed `steps`, and terminal `failure` when present.
-- Nested `switch` and `call` execution is represented as stacked active steps in event snapshots. Child finishes arrive before the enclosing control step finish.
+- Nested `switch`, `call`, and `for_each` execution is represented as stacked active steps in event snapshots. Child finishes arrive before the enclosing control step finish.
 
 CLI stream split:
 - `stdout` stays machine-readable and prints only the run id for both `run` and `resume`.
@@ -170,6 +173,7 @@ Renderer metadata guarantees:
 - Renderers may rely on `descriptor.primary_text`, `descriptor.detail_text`, and `descriptor.final_summary_details` when present, but must tolerate any field being absent for unsupported or failed descriptor resolution paths.
 - `call` guarantees the resolved target flow in `primary_text` and in the completed-line summary.
 - `switch` guarantees the case count while running, then either `case <n>` or `no match` in the completed-line summary.
+- `for_each` guarantees the resolved item count in `primary_text` and in the completed-line summary.
 - `shell` guarantees the resolved command in `primary_text` and `exit <code>` in the completed-line summary.
 - `assert` guarantees the resolved assertion text in `primary_text`, optional resolved message lines in `detail_text`, and `passed` or `failed` in the completed-line summary.
 - `codex` and `claude` guarantee the resolved model in `primary_text`, optional resolved reasoning alongside it when configured, and resolved prompt text in `detail_text`.
@@ -202,6 +206,21 @@ Behavior:
 - The target flow runs in a child frame that starts with the caller's current `ctx.prev`.
 - The child frame returns one structured `value` containing `flow`, `status`, `value`, `error`, and `artifacts` from the nested flow result.
 - The returned value becomes the caller frame's new `ctx.prev.value` for downstream steps.
+
+### `for_each`
+
+Supported fields:
+- `type: for_each`
+- `items`: required expression-bearing value that must resolve to an array
+- `steps`: required ordered list of loop-body steps
+- `as`: optional string alias for the current item
+
+Behavior:
+- The loop evaluates `items` once before the first iteration.
+- Each iteration runs the loop body in a child frame with the caller's current `ctx.prev`.
+- Inside the loop body, the current item is exposed as `ctx.item`, the zero-based position as `ctx.index`, and when `as` is provided the same item is also exposed as `ctx.<as>`.
+- The step succeeds with a structured `value` containing `count`, `index`, `item`, `as`, `status`, `value`, `error`, and `artifacts` from the final iteration body result.
+- When `items` resolves to an empty array, the step still succeeds with `count: 0`, `index: null`, and `item: null`.
 
 ## Built-in Executors
 
@@ -321,13 +340,14 @@ Steps may declare:
 
 ```yaml
 response:
-  from: value | stdout | stderr | artifact:<name>
+  from: value | stdout | stderr | stdout_lines | stderr_lines | artifact:<name>
   schema: <json-schema-object-or-ref-or-path>
 ```
 
 Current behavior:
 - `response.from` defaults to `value`, which preserves the executor-native structured result.
-- `stdout`, `stderr`, and named artifact sources read the captured artifact contents and publish them as step `value`.
+- `stdout`, `stderr`, `stdout_lines`, `stderr_lines`, and named artifact sources read the captured artifact contents and publish them as step `value`.
+- `stdout_lines` and `stderr_lines` split the captured text into newline-delimited string arrays.
 - Artifact-backed values JSON-decode when the artifact contains valid JSON; otherwise they stay plain strings.
 - `response.schema` validates the resolved `value` before `expect` runs or later steps can consume `ctx.prev.value`.
 - `response.schema` may use workflow-owned refs such as `#/schemas/review_result`.

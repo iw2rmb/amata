@@ -8,15 +8,18 @@ import (
 	"auto/internal/workspace"
 )
 
-func buildRuntimeContext(config Config, previous *state.StepResult) map[string]any {
-	return map[string]any{
-		"ctx": map[string]any{
-			"spec":      specContext(config.SpecPath),
-			"workspace": workspaceContext(config.Workspace),
-			"params":    jsonutil.CloneMap(config.Spec.Params),
-			"prev":      previousContext(previous),
-		},
+func buildRuntimeContext(config Config, previous *state.StepResult, bindings map[string]any) map[string]any {
+	ctx := map[string]any{
+		"spec":      specContext(config.SpecPath),
+		"workspace": workspaceContext(config.Workspace),
+		"params":    jsonutil.CloneMap(config.Spec.Params),
+		"prev":      previousContext(previous),
 	}
+	for key, value := range bindings {
+		ctx[key] = jsonutil.CloneValue(value)
+	}
+
+	return map[string]any{"ctx": ctx}
 }
 
 func specContext(path string) map[string]any {

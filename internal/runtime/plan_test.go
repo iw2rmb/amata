@@ -82,3 +82,41 @@ func TestBuildFlowPlanAddsNestedSwitchBranchFlows(t *testing.T) {
 		t.Fatalf("inner branch flow %q not registered", innerBranch)
 	}
 }
+
+func TestBuildFlowPlanAddsForEachBodyFlow(t *testing.T) {
+	t.Parallel()
+
+	plan, err := buildFlowPlan(spec.Document{
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID:   "loop",
+						Type: "for_each",
+						Fields: map[string]any{
+							"items": []any{"alpha", "beta"},
+							"steps": []spec.Step{
+								{ID: "body", Type: "expr", Fields: map[string]any{"expr": `ctx.item`}},
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildFlowPlan() error = %v", err)
+	}
+
+	bodyFlow, ok := plan.ForEachBodyFlow("main", 0)
+	if !ok {
+		t.Fatalf("missing for_each body flow")
+	}
+	if bodyFlow != "@for_each:main:0" {
+		t.Fatalf("for_each body flow = %q, want %q", bodyFlow, "@for_each:main:0")
+	}
+
+	if _, ok := plan.Lookup(bodyFlow); !ok {
+		t.Fatalf("for_each body flow %q not registered", bodyFlow)
+	}
+}

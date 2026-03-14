@@ -1152,6 +1152,168 @@ func TestRunnerSwitchWithoutMatchDoesNotReuseIncomingPrevAsBranchOutput(t *testi
 	}
 }
 
+func TestRunnerForEachIteratesItemsWithBindingsAndReturnsStructuredResult(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID: "seed",
+						Fields: map[string]any{
+							"expr": []any{"alpha", "beta"},
+						},
+					},
+					{
+						ID:   "loop",
+						Type: "for_each",
+						Fields: map[string]any{
+							"items": `$.prev.value`,
+							"as":    "folder",
+							"steps": []spec.Step{
+								{
+									ID: "body",
+									Fields: map[string]any{
+										"expr": map[string]any{
+											"item":   `$.item`,
+											"folder": `$.folder`,
+											"index":  `$.index`,
+										},
+									},
+								},
+							},
+						},
+					},
+					{
+						ID: "after",
+						Fields: map[string]any{
+							"expr": map[string]any{
+								"count":     `$.prev.value["count"]`,
+								"index":     `$.prev.value["index"]`,
+								"item":      `$.prev.value["item"]`,
+								"bodyItem":  `$.prev.value["value"]["item"]`,
+								"bodyAlias": `$.prev.value["value"]["folder"]`,
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	snapshot, err := NewRunner(nil).Run(context.Background(), config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if snapshot.Status != state.RunStatusSucceeded {
+		t.Fatalf("snapshot status = %q, want succeeded", snapshot.Status)
+	}
+	if got, want := len(snapshot.Steps), 5; got != want {
+		t.Fatalf("step count = %d, want %d", got, want)
+	}
+	if got := snapshot.Steps[1].Value.(map[string]any)["folder"]; got != "alpha" {
+		t.Fatalf("first iteration alias = %#v, want alpha", got)
+	}
+	if got := snapshot.Steps[2].Value.(map[string]any)["folder"]; got != "beta" {
+		t.Fatalf("second iteration alias = %#v, want beta", got)
+	}
+
+	loopValue := snapshot.Steps[3].Value.(map[string]any)
+	if got := intValue(t, loopValue["count"]); got != 2 {
+		t.Fatalf("for_each count = %d, want 2", got)
+	}
+	if got := intValue(t, loopValue["index"]); got != 1 {
+		t.Fatalf("for_each index = %d, want 1", got)
+	}
+	if got := loopValue["item"]; got != "beta" {
+		t.Fatalf("for_each item = %#v, want beta", got)
+	}
+	if got := loopValue["value"].(map[string]any)["folder"]; got != "beta" {
+		t.Fatalf("for_each nested alias = %#v, want beta", got)
+	}
+
+	after := snapshot.Steps[4].Value.(map[string]any)
+	if got := intValue(t, after["count"]); got != 2 {
+		t.Fatalf("after count = %d, want 2", got)
+	}
+	if got := intValue(t, after["index"]); got != 1 {
+		t.Fatalf("after index = %d, want 1", got)
+	}
+	if got := after["item"]; got != "beta" {
+		t.Fatalf("after item = %#v, want beta", got)
+	}
+	if got := after["bodyItem"]; got != "beta" {
+		t.Fatalf("after nested item = %#v, want beta", got)
+	}
+	if got := after["bodyAlias"]; got != "beta" {
+		t.Fatalf("after nested alias = %#v, want beta", got)
+	}
+}
+
+func TestRunnerForEachEmptyItemsReturnsNoNestedOutput(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID: "seed",
+						Fields: map[string]any{
+							"expr": []any{},
+						},
+					},
+					{
+						ID:   "loop",
+						Type: "for_each",
+						Fields: map[string]any{
+							"items": `$.prev.value`,
+							"steps": []spec.Step{
+								{
+									ID: "body",
+									Fields: map[string]any{
+										"expr": "unexpected",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	snapshot, err := NewRunner(nil).Run(context.Background(), config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got, want := len(snapshot.Steps), 2; got != want {
+		t.Fatalf("step count = %d, want %d", got, want)
+	}
+	value := snapshot.Steps[1].Value.(map[string]any)
+	if got := intValue(t, value["count"]); got != 0 {
+		t.Fatalf("for_each count = %d, want 0", got)
+	}
+	if got := value["value"]; got != nil {
+		t.Fatalf("for_each value = %#v, want nil", got)
+	}
+}
+
 func TestRunnerRecursiveCallCarriesFrameLocalPrevAndReturnsOneStack(t *testing.T) {
 	t.Parallel()
 
@@ -1697,6 +1859,80 @@ func TestRunnerResponseFromPublishesValidatedValue(t *testing.T) {
 				t.Fatalf("downstream value = %#v, want %q", got, testCase.want)
 			}
 		})
+	}
+}
+
+func TestRunnerResponseFromStdoutLinesPublishesList(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Schemas: map[string]any{
+			"line_list": map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"type": "string",
+				},
+			},
+		},
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID:   "resolve",
+						Type: "fake",
+						Fields: map[string]any{
+							"response": map[string]any{
+								"from":   "stdout_lines",
+								"schema": map[string]any{"$ref": "#/schemas/line_list"},
+							},
+						},
+					},
+					{
+						ID:   "consume",
+						Type: "expr",
+						Fields: map[string]any{
+							"expr": `$.prev.value[1]`,
+						},
+					},
+				},
+			},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	registry := builtinRegistry()
+	mustRegister(registry, "fake", func() executorapi.Executor {
+		return &fakeExecutor{
+			calls: new([]string),
+			execute: func(executorapi.StepContext) state.StepResult {
+				return state.StepResult{
+					Status: state.StepStatusSucceeded,
+					Artifacts: state.Artifacts{
+						Stdout: writeArtifactFixture(t, config.RunDir, "stdout-lines.txt", "alpha\nbeta\n"),
+						Files:  map[string]string{},
+					},
+				}
+			},
+		}
+	})
+
+	snapshot, err := NewRunner(registry).Run(context.Background(), config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	lines := snapshot.Steps[0].Value.([]any)
+	if !reflect.DeepEqual(lines, []any{"alpha", "beta"}) {
+		t.Fatalf("lines = %#v, want %#v", lines, []any{"alpha", "beta"})
+	}
+	if got := snapshot.Steps[1].Value; got != "beta" {
+		t.Fatalf("downstream value = %#v, want beta", got)
 	}
 }
 

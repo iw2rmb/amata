@@ -8,10 +8,12 @@ import (
 )
 
 const switchFlowPrefix = "@switch:"
+const forEachFlowPrefix = "@for_each:"
 
 type flowPlan struct {
-	flows       map[string]spec.Flow
-	switchFlows map[switchStepKey][]string
+	flows        map[string]spec.Flow
+	switchFlows  map[switchStepKey][]string
+	forEachFlows map[switchStepKey]string
 }
 
 type switchStepKey struct {
@@ -26,8 +28,9 @@ type switchCase struct {
 
 func buildFlowPlan(document spec.Document) (*flowPlan, error) {
 	plan := &flowPlan{
-		flows:       make(map[string]spec.Flow, len(document.Flows)),
-		switchFlows: map[switchStepKey][]string{},
+		flows:        make(map[string]spec.Flow, len(document.Flows)),
+		switchFlows:  map[switchStepKey][]string{},
+		forEachFlows: map[switchStepKey]string{},
 	}
 
 	for name, flow := range document.Flows {
@@ -55,9 +58,31 @@ func (p *flowPlan) SwitchBranchFlow(parentFlow string, stepIndex int, caseIndex 
 	return flows[caseIndex], true
 }
 
+func (p *flowPlan) ForEachBodyFlow(parentFlow string, stepIndex int) (string, bool) {
+	flow, ok := p.forEachFlows[switchStepKey{flowName: parentFlow, stepIndex: stepIndex}]
+	return flow, ok
+}
+
 func (p *flowPlan) addSwitchFlows(flowName string, flow spec.Flow) error {
 	for stepIndex, step := range flow.Steps {
 		if step.ExecutorType() != "switch" {
+			if step.ExecutorType() == "for_each" {
+				body, err := decodeForEach(step)
+				if err != nil {
+					return fmt.Errorf("flow %q step %d: %w", flowName, stepIndex, err)
+				}
+				name := fmt.Sprintf("%s%s:%d", forEachFlowPrefix, flowName, stepIndex)
+				if _, exists := p.flows[name]; exists {
+					return fmt.Errorf("synthetic flow %q already exists", name)
+				}
+
+				bodyFlow := spec.Flow{Steps: body.Steps}
+				p.flows[name] = bodyFlow
+				p.forEachFlows[switchStepKey{flowName: flowName, stepIndex: stepIndex}] = name
+				if err := p.addSwitchFlows(name, bodyFlow); err != nil {
+					return err
+				}
+			}
 			continue
 		}
 
@@ -105,4 +130,34 @@ func decodeSwitchCases(step spec.Step) ([]switchCase, error) {
 	}
 
 	return cases, nil
+}
+
+type forEachSpec struct {
+	Items any         `yaml:"items"`
+	As    string      `yaml:"as,omitempty"`
+	Steps []spec.Step `yaml:"steps,omitempty"`
+}
+
+func decodeForEach(step spec.Step) (forEachSpec, error) {
+	rawItems, ok := step.Fields["items"]
+	if !ok {
+		return forEachSpec{}, fmt.Errorf("for_each step is missing items")
+	}
+
+	data, err := yaml.Marshal(step.Fields)
+	if err != nil {
+		return forEachSpec{}, fmt.Errorf("marshal for_each: %w", err)
+	}
+
+	var resolved forEachSpec
+	if err := yaml.Unmarshal(data, &resolved); err != nil {
+		return forEachSpec{}, fmt.Errorf("decode for_each: %w", err)
+	}
+	if rawItems == nil {
+		return forEachSpec{}, fmt.Errorf("for_each step is missing items")
+	}
+	if len(resolved.Steps) == 0 {
+		return forEachSpec{}, fmt.Errorf("for_each step must declare at least one step")
+	}
+	return resolved, nil
 }
