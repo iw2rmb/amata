@@ -255,6 +255,30 @@ func TestNewStreamControllerUsesPlainRendererForNonTTYWriter(t *testing.T) {
 	}
 }
 
+func TestNewStreamControllerDefaultNowAdvances(t *testing.T) {
+	t.Parallel()
+
+	var output bytes.Buffer
+	controller, err := newStreamController(&output, streamControllerOptions{
+		forceTTY: boolPointer(false),
+	})
+	if err != nil {
+		t.Fatalf("newStreamController: %v", err)
+	}
+
+	renderer, ok := controller.renderer.(*plainStreamRenderer)
+	if !ok {
+		t.Fatalf("renderer type = %T, want *plainStreamRenderer", controller.renderer)
+	}
+
+	first := renderer.settings.now()
+	time.Sleep(20 * time.Millisecond)
+	second := renderer.settings.now()
+	if !second.After(first) {
+		t.Fatalf("default now callback is frozen: first=%s second=%s", first, second)
+	}
+}
+
 func boolPointer(value bool) *bool {
 	return &value
 }

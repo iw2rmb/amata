@@ -63,7 +63,7 @@ type progressEventMsg struct {
 
 func NewStreamController(writer io.Writer) (*StreamController, error) {
 	return newStreamController(writer, streamControllerOptions{
-		now: time.Now().UTC,
+		now: currentUTC,
 	})
 }
 
@@ -77,7 +77,7 @@ func newStreamController(writer io.Writer, options streamControllerOptions) (*St
 		width: options.width,
 	}
 	if settings.now == nil {
-		settings.now = time.Now().UTC
+		settings.now = currentUTC
 	}
 	if settings.width <= 0 {
 		settings.width = defaultStreamWidth
@@ -457,6 +457,10 @@ func cloneActiveSteps(steps []Step) []Step {
 		cloned[index] = cloneStep(step)
 	}
 	return cloned
+}
+
+func currentUTC() time.Time {
+	return time.Now().UTC()
 }
 
 var _ Sink = (*StreamController)(nil)
