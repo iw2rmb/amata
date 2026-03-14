@@ -74,8 +74,11 @@ The shared runtime context is exposed at `ctx`:
 - `artifacts.stdout`
 - `artifacts.stderr`
 - `artifacts.files`
+- `prev`
 
-Declared step `id` values remain diagnostics-only. Expressions cannot read `ctx.prev.id` or use step ids as data-flow references.
+`ctx.prev.prev...` walks prior succeeded steps visible in the current frame. Child frames inherit the caller's full current chain and extend it locally. Skipped and failed steps are not linked into the chain.
+
+Declared step `id` values remain diagnostics-only. Expressions cannot read `ctx.prev.id`, `ctx.prev.prev.id`, or use step ids as data-flow references.
 
 The same resolver is used for:
 - `expr`
@@ -128,6 +131,7 @@ Execution rules:
 - A new child frame starts with the caller's current `ctx.prev`, then updates only within that frame until it returns.
 - Every durable state transition is appended to `events.ndjson`.
 - `snapshot.json` is rewritten after each appended event.
+- Durable frame state uses stable frame ids plus flat previous-step refs; recursive `ctx.prev` chains are rebuilt from those refs at runtime and on `resume`.
 
 The event log uses six event kinds:
 - `run_initialized`

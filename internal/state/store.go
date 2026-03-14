@@ -66,17 +66,25 @@ type FrameReturn struct {
 	ForEach    *ForEachState `json:"for_each,omitempty"`
 }
 
+type StepRef struct {
+	Sequence int `json:"sequence"`
+}
+
 type FlowFrame struct {
+	ID        string         `json:"id"`
 	Flow      string         `json:"flow"`
 	StepCount int            `json:"step_count"`
 	NextStep  int            `json:"next_step"`
-	Previous  *StepResult    `json:"previous,omitempty"`
-	Produced  *StepResult    `json:"produced,omitempty"`
+	Previous  *StepRef       `json:"previous,omitempty"`
+	Produced  *StepRef       `json:"produced,omitempty"`
 	Bindings  map[string]any `json:"bindings,omitempty"`
 	Return    *FrameReturn   `json:"return,omitempty"`
 }
 
 type StepResult struct {
+	Sequence  int        `json:"sequence,omitempty"`
+	FrameID   string     `json:"frame_id,omitempty"`
+	Previous  *StepRef   `json:"previous,omitempty"`
 	Index     int        `json:"index"`
 	ID        string     `json:"id,omitempty"`
 	Type      string     `json:"type,omitempty"`
@@ -137,6 +145,35 @@ func (s *Store) Append(event RunEvent) (Snapshot, error) {
 	}
 
 	event.Sequence = current.LastSequence + 1
+	switch event.Kind {
+	case EventRunInitialized, EventFramePushed, EventControlContinued:
+		if event.Frame != nil && event.Frame.ID == "" {
+			event.Frame.ID = frameIDForSequence(event.Sequence)
+		}
+	case EventStepRecorded:
+		if event.Step != nil && len(current.Frames) > 0 {
+			top := current.Frames[len(current.Frames)-1]
+			if event.Step.FrameID == "" {
+				event.Step.FrameID = top.ID
+			}
+			if event.Step.Previous == nil {
+				event.Step.Previous = cloneStepRef(top.Previous)
+			}
+		}
+	case EventControlReturned:
+		if event.Step != nil && len(current.Frames) > 1 {
+			parent := current.Frames[len(current.Frames)-2]
+			if event.Step.FrameID == "" {
+				event.Step.FrameID = parent.ID
+			}
+			if event.Step.Previous == nil {
+				event.Step.Previous = cloneStepRef(parent.Previous)
+			}
+		}
+	}
+	if event.Step != nil {
+		event.Step.Sequence = event.Sequence
+	}
 	next, err := apply(current, event)
 	if err != nil {
 		return Snapshot{}, err
@@ -252,6 +289,9 @@ func apply(snapshot Snapshot, event RunEvent) (Snapshot, error) {
 		if event.Frame == nil {
 			return Snapshot{}, fmt.Errorf("run initialization event is missing frame")
 		}
+		if event.Frame.ID == "" {
+			return Snapshot{}, fmt.Errorf("run initialization event frame is missing id")
+		}
 		snapshot.Status = RunStatusRunning
 		snapshot.Frames = []FlowFrame{cloneFlowFrame(*event.Frame)}
 		snapshot.Steps = nil
@@ -263,10 +303,16 @@ func apply(snapshot Snapshot, event RunEvent) (Snapshot, error) {
 		if event.Frame == nil {
 			return Snapshot{}, fmt.Errorf("frame push event is missing frame")
 		}
+		if event.Frame.ID == "" {
+			return Snapshot{}, fmt.Errorf("frame push event frame is missing id")
+		}
 		snapshot.Frames = append(snapshot.Frames, cloneFlowFrame(*event.Frame))
 	case EventControlContinued:
 		if event.Frame == nil {
 			return Snapshot{}, fmt.Errorf("control continue event is missing frame")
+		}
+		if event.Frame.ID == "" {
+			return Snapshot{}, fmt.Errorf("control continue event frame is missing id")
 		}
 		if len(snapshot.Frames) < 2 {
 			return Snapshot{}, fmt.Errorf("control continue event has no child and parent frame")
@@ -290,12 +336,22 @@ func apply(snapshot Snapshot, event RunEvent) (Snapshot, error) {
 		if event.Step.Index != expected {
 			return Snapshot{}, fmt.Errorf("step event index %d does not match expected next step %d", event.Step.Index, expected)
 		}
+		if event.Step.FrameID != snapshot.Frames[len(snapshot.Frames)-1].ID {
+			return Snapshot{}, fmt.Errorf("step event frame id %q does not match active frame %q", event.Step.FrameID, snapshot.Frames[len(snapshot.Frames)-1].ID)
+		}
+		if event.Step.Sequence != event.Sequence {
+			return Snapshot{}, fmt.Errorf("step event sequence %d does not match event sequence %d", event.Step.Sequence, event.Sequence)
+		}
+		if !equalStepRef(event.Step.Previous, snapshot.Frames[len(snapshot.Frames)-1].Previous) {
+			return Snapshot{}, fmt.Errorf("step event previous ref %#v does not match frame previous %#v", event.Step.Previous, snapshot.Frames[len(snapshot.Frames)-1].Previous)
+		}
 		step := cloneStepResult(*event.Step)
 		snapshot.Steps = append(snapshot.Steps, step)
 		snapshot.Frames[len(snapshot.Frames)-1].NextStep = event.Step.Index + 1
 		if step.Status == StepStatusSucceeded {
-			snapshot.Frames[len(snapshot.Frames)-1].Previous = &step
-			snapshot.Frames[len(snapshot.Frames)-1].Produced = &step
+			ref := StepRefFor(step)
+			snapshot.Frames[len(snapshot.Frames)-1].Previous = ref
+			snapshot.Frames[len(snapshot.Frames)-1].Produced = ref
 		}
 	case EventControlReturned:
 		if event.Step == nil {
@@ -326,12 +382,22 @@ func apply(snapshot Snapshot, event RunEvent) (Snapshot, error) {
 		if event.Step.Index != expected {
 			return Snapshot{}, fmt.Errorf("control return step index %d does not match expected next step %d", event.Step.Index, expected)
 		}
+		if event.Step.FrameID != snapshot.Frames[len(snapshot.Frames)-1].ID {
+			return Snapshot{}, fmt.Errorf("control return frame id %q does not match parent frame %q", event.Step.FrameID, snapshot.Frames[len(snapshot.Frames)-1].ID)
+		}
+		if event.Step.Sequence != event.Sequence {
+			return Snapshot{}, fmt.Errorf("control return step sequence %d does not match event sequence %d", event.Step.Sequence, event.Sequence)
+		}
+		if !equalStepRef(event.Step.Previous, snapshot.Frames[len(snapshot.Frames)-1].Previous) {
+			return Snapshot{}, fmt.Errorf("control return previous ref %#v does not match parent previous %#v", event.Step.Previous, snapshot.Frames[len(snapshot.Frames)-1].Previous)
+		}
 		step := cloneStepResult(*event.Step)
 		snapshot.Steps = append(snapshot.Steps, step)
 		snapshot.Frames[len(snapshot.Frames)-1].NextStep = event.Step.Index + 1
 		if step.Status == StepStatusSucceeded {
-			snapshot.Frames[len(snapshot.Frames)-1].Previous = &step
-			snapshot.Frames[len(snapshot.Frames)-1].Produced = &step
+			ref := StepRefFor(step)
+			snapshot.Frames[len(snapshot.Frames)-1].Previous = ref
+			snapshot.Frames[len(snapshot.Frames)-1].Produced = ref
 		}
 	case EventRunFinished:
 		snapshot.Status = event.Status
@@ -355,11 +421,12 @@ func cloneFailure(in *Failure) *Failure {
 
 func cloneFlowFrame(in FlowFrame) FlowFrame {
 	return FlowFrame{
+		ID:        in.ID,
 		Flow:      in.Flow,
 		StepCount: in.StepCount,
 		NextStep:  in.NextStep,
-		Previous:  cloneStepResultPtr(in.Previous),
-		Produced:  cloneStepResultPtr(in.Produced),
+		Previous:  cloneStepRef(in.Previous),
+		Produced:  cloneStepRef(in.Produced),
 		Bindings:  cloneBindings(in.Bindings),
 		Return:    cloneFrameReturn(in.Return),
 	}
@@ -398,21 +465,54 @@ func cloneBindings(in map[string]any) map[string]any {
 	return jsonutil.CloneMap(in)
 }
 
-func cloneStepResultPtr(in *StepResult) *StepResult {
+func cloneStepRef(in *StepRef) *StepRef {
 	if in == nil {
 		return nil
 	}
 
-	out := cloneStepResult(*in)
+	out := *in
 	return &out
 }
 
 func cloneStepResult(in StepResult) StepResult {
 	out := in
+	out.Previous = cloneStepRef(in.Previous)
 	out.Value = jsonutil.CloneValue(in.Value)
 	out.Error = cloneFailure(in.Error)
 	out.Artifacts = cloneArtifacts(in.Artifacts)
 	return out
+}
+
+func equalStepRef(left *StepRef, right *StepRef) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return left.Sequence == right.Sequence
+}
+
+func StepRefFor(step StepResult) *StepRef {
+	if step.Sequence == 0 {
+		return nil
+	}
+	return &StepRef{Sequence: step.Sequence}
+}
+
+func (s Snapshot) StepByRef(ref *StepRef) *StepResult {
+	if ref == nil {
+		return nil
+	}
+	for index := len(s.Steps) - 1; index >= 0; index-- {
+		if s.Steps[index].Sequence != ref.Sequence {
+			continue
+		}
+		step := cloneStepResult(s.Steps[index])
+		return &step
+	}
+	return nil
+}
+
+func frameIDForSequence(sequence int) string {
+	return fmt.Sprintf("frame-%06d", sequence)
 }
 
 func cloneArtifacts(in Artifacts) Artifacts {

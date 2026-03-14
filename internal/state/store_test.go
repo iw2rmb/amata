@@ -147,6 +147,63 @@ func TestStoreRebuildsSnapshotWhenSnapshotFileIsCorrupt(t *testing.T) {
 	}
 }
 
+func TestStoreAssignsFrameAndPreviousRefsToRecordedSteps(t *testing.T) {
+	t.Parallel()
+
+	runDir := t.TempDir()
+	store := state.NewStore(runDir)
+
+	if _, err := store.Append(state.RunEvent{
+		Kind: state.EventRunInitialized,
+		Frame: &state.FlowFrame{
+			Flow:      "main",
+			StepCount: 2,
+		},
+	}); err != nil {
+		t.Fatalf("append init event: %v", err)
+	}
+
+	if _, err := store.Append(state.RunEvent{
+		Kind: state.EventStepRecorded,
+		Step: &state.StepResult{
+			Index:  0,
+			ID:     "first",
+			Type:   "expr",
+			Status: state.StepStatusSucceeded,
+			Value:  "one",
+		},
+	}); err != nil {
+		t.Fatalf("append first step event: %v", err)
+	}
+
+	snapshot, err := store.Append(state.RunEvent{
+		Kind: state.EventStepRecorded,
+		Step: &state.StepResult{
+			Index:  1,
+			ID:     "second",
+			Type:   "expr",
+			Status: state.StepStatusSucceeded,
+			Value:  "two",
+		},
+	})
+	if err != nil {
+		t.Fatalf("append second step event: %v", err)
+	}
+
+	if snapshot.Frames[0].ID == "" {
+		t.Fatalf("frame id missing")
+	}
+	if snapshot.Steps[0].FrameID != snapshot.Frames[0].ID {
+		t.Fatalf("first step frame id = %q, want %q", snapshot.Steps[0].FrameID, snapshot.Frames[0].ID)
+	}
+	if snapshot.Steps[1].Previous == nil {
+		t.Fatalf("second step previous ref missing")
+	}
+	if got := snapshot.Steps[1].Previous.Sequence; got != snapshot.Steps[0].Sequence {
+		t.Fatalf("second step previous sequence = %d, want %d", got, snapshot.Steps[0].Sequence)
+	}
+}
+
 func TestStoreControlContinuedReplacesCompletedChildFrame(t *testing.T) {
 	t.Parallel()
 
@@ -392,7 +449,7 @@ func TestStoreRebuildsNestedFlowFrames(t *testing.T) {
 			Frame: &state.FlowFrame{
 				Flow:      "child",
 				StepCount: 1,
-				Previous:  parentPrev,
+				Previous:  state.StepRefFor(*parentPrev),
 				Return: &state.FrameReturn{
 					StepType:  "call",
 					StepIndex: 1,
@@ -453,10 +510,14 @@ func TestStoreRebuildsNestedFlowFrames(t *testing.T) {
 	if snapshot.Frames[0].Previous == nil {
 		t.Fatalf("top frame previous missing")
 	}
-	if got := snapshot.Frames[0].Previous.Type; got != "call" {
+	framePrevious := snapshot.StepByRef(snapshot.Frames[0].Previous)
+	if framePrevious == nil {
+		t.Fatalf("top frame previous step missing")
+	}
+	if got := framePrevious.Type; got != "call" {
 		t.Fatalf("top frame previous type = %q, want call", got)
 	}
-	if got := snapshot.Frames[0].Previous.Value.(map[string]any)["flow"]; got != "child" {
+	if got := framePrevious.Value.(map[string]any)["flow"]; got != "child" {
 		t.Fatalf("top frame previous flow = %#v, want child", got)
 	}
 }

@@ -101,6 +101,91 @@ func TestRunnerResumeContinuesFromFirstIncompleteStep(t *testing.T) {
 	}
 }
 
+func TestRunnerResumeRestoresCtxPrevChain(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{ID: "step-1", Fields: map[string]any{"expr": "one"}},
+					{ID: "step-2", Fields: map[string]any{"expr": "two"}},
+					{
+						ID: "step-3",
+						Fields: map[string]any{
+							"expr": map[string]any{
+								"current": `$.prev.value`,
+								"prior":   `$.prev.prev.value`,
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	store := state.NewStore(config.RunDir)
+	if _, err := store.Append(state.RunEvent{
+		Kind: state.EventRunInitialized,
+		Frame: &state.FlowFrame{
+			Flow:      config.Spec.Entry,
+			StepCount: 3,
+		},
+		Command: "run",
+	}); err != nil {
+		t.Fatalf("append init: %v", err)
+	}
+	if _, err := store.Append(state.RunEvent{
+		Kind: state.EventStepRecorded,
+		Step: &state.StepResult{
+			Index:  0,
+			ID:     "step-1",
+			Type:   "expr",
+			Status: state.StepStatusSucceeded,
+			Value:  "one",
+		},
+	}); err != nil {
+		t.Fatalf("append step 1: %v", err)
+	}
+	if _, err := store.Append(state.RunEvent{
+		Kind: state.EventStepRecorded,
+		Step: &state.StepResult{
+			Index:  1,
+			ID:     "step-2",
+			Type:   "expr",
+			Status: state.StepStatusSucceeded,
+			Value:  "two",
+		},
+	}); err != nil {
+		t.Fatalf("append step 2: %v", err)
+	}
+
+	resumeConfig, err := LoadRunConfig(config.RunDir)
+	if err != nil {
+		t.Fatalf("load run config: %v", err)
+	}
+
+	snapshot, err := NewRunner(nil).Resume(context.Background(), resumeConfig)
+	if err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+
+	value := snapshot.Steps[2].Value.(map[string]any)
+	if got := value["current"]; got != "two" {
+		t.Fatalf("current = %#v, want two", got)
+	}
+	if got := value["prior"]; got != "one" {
+		t.Fatalf("prior = %#v, want one", got)
+	}
+}
+
 func TestRunnerResumeFinalizesCompletedChildFrameBeforeRunningParentNextStep(t *testing.T) {
 	t.Parallel()
 
@@ -1813,6 +1898,133 @@ func TestRunnerCallEmptyFlowReturnsNoNestedOutput(t *testing.T) {
 	}
 }
 
+func TestRunnerCtxPrevChainTraversesSucceededStepsOnly(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID: "first",
+						Fields: map[string]any{
+							"expr": map[string]any{"n": 1},
+						},
+					},
+					{
+						ID: "second",
+						Fields: map[string]any{
+							"expr": map[string]any{"n": 2},
+						},
+					},
+					{
+						ID: "skip",
+						Fields: map[string]any{
+							"expr": "ignored",
+							"when": false,
+						},
+					},
+					{
+						ID: "read-chain",
+						Fields: map[string]any{
+							"expr": map[string]any{
+								"current": `$.prev.value["n"]`,
+								"prior":   `$.prev.prev.value["n"]`,
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	snapshot, err := NewRunner(nil).Run(context.Background(), config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	value := snapshot.Steps[3].Value.(map[string]any)
+	if got := intValue(t, value["current"]); got != 2 {
+		t.Fatalf("current = %d, want 2", got)
+	}
+	if got := intValue(t, value["prior"]); got != 1 {
+		t.Fatalf("prior = %d, want 1", got)
+	}
+}
+
+func TestRunnerCtxPrevChainInheritsIntoChildFlow(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{ID: "first", Fields: map[string]any{"expr": "one"}},
+					{ID: "second", Fields: map[string]any{"expr": "two"}},
+					{
+						ID:   "child",
+						Type: "call",
+						Fields: map[string]any{
+							"flow": "child",
+						},
+					},
+				},
+			},
+			"child": {
+				Steps: []spec.Step{
+					{
+						ID: "read",
+						Fields: map[string]any{
+							"expr": map[string]any{
+								"current": `$.prev.value`,
+								"prior":   `$.prev.prev.value`,
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	snapshot, err := NewRunner(nil).Run(context.Background(), config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	childStepIndex := -1
+	for index, step := range snapshot.Steps {
+		if step.ID == "read" {
+			childStepIndex = index
+			break
+		}
+	}
+	if childStepIndex < 0 {
+		t.Fatalf("child step not found in snapshot")
+	}
+
+	value := snapshot.Steps[childStepIndex].Value.(map[string]any)
+	if got := value["current"]; got != "two" {
+		t.Fatalf("current = %#v, want two", got)
+	}
+	if got := value["prior"]; got != "one" {
+		t.Fatalf("prior = %#v, want one", got)
+	}
+}
+
 func TestRunnerCtxPrevIDIsNotAvailableToExpressions(t *testing.T) {
 	t.Parallel()
 
@@ -1856,6 +2068,49 @@ func TestRunnerCtxPrevIDIsNotAvailableToExpressions(t *testing.T) {
 		t.Fatalf("failure message = %q, want id lookup failure", failedErr.Failure.Message)
 	}
 	if got := snapshot.Steps[1].Status; got != state.StepStatusFailed {
+		t.Fatalf("step status = %q, want failed", got)
+	}
+}
+
+func TestRunnerCtxPrevNestedIDIsNotAvailableToExpressions(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{ID: "first", Fields: map[string]any{"expr": "one"}},
+					{ID: "second", Fields: map[string]any{"expr": "two"}},
+					{
+						ID: "read-id",
+						Fields: map[string]any{
+							"expr": `$.prev.prev.id`,
+						},
+					},
+				},
+			},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	snapshot, err := NewRunner(nil).Run(context.Background(), config)
+	var failedErr RunFailedError
+	if !errors.As(err, &failedErr) {
+		t.Fatalf("run error = %v, want RunFailedError", err)
+	}
+	if failedErr.Failure.Code != "invalid_expr" {
+		t.Fatalf("failure code = %q, want invalid_expr", failedErr.Failure.Code)
+	}
+	if !strings.Contains(failedErr.Failure.Message, "id") {
+		t.Fatalf("failure message = %q, want id lookup failure", failedErr.Failure.Message)
+	}
+	if got := snapshot.Steps[2].Status; got != state.StepStatusFailed {
 		t.Fatalf("step status = %q, want failed", got)
 	}
 }
