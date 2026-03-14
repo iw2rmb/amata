@@ -74,6 +74,7 @@ func (e *Executor) Execute(ctx context.Context, stepCtx executor.StepContext) st
 		"committed": result.Committed,
 		"commit":    commit,
 		"paths":     result.Paths,
+		"repoRoot":  snapshot.Root,
 		"metadata":  metadataValue(result.Metadata),
 	})
 }

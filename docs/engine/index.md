@@ -178,7 +178,7 @@ Renderer metadata guarantees:
 - `assert` guarantees the resolved assertion text in `primary_text`, optional resolved message lines in `detail_text`, and `passed` or `failed` in the completed-line summary.
 - `codex` and `claude` guarantee the resolved model in `primary_text`, optional resolved reasoning alongside it when configured, and resolved prompt text in `detail_text`.
 - `git.inspect` guarantees the resolved `cwd` while running, then a completed-line summary of `clean`, `not repo`, or `<n> files`, with changed file paths in `detail_text` when applicable.
-- `git.commit` guarantees the resolved commit message in `detail_text` while running. After a commit it guarantees `shortCommit` plus `files <n> +<ins> -<del>` in the completed-line summary, with per-file `path +<ins> -<del>` lines in `detail_text`. When no commit is created it guarantees `no changes`.
+- `git.commit` guarantees the resolved commit message in `detail_text` while running. After a commit it guarantees `shortCommit` plus `files <n> +<ins> -<del>` in the completed-line summary, with per-file `+<ins> -<del> path` lines in `detail_text`. When no commit is created it guarantees `no changes`.
 
 ## Control Blocks
 

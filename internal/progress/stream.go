@@ -3,10 +3,14 @@ package progress
 import (
 	"fmt"
 	"io"
+	"net/url"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	lipgloss "charm.land/lipgloss/v2"
+	liptable "charm.land/lipgloss/v2/table"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"golang.org/x/term"
@@ -54,7 +58,12 @@ type streamModel struct {
 }
 
 type streamStyles struct {
-	detail lipgloss.Style
+	colorize    bool
+	detail      lipgloss.Style
+	diffPlus    lipgloss.Style
+	diffMinus   lipgloss.Style
+	pathAdded   lipgloss.Style
+	pathDeleted lipgloss.Style
 }
 
 type progressEventMsg struct {
@@ -128,7 +137,7 @@ func (c *StreamController) Close() error {
 func newTeaStreamRenderer(writer io.Writer, settings streamRenderSettings) (*teaStreamRenderer, error) {
 	model := streamModel{
 		spinner:  spinner.New(spinner.WithSpinner(spinner.Line)),
-		styles:   defaultStreamStyles(),
+		styles:   newStreamStyles(true),
 		settings: settings,
 		history:  []string{},
 		width:    settings.width,
@@ -202,11 +211,12 @@ func (m streamModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m streamModel) View() string {
-	blocks := make([]string, 0, len(m.history)+len(m.active))
+	visibleActive := visibleActiveSteps(m.active)
+	blocks := make([]string, 0, len(m.history)+len(visibleActive))
 	blocks = append(blocks, m.history...)
-	for index, step := range m.active {
+	for index, step := range visibleActive {
 		statusToken := "•"
-		if index == len(m.active)-1 {
+		if index == len(visibleActive)-1 {
 			statusToken = m.spinner.View()
 		}
 		blocks = append(blocks, renderStepBlock(step, renderStepOptions{
@@ -272,8 +282,17 @@ func (s streamRenderSettings) withWidth(width int) streamRenderSettings {
 }
 
 func defaultStreamStyles() streamStyles {
+	return newStreamStyles(false)
+}
+
+func newStreamStyles(colorize bool) streamStyles {
 	return streamStyles{
-		detail: lipgloss.NewStyle().PaddingLeft(2),
+		colorize:    colorize,
+		detail:      lipgloss.NewStyle().PaddingLeft(2),
+		diffPlus:    lipgloss.NewStyle().Foreground(lipgloss.Color("#98c379")),
+		diffMinus:   lipgloss.NewStyle().Foreground(lipgloss.Color("#e06c75")),
+		pathAdded:   lipgloss.NewStyle().Foreground(lipgloss.Color("#98c379")),
+		pathDeleted: lipgloss.NewStyle().Foreground(lipgloss.Color("#e06c75")),
 	}
 }
 
@@ -291,9 +310,10 @@ func blockForEvent(event Event, settings streamRenderSettings) string {
 			return ""
 		}
 
-		blocks := make([]string, 0, len(event.Snapshot.Active))
+		visibleActive := visibleActiveSteps(event.Snapshot.Active)
+		blocks := make([]string, 0, len(visibleActive))
 		styles := defaultStreamStyles()
-		for _, step := range event.Snapshot.Active {
+		for _, step := range visibleActive {
 			blocks = append(blocks, renderStepBlock(step, renderStepOptions{
 				statusToken: "•",
 				now:         settings.now(),
@@ -357,11 +377,249 @@ func renderStepBlock(step Step, options renderStepOptions) string {
 		formatElapsed(descriptor.Elapsed),
 		descriptor.StepType,
 	}, " "))
-	lines := wrapWithPrefix(headlinePrefix, descriptor.PrimaryText, options.width, options.styles.detail)
-	for _, detail := range descriptor.DetailLines {
+	lines := renderStepHeadline(step, descriptor, headlinePrefix, options)
+	for _, detail := range renderStepDetails(step, descriptor, options) {
 		lines = append(lines, options.styles.detail.Render(detail))
 	}
 	return strings.Join(lines, "\n")
+}
+
+func renderStepHeadline(step Step, descriptor StepDescriptor, prefix string, options renderStepOptions) []string {
+	if step.Type != "git.commit" || !options.styles.colorize {
+		return wrapWithPrefix(prefix, descriptor.PrimaryText, options.width, options.styles.detail)
+	}
+
+	shortCommit, changedFiles, insertions, deletions, _, ok := gitCommitRenderData(step)
+	if !ok {
+		return wrapWithPrefix(prefix, descriptor.PrimaryText, options.width, options.styles.detail)
+	}
+
+	return wrapStyledWordsWithPrefix(prefix, []styledWord{
+		{text: shortCommit},
+		{text: "files"},
+		{text: strconv.Itoa(changedFiles)},
+		{text: fmt.Sprintf("+%d", insertions), render: func(text string) string { return options.styles.diffPlus.Render(text) }},
+		{text: fmt.Sprintf("-%d", deletions), render: func(text string) string { return options.styles.diffMinus.Render(text) }},
+	}, options.width, options.styles.detail)
+}
+
+func renderStepDetails(step Step, descriptor StepDescriptor, options renderStepOptions) []string {
+	if step.Type != "git.commit" {
+		return descriptor.DetailLines
+	}
+
+	data := cloneDescriptorData(step.Descriptor)
+	if data == nil {
+		return descriptor.DetailLines
+	}
+
+	lines := []string{}
+	currentDetailWidth := detailWidth(options.width, options.styles)
+	if len(data.DetailText) > 0 {
+		lines = append(lines, wrapDescriptorText(data.DetailText[0], currentDetailWidth)...)
+	}
+
+	_, _, _, _, files, ok := gitCommitRenderData(step)
+	if !ok || len(files) == 0 {
+		for _, text := range data.DetailText[1:] {
+			lines = append(lines, wrapDescriptorText(text, currentDetailWidth)...)
+		}
+		return lines
+	}
+
+	lines = append(lines, renderGitCommitFileTable(step, files, currentDetailWidth, options.styles)...)
+	return lines
+}
+
+type styledWord struct {
+	text   string
+	render func(string) string
+}
+
+func wrapStyledWordsWithPrefix(prefix string, words []styledWord, width int, continuation lipgloss.Style) []string {
+	plainWords := make([]string, 0, len(words))
+	for _, word := range words {
+		plainWords = append(plainWords, word.text)
+	}
+	if len(plainWords) == 0 {
+		return []string{prefix}
+	}
+
+	width = resolvedWidth(width)
+	available := width - lipgloss.Width(prefix) - 1
+	switch {
+	case available > 0:
+		rendered := wrapStyledWords(words, available)
+		if len(rendered) == 0 {
+			return []string{prefix}
+		}
+		lines := []string{prefix + " " + rendered[0]}
+		for _, line := range rendered[1:] {
+			lines = append(lines, continuation.Render(line))
+		}
+		return lines
+	default:
+		lines := []string{prefix}
+		for _, line := range wrapStyledWords(words, max(width-2, 1)) {
+			lines = append(lines, continuation.Render(line))
+		}
+		return lines
+	}
+}
+
+func wrapStyledWords(words []styledWord, width int) []string {
+	if len(words) == 0 {
+		return nil
+	}
+	if width <= 0 {
+		width = 1
+	}
+
+	lines := []string{}
+	current := []styledWord{words[0]}
+	currentWidth := lipgloss.Width(words[0].text)
+	for _, word := range words[1:] {
+		wordWidth := lipgloss.Width(word.text)
+		if currentWidth+1+wordWidth <= width {
+			current = append(current, word)
+			currentWidth += 1 + wordWidth
+			continue
+		}
+		lines = append(lines, renderStyledWords(current))
+		current = []styledWord{word}
+		currentWidth = wordWidth
+	}
+	lines = append(lines, renderStyledWords(current))
+	return lines
+}
+
+func renderStyledWords(words []styledWord) string {
+	parts := make([]string, 0, len(words))
+	for _, word := range words {
+		if word.render == nil {
+			parts = append(parts, word.text)
+			continue
+		}
+		parts = append(parts, word.render(word.text))
+	}
+	return strings.Join(parts, " ")
+}
+
+func gitCommitRenderData(step Step) (string, int, int, int, []commitFileDescriptor, bool) {
+	metadataValue, ok := mapField(step.Value, "metadata")
+	if !ok {
+		return "", 0, 0, 0, nil, false
+	}
+
+	shortCommit, _ := stringField(metadataValue, "shortCommit")
+	changedFiles, _ := intField(metadataValue, "changedFileCount")
+	insertions, _ := intField(metadataValue, "insertions")
+	deletions, _ := intField(metadataValue, "deletions")
+	return shortCommit, changedFiles, insertions, deletions, fileStats(metadataValue), shortCommit != ""
+}
+
+func renderGitCommitFileTable(step Step, files []commitFileDescriptor, width int, styles streamStyles) []string {
+	if len(files) == 0 {
+		return nil
+	}
+
+	plusWidth := 0
+	minusWidth := 0
+	pathWidth := 0
+	type gitCommitTableRow struct {
+		plus  string
+		minus string
+		path  string
+	}
+	tableRows := make([]gitCommitTableRow, 0, len(files))
+	for _, file := range files {
+		plusText := fmt.Sprintf("+%d", file.Insertions)
+		minusText := fmt.Sprintf("-%d", file.Deletions)
+		plusWidth = max(plusWidth, lipgloss.Width(plusText))
+		minusWidth = max(minusWidth, lipgloss.Width(minusText))
+		pathWidth = max(pathWidth, lipgloss.Width(file.Path))
+		tableRows = append(tableRows, gitCommitTableRow{
+			plus:  plusText,
+			minus: minusText,
+			path:  file.Path,
+		})
+	}
+
+	rows := make([][]string, 0, len(tableRows))
+	for _, row := range tableRows {
+		rows = append(rows, []string{
+			fmt.Sprintf("%*s", plusWidth, row.plus),
+			fmt.Sprintf("%*s", minusWidth, row.minus),
+			row.path,
+		})
+	}
+
+	availablePathWidth := pathWidth
+	if width > 0 {
+		availablePathWidth = max(1, width-plusWidth-minusWidth-2)
+		if pathWidth < availablePathWidth {
+			availablePathWidth = pathWidth
+		}
+	}
+
+	table := liptable.New().
+		Rows(rows...).
+		BorderTop(false).
+		BorderBottom(false).
+		BorderLeft(false).
+		BorderRight(false).
+		BorderColumn(false).
+		BorderHeader(false).
+		BorderRow(false).
+		StyleFunc(func(row, col int) lipgloss.Style {
+			style := lipgloss.NewStyle()
+			switch col {
+			case 0:
+				style = style.PaddingRight(1)
+				if styles.colorize {
+					style = style.Inherit(styles.diffPlus)
+				}
+			case 1:
+				style = style.PaddingRight(1)
+				if styles.colorize {
+					style = style.Inherit(styles.diffMinus)
+				}
+			case 2:
+				style = style.Width(availablePathWidth)
+				if styles.colorize {
+					if link := gitCommitFileLink(step, files[row].Path); link != "" {
+						style = style.Hyperlink(link)
+					}
+					switch {
+					case files[row].Deletions == 0 && files[row].Insertions > 0:
+						style = style.Inherit(styles.pathAdded)
+					case files[row].Insertions == 0 && files[row].Deletions > 0:
+						style = style.Inherit(styles.pathDeleted)
+					}
+				}
+			}
+			return style
+		})
+
+	rendered := strings.Split(table.String(), "\n")
+	lines := make([]string, 0, len(rendered))
+	for _, line := range rendered {
+		lines = append(lines, strings.TrimRight(line, " "))
+	}
+	return lines
+}
+
+func gitCommitFileLink(step Step, path string) string {
+	repoRoot, ok := stringField(step.Value, "repoRoot")
+	if !ok || repoRoot == "" || path == "" {
+		return ""
+	}
+
+	target := filepath.Join(repoRoot, filepath.FromSlash(path))
+	return (&url.URL{
+		Scheme: "file",
+		Path:   filepath.Clean(target),
+	}).String()
 }
 
 func wrapWithPrefix(prefix string, suffix string, width int, continuation lipgloss.Style) []string {
@@ -405,6 +663,13 @@ func resolvedWidth(width int) int {
 		return defaultStreamWidth
 	}
 	return width
+}
+
+func visibleActiveSteps(active []Step) []Step {
+	if len(active) <= 2 {
+		return active
+	}
+	return []Step{active[0], active[len(active)-1]}
 }
 
 func statusTokenForStep(step Step) string {

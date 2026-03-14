@@ -55,23 +55,23 @@ func TestBlockForEventFormatsPlainText(t *testing.T) {
 					StartedAt:  startedAt,
 					FinishedAt: finishedAt,
 					Descriptor: &DescriptorData{
-						PrimaryText: "{abc123d files 2 +7 -3}",
+						PrimaryText: "abc123d files 2 +7 -3",
 						DetailText: []string{
 							"engine: persist structured commit summary",
-							"engine.txt +5 -2",
-							"notes/todo.txt +2 -1",
+							"+5 -2 engine.txt",
+							"+2 -1 notes/todo.txt",
 						},
 					},
 				},
 			},
 			width: 34,
 			want: strings.Join([]string{
-				"✓ 00:05 git.commit {abc123d files",
-				"  2 +7 -3}",
+				"✓ 00:05 git.commit abc123d files 2",
+				"  +7 -3",
 				"  engine: persist structured",
 				"  commit summary",
-				"  engine.txt +5 -2",
-				"  notes/todo.txt +2 -1",
+				"  +5 -2 engine.txt",
+				"  +2 -1 notes/todo.txt",
 			}, "\n"),
 		},
 	}
@@ -143,6 +143,71 @@ func TestStreamModelRendersSingleAnimatedSpinnerForDeepestActiveStep(t *testing.
 	}
 	if strings.Contains(view, "• 00:05 shell go test ./internal/runtime") {
 		t.Fatalf("view = %q, want only one static running bullet", view)
+	}
+}
+
+func TestStreamModelViewCollapsesDeepActiveStackToOuterAndLeaf(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.March, 14, 10, 0, 5, 0, time.UTC)
+	model := streamModel{
+		spinner: spinner.New(spinner.WithSpinner(spinner.Line)),
+		styles:  newStreamStyles(true),
+		settings: streamRenderSettings{
+			now: func() time.Time {
+				return now
+			},
+			width: 80,
+		},
+		width: 80,
+		active: []Step{
+			{
+				Type:      "call",
+				Status:    StepStatusRunning,
+				StartedAt: now.Add(-10 * time.Second),
+				Descriptor: &DescriptorData{
+					PrimaryText: "implement_loop",
+				},
+			},
+			{
+				Type:      "switch",
+				Status:    StepStatusRunning,
+				StartedAt: now.Add(-9 * time.Second),
+				Descriptor: &DescriptorData{
+					PrimaryText: "2 cases",
+				},
+			},
+			{
+				Type:      "call",
+				Status:    StepStatusRunning,
+				StartedAt: now.Add(-8 * time.Second),
+				Descriptor: &DescriptorData{
+					PrimaryText: "implement_loop",
+				},
+			},
+			{
+				Type:      "codex",
+				Status:    StepStatusRunning,
+				StartedAt: now.Add(-2 * time.Second),
+				Descriptor: &DescriptorData{
+					PrimaryText: "gpt-5.4 medium",
+				},
+			},
+		},
+	}
+
+	view := model.View()
+	if !strings.Contains(view, "• 00:10 call implement_loop") {
+		t.Fatalf("view = %q, want outermost active step", view)
+	}
+	if !strings.Contains(view, model.spinner.View()+" 00:02 codex gpt-5.4 medium") {
+		t.Fatalf("view = %q, want deepest active step", view)
+	}
+	if strings.Contains(view, "switch 2 cases") {
+		t.Fatalf("view = %q, want intermediate active steps collapsed", view)
+	}
+	if strings.Count(view, "\n")+1 != 2 {
+		t.Fatalf("view = %q, want exactly two active lines", view)
 	}
 }
 
@@ -219,6 +284,39 @@ func TestStreamModelKeepsFinishedHistoryVisibleAcrossLaterEvents(t *testing.T) {
 	}
 	if strings.Contains(view, "| 00:") {
 		t.Fatalf("view = %q, want no active spinner after failure is recorded", view)
+	}
+}
+
+func TestRenderGitCommitFileTableAlignsDiffColumns(t *testing.T) {
+	t.Parallel()
+
+	got := renderGitCommitFileTable(Step{}, []commitFileDescriptor{
+		{Path: "docs/schemas/address.schema.json", Insertions: 53, Deletions: 2},
+		{Path: "deleted.txt", Insertions: 0, Deletions: 24},
+	}, 60, defaultStreamStyles())
+
+	want := []string{
+		"+53  -2 docs/schemas/address.schema.json",
+		" +0 -24 deleted.txt",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("file table = %#v, want %#v", got, want)
+	}
+}
+
+func TestRenderGitCommitFileTableAddsHyperlinksWhenRepoRootIsAvailable(t *testing.T) {
+	t.Parallel()
+
+	got := strings.Join(renderGitCommitFileTable(Step{
+		Value: map[string]any{
+			"repoRoot": "/repo",
+		},
+	}, []commitFileDescriptor{
+		{Path: "notes/todo.txt", Insertions: 1, Deletions: 0},
+	}, 60, newStreamStyles(true)), "\n")
+
+	if !strings.Contains(got, "file:///repo/notes/todo.txt") {
+		t.Fatalf("file table = %q, want file hyperlink", got)
 	}
 }
 

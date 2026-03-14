@@ -69,6 +69,7 @@ func TestExecutorAddsWorkspaceStateDirToExclusions(t *testing.T) {
 		"committed": true,
 		"commit":    "abc123",
 		"paths":     []string{"engine.txt"},
+		"repoRoot":  "/repo",
 		"metadata": map[string]any{
 			"shortCommit":      "abc123",
 			"changedFileCount": 1,
@@ -154,6 +155,7 @@ func TestExecutorReturnsTypedNoOpWhenOnlyExcludedStateDirChanged(t *testing.T) {
 		"committed": false,
 		"commit":    nil,
 		"paths":     []string{},
+		"repoRoot":  repoDir,
 		"metadata":  nil,
 	}
 	if !reflect.DeepEqual(result.Value, want) {

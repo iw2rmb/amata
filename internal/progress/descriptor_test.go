@@ -319,12 +319,12 @@ func TestStepDescriptorShapes(t *testing.T) {
 			},
 			wantStatus:  progress.StatusSymbolSucceeded,
 			wantType:    "git.commit",
-			wantPrimary: "{abc123d files 2 +7 -3}",
+			wantPrimary: "abc123d files 2 +7 -3",
 			wantSummary: []string{"abc123d", "files 2 +7 -3"},
 			wantDetailLines: []string{
 				"engine: persist structured commit summary",
-				"engine.txt +5 -2",
-				"notes/todo.txt +2 -1",
+				"+5 -2 engine.txt",
+				"+2 -1 notes/todo.txt",
 			},
 		},
 	}

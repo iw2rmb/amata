@@ -413,7 +413,7 @@ func gitCommitDescriptorFromResult(data *DescriptorData, value any) *DescriptorD
 	committed, _ := boolField(value, "committed")
 	metadataValue, ok := mapField(value, "metadata")
 	if !committed || !ok {
-		data.PrimaryText = "{no changes}"
+		data.PrimaryText = "no changes"
 		data.FinalSummaryDetails = []string{"no changes"}
 		return data
 	}
@@ -423,14 +423,14 @@ func gitCommitDescriptorFromResult(data *DescriptorData, value any) *DescriptorD
 	insertions, _ := intField(metadataValue, "insertions")
 	deletions, _ := intField(metadataValue, "deletions")
 
-	data.PrimaryText = fmt.Sprintf("{%s files %d +%d -%d}", shortCommit, changedFiles, insertions, deletions)
+	data.PrimaryText = fmt.Sprintf("%s files %d +%d -%d", shortCommit, changedFiles, insertions, deletions)
 	data.FinalSummaryDetails = []string{
 		shortCommit,
 		fmt.Sprintf("files %d +%d -%d", changedFiles, insertions, deletions),
 	}
 
 	for _, file := range fileStats(metadataValue) {
-		data.DetailText = append(data.DetailText, fmt.Sprintf("%s +%d -%d", file.Path, file.Insertions, file.Deletions))
+		data.DetailText = append(data.DetailText, fmt.Sprintf("+%d -%d %s", file.Insertions, file.Deletions, file.Path))
 	}
 
 	return data

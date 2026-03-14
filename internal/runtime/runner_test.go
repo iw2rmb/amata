@@ -611,7 +611,7 @@ func TestRunnerLiveProgressIncludesGitCommitCompletedLineSummary(t *testing.T) {
 	if got, want := finished.Descriptor.FinalSummaryDetails, []string{shortCommit, "files 1 +1 -0"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("finished git.commit summary = %#v, want %#v", got, want)
 	}
-	if got, want := finished.Descriptor.DetailText, []string{"test commit", "note.txt +1 -0"}; !reflect.DeepEqual(got, want) {
+	if got, want := finished.Descriptor.DetailText, []string{"test commit", "+1 -0 note.txt"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("finished git.commit details = %#v, want %#v", got, want)
 	}
 	if got, want := completedStepIDs(events[2].Snapshot), []string{"commit-step"}; !reflect.DeepEqual(got, want) {
