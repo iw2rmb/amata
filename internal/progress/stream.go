@@ -257,12 +257,14 @@ func (m streamModel) applyEvent(event Event) (streamModel, tea.Cmd) {
 		if index := findActiveStep(m.active, step); index >= 0 {
 			m.active = append(m.active[:index], m.active[index+1:]...)
 		}
-		m.history = append(m.history, renderStepBlock(step, renderStepOptions{
-			statusToken: statusTokenForStep(step),
-			now:         step.FinishedAt,
-			width:       resolvedWidth(m.width),
-			styles:      m.styles,
-		}))
+		if shouldRenderFinishedStep(step, event.Snapshot.Active) {
+			m.history = append(m.history, renderStepBlock(step, renderStepOptions{
+				statusToken: statusTokenForStep(step),
+				now:         step.FinishedAt,
+				width:       resolvedWidth(m.width),
+				styles:      m.styles,
+			}))
+		}
 		return m, nil
 	case EventRunFinished:
 		block := blockForEvent(event, m.settings.withWidth(resolvedWidth(m.width)))
@@ -326,6 +328,9 @@ func blockForEvent(event Event, settings streamRenderSettings) string {
 		if event.Step == nil {
 			return ""
 		}
+		if !shouldRenderStartedStep(*event.Step, event.Snapshot.Active) {
+			return ""
+		}
 		return renderStepBlock(*event.Step, renderStepOptions{
 			statusToken: "•",
 			now:         settings.now(),
@@ -334,6 +339,9 @@ func blockForEvent(event Event, settings streamRenderSettings) string {
 		})
 	case EventStepFinished:
 		if event.Step == nil {
+			return ""
+		}
+		if !shouldRenderFinishedStep(*event.Step, event.Snapshot.Active) {
 			return ""
 		}
 		return renderStepBlock(*event.Step, renderStepOptions{
@@ -670,6 +678,70 @@ func visibleActiveSteps(active []Step) []Step {
 		return active
 	}
 	return []Step{active[0], active[len(active)-1]}
+}
+
+func shouldRenderStartedStep(step Step, active []Step) bool {
+	return shouldRenderStep(step, startedStepAncestors(active, step))
+}
+
+func shouldRenderFinishedStep(step Step, active []Step) bool {
+	return shouldRenderStep(step, active)
+}
+
+func shouldRenderStep(step Step, ancestors []Step) bool {
+	if !hasControlAncestor(ancestors) {
+		return true
+	}
+	if isControlStepType(step.Type) {
+		return false
+	}
+	if step.Type == "expr" && !stepHasVisibleDescriptor(step) {
+		return false
+	}
+	return true
+}
+
+func startedStepAncestors(active []Step, step Step) []Step {
+	if len(active) == 0 {
+		return nil
+	}
+	if index := findActiveStep(active, step); index >= 0 {
+		return active[:index]
+	}
+	return active[:max(len(active)-1, 0)]
+}
+
+func hasControlAncestor(active []Step) bool {
+	for _, step := range active {
+		if isControlStepType(step.Type) {
+			return true
+		}
+	}
+	return false
+}
+
+func isControlStepType(stepType string) bool {
+	switch stepType {
+	case "call", "switch", "for_each":
+		return true
+	default:
+		return false
+	}
+}
+
+func stepHasVisibleDescriptor(step Step) bool {
+	if step.Descriptor == nil {
+		return false
+	}
+	if strings.TrimSpace(step.Descriptor.PrimaryText) != "" {
+		return true
+	}
+	for _, detail := range step.Descriptor.DetailText {
+		if strings.TrimSpace(detail) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func statusTokenForStep(step Step) string {

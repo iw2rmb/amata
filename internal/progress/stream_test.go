@@ -287,6 +287,181 @@ func TestStreamModelKeepsFinishedHistoryVisibleAcrossLaterEvents(t *testing.T) {
 	}
 }
 
+func TestStreamModelCollapsesNestedLoopScaffoldingInFinishedHistory(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.March, 14, 10, 6, 0, 0, time.UTC)
+	model := streamModel{
+		spinner: spinner.New(spinner.WithSpinner(spinner.Line)),
+		styles:  defaultStreamStyles(),
+		settings: streamRenderSettings{
+			now: func() time.Time {
+				return now
+			},
+			width: 80,
+		},
+		width: 80,
+	}
+
+	finished := func(step Step, active []Step) {
+		next, _ := model.applyEvent(Event{
+			Kind:     EventStepFinished,
+			Step:     &step,
+			Snapshot: Snapshot{Active: active},
+		})
+		model = next
+	}
+
+	finished(Step{
+		Type:       "expr",
+		Status:     StepStatusSucceeded,
+		StartedAt:  now,
+		FinishedAt: now,
+	}, nil)
+	finished(Step{
+		Type:       "switch",
+		Status:     StepStatusSucceeded,
+		StartedAt:  now.Add(-5 * time.Minute),
+		FinishedAt: now.Add(-8 * time.Second),
+		Descriptor: &DescriptorData{PrimaryText: "case 0"},
+	}, []Step{
+		{Type: "call", Descriptor: &DescriptorData{PrimaryText: "implement_loop"}},
+	})
+	finished(Step{
+		Type:       "expr",
+		Status:     StepStatusSucceeded,
+		StartedAt:  now.Add(-2 * time.Second),
+		FinishedAt: now.Add(-2 * time.Second),
+	}, []Step{
+		{Type: "call", Descriptor: &DescriptorData{PrimaryText: "implement_loop"}},
+		{Type: "switch", Descriptor: &DescriptorData{PrimaryText: "case 1"}},
+	})
+	finished(Step{
+		Type:       "call",
+		Status:     StepStatusSucceeded,
+		StartedAt:  now.Add(-15 * time.Second),
+		FinishedAt: now,
+		Descriptor: &DescriptorData{PrimaryText: "implement_loop"},
+	}, []Step{
+		{Type: "call", Descriptor: &DescriptorData{PrimaryText: "implement_loop"}},
+		{Type: "switch", Descriptor: &DescriptorData{PrimaryText: "case 1"}},
+	})
+	finished(Step{
+		Type:       "switch",
+		Status:     StepStatusSucceeded,
+		StartedAt:  now.Add(-5 * time.Minute),
+		FinishedAt: now.Add(-1 * time.Second),
+		Descriptor: &DescriptorData{PrimaryText: "case 1"},
+	}, []Step{
+		{Type: "call", Descriptor: &DescriptorData{PrimaryText: "implement_loop"}},
+	})
+	finished(Step{
+		Type:       "call",
+		Status:     StepStatusSucceeded,
+		StartedAt:  now.Add(-5*time.Minute - 59*time.Second),
+		FinishedAt: now,
+		Descriptor: &DescriptorData{PrimaryText: "implement_loop"},
+	}, nil)
+	finished(Step{
+		Type:       "assert",
+		Status:     StepStatusSucceeded,
+		StartedAt:  now,
+		FinishedAt: now,
+		Descriptor: &DescriptorData{
+			PrimaryText: "true",
+			DetailText:  []string{"implement_loop must terminate with hasItem=false"},
+		},
+	}, nil)
+
+	view := model.View()
+	if strings.Count(view, "call implement_loop") != 1 {
+		t.Fatalf("view = %q, want one visible loop call summary", view)
+	}
+	for _, unwanted := range []string{
+		"switch case 0",
+		"switch case 1",
+		"\n✓ 00:00 expr\n✓ 00:00 expr",
+	} {
+		if strings.Contains(view, unwanted) {
+			t.Fatalf("view = %q, want nested loop scaffolding hidden", view)
+		}
+	}
+	if !strings.Contains(view, "✓ 05:59 call implement_loop") {
+		t.Fatalf("view = %q, want outer loop summary", view)
+	}
+	if !strings.Contains(view, "✓ 00:00 assert true") {
+		t.Fatalf("view = %q, want terminal assertion", view)
+	}
+}
+
+func TestBlockForEventSkipsNestedControlAndExprScaffolding(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.March, 14, 10, 0, 5, 0, time.UTC)
+	settings := streamRenderSettings{
+		now: func() time.Time {
+			return now
+		},
+		width: 80,
+	}
+
+	for _, event := range []Event{
+		{
+			Kind: EventStepStarted,
+			Step: &Step{
+				Type:      "call",
+				Status:    StepStatusRunning,
+				StartedAt: now.Add(-5 * time.Second),
+				Descriptor: &DescriptorData{
+					PrimaryText: "implement_loop",
+				},
+			},
+			Snapshot: Snapshot{
+				Active: []Step{
+					{Type: "call", Descriptor: &DescriptorData{PrimaryText: "implement_loop"}},
+					{Type: "call", Descriptor: &DescriptorData{PrimaryText: "implement_loop"}},
+				},
+			},
+		},
+		{
+			Kind: EventStepFinished,
+			Step: &Step{
+				Type:       "switch",
+				Status:     StepStatusSucceeded,
+				StartedAt:  now.Add(-5 * time.Second),
+				FinishedAt: now,
+				Descriptor: &DescriptorData{
+					PrimaryText: "case 1",
+				},
+			},
+			Snapshot: Snapshot{
+				Active: []Step{
+					{Type: "call", Descriptor: &DescriptorData{PrimaryText: "implement_loop"}},
+				},
+			},
+		},
+		{
+			Kind: EventStepFinished,
+			Step: &Step{
+				Type:       "expr",
+				Status:     StepStatusSucceeded,
+				StartedAt:  now,
+				FinishedAt: now,
+			},
+			Snapshot: Snapshot{
+				Active: []Step{
+					{Type: "call", Descriptor: &DescriptorData{PrimaryText: "implement_loop"}},
+					{Type: "switch", Descriptor: &DescriptorData{PrimaryText: "case 1"}},
+				},
+			},
+		},
+	} {
+		if got := blockForEvent(event, settings); got != "" {
+			t.Fatalf("block = %q, want nested scaffolding omitted", got)
+		}
+	}
+}
+
 func TestRenderGitCommitFileTableAlignsDiffColumns(t *testing.T) {
 	t.Parallel()
 
