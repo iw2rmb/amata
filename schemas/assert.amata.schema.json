@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "type": {
+      "const": "assert"
+    },
+    "when": true,
+    "expect": true,
+    "response": {
+      "$ref": "common.response-config.amata.schema.json"
+    },
+    "stall": {
+      "$ref": "common.stall.amata.schema.json"
+    },
+    "assert": true,
+    "message": {
+      "$ref": "common.string-or-expr.amata.schema.json"
+    }
+  },
+  "required": [
+    "assert"
+  ],
+  "additionalProperties": false
+}

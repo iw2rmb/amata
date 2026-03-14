@@ -43,6 +43,9 @@ Current behavior:
 - Repeated `--set key=value` flags override declared `spec.params` entries for the launched run and persist inside the stored normalized spec.
 - `defaults` are parsed and persisted. Agent executors currently interpret `defaults.cwd`, `defaults.env`, and `defaults.executors.codex|claude`.
 - `schemas` provides workflow-local JSON Schema definitions for inline `response.schema` refs.
+- Built-in step definitions are validated at spec load time against embedded JSON Schema files shipped under `schemas/*.amata.schema.json`.
+- Shared step-schema fragments such as stall-policy and string-or-expression shapes are factored into separate embedded schema files under `schemas/`.
+- Built-in step schemas may also carry embedded references to their default step `value` schema when the executor output shape is fixed, such as `shell`, `git.inspect`, and `git.commit`.
 - A step may declare `type`, or omit it when one of these shorthands is present:
   - `command` -> `shell`
   - `expr` -> `expr`

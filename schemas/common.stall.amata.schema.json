@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "type": "string",
+      "enum": [
+        "rerun",
+        "error"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "after": true,
+        "type": {
+          "$ref": "common.string-or-expr.amata.schema.json"
+        },
+        "flow": {
+          "$ref": "common.string-or-expr.amata.schema.json"
+        }
+      },
+      "additionalProperties": false
+    }
+  ]
+}

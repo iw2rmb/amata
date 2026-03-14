@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "type": {
+      "const": "git.commit"
+    },
+    "when": true,
+    "expect": true,
+    "response": {
+      "$ref": "common.response-config.amata.schema.json"
+    },
+    "stall": {
+      "$ref": "common.stall.amata.schema.json"
+    },
+    "message": {
+      "$ref": "common.string-or-expr.amata.schema.json"
+    },
+    "cwd": {
+      "$ref": "common.string-or-expr.amata.schema.json"
+    },
+    "exclude_paths": {
+      "type": "array",
+      "items": {
+        "$ref": "common.string-or-expr.amata.schema.json"
+      }
+    }
+  },
+  "required": [
+    "type",
+    "message"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "defaultValue": {
+      "$ref": "git.commit.value.amata.schema.json"
+    }
+  }
+}

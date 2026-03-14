@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "committed": {
+      "type": "boolean"
+    },
+    "commit": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "paths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "repoRoot": {
+      "type": "string"
+    },
+    "metadata": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "shortCommit": {
+          "type": "string"
+        },
+        "changedFileCount": {
+          "type": "integer"
+        },
+        "insertions": {
+          "type": "integer"
+        },
+        "deletions": {
+          "type": "integer"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "insertions": {
+                "type": "integer"
+              },
+              "deletions": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "path",
+              "insertions",
+              "deletions"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "shortCommit",
+        "changedFileCount",
+        "insertions",
+        "deletions",
+        "files"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "committed",
+    "commit",
+    "paths",
+    "repoRoot",
+    "metadata"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "isRepo": {
+      "type": "boolean"
+    },
+    "hasDiff": {
+      "type": "boolean"
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "isRepo",
+    "hasDiff",
+    "files"
+  ],
+  "additionalProperties": false
+}

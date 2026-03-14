@@ -113,6 +113,9 @@ func validate(document Document) error {
 	if _, ok := document.Flows[document.Entry]; !ok {
 		return fmt.Errorf("entry flow %q is not defined", document.Entry)
 	}
+	if err := validateBuiltInSteps(document); err != nil {
+		return err
+	}
 
 	return nil
 }

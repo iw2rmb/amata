@@ -140,3 +140,142 @@ flows:
 		})
 	}
 }
+
+func TestLoadRejectsInvalidBuiltInStepSchemas(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name         string
+		steps        string
+		wantFragment string
+	}{
+		{
+			name: "unknown step type",
+			steps: `
+      - type: mystery
+`,
+			wantFragment: `unknown step type "mystery"`,
+		},
+		{
+			name: "shell extra field",
+			steps: `
+      - command: echo hi
+        bogus: true
+`,
+			wantFragment: "bogus",
+		},
+		{
+			name: "git commit missing message",
+			steps: `
+      - type: git.commit
+`,
+			wantFragment: "message",
+		},
+		{
+			name: "nested switch step invalid",
+			steps: `
+      - type: switch
+        cases:
+          - steps:
+              - type: call
+                nope: true
+`,
+			wantFragment: "nope",
+		},
+		{
+			name: "for each body empty",
+			steps: `
+      - type: for_each
+        items: []
+        steps: []
+`,
+			wantFragment: "steps",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			tempDir := t.TempDir()
+			specPath := filepath.Join(tempDir, "workflow.yaml")
+			specBody := `
+version: amata/v1
+name: sample
+entry: main
+flows:
+  main:
+    steps:
+` + testCase.steps
+			if err := os.WriteFile(specPath, []byte(specBody), 0o644); err != nil {
+				t.Fatalf("write spec: %v", err)
+			}
+
+			_, err := spec.Load(specPath)
+			if err == nil {
+				t.Fatalf("expected error")
+			}
+			if !strings.Contains(err.Error(), `flow "main" step 0`) {
+				t.Fatalf("error = %q, want flow/step context", err)
+			}
+			if !strings.Contains(err.Error(), testCase.wantFragment) {
+				t.Fatalf("error = %q, want fragment %q", err, testCase.wantFragment)
+			}
+		})
+	}
+}
+
+func TestLoadAcceptsEmbeddedBuiltInStepSchemas(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	specPath := filepath.Join(tempDir, "workflow.yaml")
+	specBody := `
+version: amata/v1
+name: sample
+entry: main
+flows:
+  main:
+    steps:
+      - id: shell-short
+        command:
+          - sh
+          - -lc
+          - echo hi
+        files:
+          rendered:
+            expr: '"artifact.txt"'
+      - type: switch
+        cases:
+          - when: true
+            steps:
+              - type: call
+                flow: next
+      - type: for_each
+        items:
+          - one
+        steps:
+          - type: git.inspect
+            cwd:
+              expr: "ctx.workspace.root"
+  next:
+    steps:
+      - type: git.commit
+        message:
+          expr: '"commit message"'
+`
+
+	if err := os.WriteFile(specPath, []byte(specBody), 0o644); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+
+	loaded, err := spec.Load(specPath)
+	if err != nil {
+		t.Fatalf("load spec: %v", err)
+	}
+
+	if got := len(loaded.Spec.Flows["main"].Steps); got != 3 {
+		t.Fatalf("main step count = %d, want 3", got)
+	}
+}

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "type": {
+      "const": "call"
+    },
+    "when": true,
+    "expect": true,
+    "flow": {
+      "$ref": "common.string-or-expr.amata.schema.json"
+    }
+  },
+  "required": [
+    "type",
+    "flow"
+  ],
+  "additionalProperties": false
+}

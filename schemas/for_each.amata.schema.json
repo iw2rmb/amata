@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "type": {
+      "const": "for_each"
+    },
+    "when": true,
+    "expect": true,
+    "items": true,
+    "as": {
+      "type": "string"
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object"
+      }
+    }
+  },
+  "required": [
+    "type",
+    "items",
+    "steps"
+  ],
+  "additionalProperties": false
+}
