@@ -1,7 +1,7 @@
-# Mandatory Instructions
+# General Mandatory Instructions (GMI)
 
 When Codex agent is in the **interactive mode**, it **MUST** read and follow policies from `~/.codex/policies/interactive-mode.md`.
-Don't use `rtk ` prefix when executing commands, it strips important data unpredictibly.
+
 
 ## Policies
 
@@ -13,8 +13,8 @@ Additional policies **MUST** be loaded when naming is literally corresponds the 
 
 ## Aster
 
-- Aster is a framework for the effective codebase navigation and manipulation.
-- Get instructions at `http://localhost:9090/v1/coding-agents-instructions`.
+- **Aster** is a framework for the effective codebase navigation and manipulation.
+- Follow instructions at `http://localhost:9090/v1/coding-agents-instructions`.
 
 
 ## Architecture Patterns Policy
@@ -29,8 +29,9 @@ Overengineering is the second source of bugs.
 It comes from generalization with unclear boundaries.
 
 To protect yourself from overengineering, 
-- write down edge-cases before writing the code.
-- keep scopes and domains distinctive and clean.
+- Write down edge-cases before writing the code.
+- Keep files' and modules' domains distinctive.
+- Do **NOT** extend scope of the file or module without clear benefit.
 
 
 ### Race conditions
