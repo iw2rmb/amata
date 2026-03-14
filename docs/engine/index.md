@@ -275,7 +275,7 @@ Supported fields:
 Behavior:
 - `prompt`, `model`, `reasoning`, `cwd`, and `env` resolve through the shared expression/template runtime before execution.
 - `cwd` falls back to `defaults.cwd`, then `workspace.root`.
-- When `response.schema` targets `value`, the executor uses Claude structured output support when available and otherwise appends engine-owned JSON instructions before normalizing the returned JSON into `value`.
+- When `response.schema` targets `value`, the executor uses Claude structured output support when available by passing `--output-format json` and `--json-schema`, and otherwise appends engine-owned JSON instructions before normalizing the returned JSON into `value`.
 - Raw provider stdout, stderr, the rendered prompt, the final transcript, and provider metadata persist as step artifacts.
 - Without `response.schema`, the step `value` is the raw final transcript text.
 

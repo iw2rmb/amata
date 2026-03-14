@@ -71,6 +71,14 @@ func TestProviderStructuredOutputModes(t *testing.T) {
 				t.Fatalf("args = %#v, want --effort medium", captured.args)
 			}
 
+			hasJSONOutputFormat := containsArgPair(captured.args, "--output-format", "json")
+			if hasJSONOutputFormat != testCase.wantFlag {
+				t.Fatalf("json output format = %v, want %v (args=%#v)", hasJSONOutputFormat, testCase.wantFlag, captured.args)
+			}
+			if !testCase.wantFlag && !containsArgPair(captured.args, "--output-format", "text") {
+				t.Fatalf("args = %#v, want --output-format text in fallback mode", captured.args)
+			}
+
 			hasSchemaFlag := containsArgPair(captured.args, "--json-schema", `{"type":"object","properties":{"approved":{"type":"boolean"}},"required":["approved"]}`)
 			if hasSchemaFlag != testCase.wantFlag {
 				t.Fatalf("schema flag = %v, want %v (args=%#v)", hasSchemaFlag, testCase.wantFlag, captured.args)
