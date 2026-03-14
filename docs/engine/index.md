@@ -366,6 +366,33 @@ Current behavior:
 - Those temporary bindings exist only during `expect`; downstream steps still read prior results through `ctx.prev`.
 - `expect` must resolve to a boolean. `false` fails the step with code `expectation_failed`.
 
+## Stall Policy
+
+Steps may declare:
+
+```yaml
+stall: rerun | error
+```
+
+or:
+
+```yaml
+stall:
+  after: <minutes-or-duration>
+  type: rerun | error | call
+  flow: <flow-name> # required for type: call
+```
+
+Current behavior:
+- `stall` is optional and applies to normal executor steps such as `shell`, `codex`, `claude`, `git.inspect`, and `git.commit`.
+- String form defaults to `after: 15` minutes.
+- Object form defaults to `type: rerun` and `after: 15` minutes when omitted.
+- `after` accepts either a numeric minute value such as `15` or a duration string such as `30s` or `5m`.
+- `rerun` cancels the stalled executor attempt and starts the same step again with the same resolved inputs.
+- `error` cancels the stalled executor attempt and fails the run with code `step_stalled`.
+- `call` cancels the stalled executor attempt and runs the named flow instead; the fallback flow's terminal result becomes the stalled step's result.
+- Each execution attempt uses a distinct artifact directory, so repeated loop iterations and reruns do not overwrite prior stdout, stderr, prompt, transcript, or file artifacts.
+
 ## Current Limits
 
 Not implemented yet:

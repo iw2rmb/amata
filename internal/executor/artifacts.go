@@ -5,8 +5,11 @@ import (
 	"path/filepath"
 )
 
-func StepArtifactDir(runDir string, stepIndex int, stepID string) string {
+func StepArtifactDir(runDir string, stepIndex int, stepID string, executionLabel ...string) string {
 	label := fmt.Sprintf("step-%02d", stepIndex)
+	if len(executionLabel) > 0 && executionLabel[0] != "" {
+		label += "-" + SanitizeArtifactName(executionLabel[0])
+	}
 	if stepID == "" {
 		return filepath.Join(runDir, "artifacts", label)
 	}

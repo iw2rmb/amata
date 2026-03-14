@@ -40,7 +40,7 @@ func (e *Executor) Execute(ctx context.Context, stepCtx executor.StepContext) st
 		return executor.Failed("invalid_files", fmt.Sprintf("step %d: %v", stepCtx.StepIndex, err))
 	}
 
-	stepDir := executor.StepArtifactDir(stepCtx.RunDir, stepCtx.StepIndex, stepCtx.Step.ID)
+	stepDir := executor.StepArtifactDir(stepCtx.RunDir, stepCtx.StepIndex, stepCtx.Step.ID, stepCtx.ExecutionLabel)
 	if err := os.MkdirAll(stepDir, 0o755); err != nil {
 		return executor.Failed("artifact_dir_failed", fmt.Sprintf("step %d: create artifact directory: %v", stepCtx.StepIndex, err))
 	}

@@ -30,13 +30,13 @@ const (
 type EventKind string
 
 const (
-	EventRunInitialized  EventKind = "run_initialized"
-	EventRunResumed      EventKind = "run_resumed"
-	EventFramePushed     EventKind = "frame_pushed"
+	EventRunInitialized   EventKind = "run_initialized"
+	EventRunResumed       EventKind = "run_resumed"
+	EventFramePushed      EventKind = "frame_pushed"
 	EventControlContinued EventKind = "control_continued"
-	EventControlReturned EventKind = "control_returned"
-	EventStepRecorded    EventKind = "step_recorded"
-	EventRunFinished     EventKind = "run_finished"
+	EventControlReturned  EventKind = "control_returned"
+	EventStepRecorded     EventKind = "step_recorded"
+	EventRunFinished      EventKind = "run_finished"
 )
 
 type Failure struct {
@@ -57,22 +57,23 @@ type ForEachState struct {
 }
 
 type FrameReturn struct {
-	StepType  string         `json:"step_type"`
-	StepIndex int            `json:"step_index"`
-	StepID    string         `json:"step_id,omitempty"`
-	Flow      string         `json:"flow,omitempty"`
-	CaseIndex *int           `json:"case_index,omitempty"`
-	ForEach   *ForEachState  `json:"for_each,omitempty"`
+	StepType   string        `json:"step_type"`
+	ResultType string        `json:"result_type,omitempty"`
+	StepIndex  int           `json:"step_index"`
+	StepID     string        `json:"step_id,omitempty"`
+	Flow       string        `json:"flow,omitempty"`
+	CaseIndex  *int          `json:"case_index,omitempty"`
+	ForEach    *ForEachState `json:"for_each,omitempty"`
 }
 
 type FlowFrame struct {
-	Flow      string       `json:"flow"`
-	StepCount int          `json:"step_count"`
-	NextStep  int          `json:"next_step"`
-	Previous  *StepResult  `json:"previous,omitempty"`
-	Produced  *StepResult  `json:"produced,omitempty"`
+	Flow      string         `json:"flow"`
+	StepCount int            `json:"step_count"`
+	NextStep  int            `json:"next_step"`
+	Previous  *StepResult    `json:"previous,omitempty"`
+	Produced  *StepResult    `json:"produced,omitempty"`
 	Bindings  map[string]any `json:"bindings,omitempty"`
-	Return    *FrameReturn `json:"return,omitempty"`
+	Return    *FrameReturn   `json:"return,omitempty"`
 }
 
 type StepResult struct {
@@ -310,8 +311,12 @@ func apply(snapshot Snapshot, event RunEvent) (Snapshot, error) {
 		if top.NextStep < top.StepCount {
 			return Snapshot{}, fmt.Errorf("control return for flow %q before completion", top.Flow)
 		}
-		if event.Step.Type != top.Return.StepType {
-			return Snapshot{}, fmt.Errorf("control return step type %q does not match expected %q", event.Step.Type, top.Return.StepType)
+		expectedType := top.Return.StepType
+		if top.Return.ResultType != "" {
+			expectedType = top.Return.ResultType
+		}
+		if event.Step.Type != expectedType {
+			return Snapshot{}, fmt.Errorf("control return step type %q does not match expected %q", event.Step.Type, expectedType)
 		}
 		if top.Return.StepID != "" && event.Step.ID != top.Return.StepID {
 			return Snapshot{}, fmt.Errorf("control return step id %q does not match expected %q", event.Step.ID, top.Return.StepID)

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
+	"time"
 
 	executorapi "auto/internal/executor"
 	exprruntime "auto/internal/expr"
@@ -26,6 +28,17 @@ type RunnerOption func(*Runner)
 type RunFailedError struct {
 	RunID   string
 	Failure state.Failure
+}
+
+const (
+	defaultStallAfter   = 15 * time.Minute
+	stallCallReturnType = "stall.call"
+)
+
+type stallPolicy struct {
+	After  time.Duration
+	Action string
+	Flow   string
 }
 
 func (e RunFailedError) Error() string {
@@ -256,7 +269,17 @@ func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state
 			}
 		default:
 			reporter.StepStarted(progressStep(config, frame.Flow, stepIndex, step, frame.Previous, frame.Bindings))
-			result := r.executeStep(ctx, config, responses, frame.Flow, stepIndex, step, frame.Previous, frame.Bindings)
+			action, result := r.executeStep(ctx, config, responses, snapshot, frame.Flow, stepIndex, step, frame.Previous, frame.Bindings)
+			if action.pushFrame != nil {
+				snapshot, err = store.Append(state.RunEvent{
+					Kind:  state.EventFramePushed,
+					Frame: action.pushFrame,
+				})
+				if err != nil {
+					return state.Snapshot{}, err
+				}
+				continue
+			}
 			if snapshot, err = r.recordResultEvent(store, reporter, config, config.RunID, frame.Flow, step, frame.Previous, frame.Bindings, state.EventStepRecorded, result); err != nil {
 				return snapshot, err
 			}
@@ -268,16 +291,17 @@ func (r *Runner) executeStep(
 	ctx context.Context,
 	config Config,
 	responses response.Resolver,
+	snapshot state.Snapshot,
 	flowName string,
 	stepIndex int,
 	step spec.Step,
 	previous *state.StepResult,
 	bindings map[string]any,
-) state.StepResult {
+) (stepAction, state.StepResult) {
 	runtime := exprruntime.NewRuntime(buildRuntimeContext(config, previous, bindings))
 	action, result := r.prepareStepAction(config, runtime, previous, stepIndex, step)
 	if result.Status != "" || action.pushFrame != nil {
-		return finalizeStatus(result)
+		return action, finalizeStatus(result)
 	}
 
 	factory, ok := r.registry.Lookup(result.Type)
@@ -287,7 +311,7 @@ func (r *Runner) executeStep(
 			Code:    "unknown_executor",
 			Message: fmt.Sprintf("executor %q is not registered", result.Type),
 		}
-		return result
+		return stepAction{}, result
 	}
 
 	stepExecutor := factory()
@@ -297,31 +321,90 @@ func (r *Runner) executeStep(
 			Code:    "invalid_executor",
 			Message: fmt.Sprintf("executor %q returned nil", result.Type),
 		}
-		return result
+		return stepAction{}, result
 	}
 
-	result = stepExecutor.Execute(ctx, executorapi.StepContext{
-		RunID:     config.RunID,
-		RunDir:    config.RunDir,
-		SpecPath:  config.SpecPath,
-		Spec:      config.Spec,
-		Workspace: config.Workspace,
-		FlowName:  flowName,
-		StepIndex: stepIndex,
-		Step:      step,
-		Previous:  previous,
-		Runtime:   runtime,
-	})
-	result = executorapi.NormalizeResult(result)
-	result.Index = stepIndex
-	if result.ID == "" {
-		result.ID = step.ID
-	}
-	if result.Type == "" {
-		result.Type = step.ExecutorType()
+	policy, failure := resolveStallPolicy(runtime, stepIndex, step)
+	if failure != nil {
+		result.Status = state.StepStatusFailed
+		result.Error = failure
+		return stepAction{}, finalizeStatus(result)
 	}
 
-	return r.finalizeStepResult(config, responses, previous, bindings, step, result)
+	for attempt := 1; ; attempt++ {
+		stepCtx := executorapi.StepContext{
+			RunID:          config.RunID,
+			RunDir:         config.RunDir,
+			SpecPath:       config.SpecPath,
+			Spec:           config.Spec,
+			Workspace:      config.Workspace,
+			FlowName:       flowName,
+			StepIndex:      stepIndex,
+			Step:           step,
+			Previous:       previous,
+			Runtime:        runtime,
+			ExecutionLabel: stepExecutionLabel(snapshot.LastSequence+1, attempt),
+		}
+
+		if policy == nil {
+			result = executeStepAttempt(ctx, stepExecutor, stepCtx, step)
+			return stepAction{}, r.finalizeStepResult(config, responses, previous, bindings, step, result)
+		}
+
+		attemptCtx, cancel := context.WithCancel(ctx)
+		done := make(chan state.StepResult, 1)
+		go func() {
+			done <- executeStepAttempt(attemptCtx, stepExecutor, stepCtx, step)
+		}()
+
+		timer := time.NewTimer(policy.After)
+		select {
+		case result = <-done:
+			timer.Stop()
+			cancel()
+			return stepAction{}, r.finalizeStepResult(config, responses, previous, bindings, step, result)
+		case <-timer.C:
+			cancel()
+			<-done
+			switch policy.Action {
+			case "rerun":
+				continue
+			case "error":
+				return stepAction{}, finalizeStatus(state.StepResult{
+					Index:  stepIndex,
+					ID:     step.ID,
+					Type:   step.ExecutorType(),
+					Status: state.StepStatusFailed,
+					Error: &state.Failure{
+						Code:    "step_stalled",
+						Message: fmt.Sprintf("step %d stalled after %s", stepIndex, policy.After),
+					},
+				})
+			case "call":
+				action, result := r.stallCallAction(config, stepIndex, step, previous, policy.Flow)
+				if result.Status != "" || action.pushFrame == nil {
+					return stepAction{}, finalizeStatus(result)
+				}
+				return action, state.StepResult{}
+			default:
+				return stepAction{}, finalizeStatus(state.StepResult{
+					Index:  stepIndex,
+					ID:     step.ID,
+					Type:   step.ExecutorType(),
+					Status: state.StepStatusFailed,
+					Error: &state.Failure{
+						Code:    "invalid_stall",
+						Message: fmt.Sprintf("step %d stall action %q is unsupported", stepIndex, policy.Action),
+					},
+				})
+			}
+		case <-ctx.Done():
+			timer.Stop()
+			cancel()
+			result = <-done
+			return stepAction{}, r.finalizeStepResult(config, responses, previous, bindings, step, result)
+		}
+	}
 }
 
 type stepAction struct {
@@ -406,6 +489,148 @@ func (r *Runner) prepareStepAction(
 			},
 		},
 	}, result
+}
+
+func executeStepAttempt(ctx context.Context, stepExecutor executorapi.Executor, stepCtx executorapi.StepContext, step spec.Step) state.StepResult {
+	result := stepExecutor.Execute(ctx, stepCtx)
+	result = executorapi.NormalizeResult(result)
+	result.Index = stepCtx.StepIndex
+	if result.ID == "" {
+		result.ID = step.ID
+	}
+	if result.Type == "" {
+		result.Type = step.ExecutorType()
+	}
+	return result
+}
+
+func resolveStallPolicy(runtime exprruntime.Runtime, stepIndex int, step spec.Step) (*stallPolicy, *state.Failure) {
+	raw, ok := step.Fields["stall"]
+	if !ok {
+		return nil, nil
+	}
+
+	policy := &stallPolicy{
+		After:  defaultStallAfter,
+		Action: "rerun",
+	}
+
+	switch typed := raw.(type) {
+	case string:
+		action, err := runtime.ResolveString(typed)
+		if err != nil {
+			return nil, invalidStallFailure(stepIndex, err.Error())
+		}
+		policy.Action = action
+	case map[string]any:
+		if actionRaw, ok := typed["type"]; ok {
+			action, err := runtime.ResolveString(actionRaw)
+			if err != nil {
+				return nil, invalidStallFailure(stepIndex, fmt.Sprintf("resolve type: %v", err))
+			}
+			policy.Action = action
+		}
+		if afterRaw, ok := typed["after"]; ok {
+			after, err := resolveStallAfter(runtime, afterRaw)
+			if err != nil {
+				return nil, invalidStallFailure(stepIndex, fmt.Sprintf("resolve after: %v", err))
+			}
+			policy.After = after
+		}
+		if flowRaw, ok := typed["flow"]; ok {
+			flow, err := runtime.ResolveString(flowRaw)
+			if err != nil {
+				return nil, invalidStallFailure(stepIndex, fmt.Sprintf("resolve flow: %v", err))
+			}
+			policy.Flow = flow
+		}
+	default:
+		return nil, invalidStallFailure(stepIndex, "must be a string or object")
+	}
+
+	switch policy.Action {
+	case "rerun", "error":
+	case "call":
+		if policy.Flow == "" {
+			return nil, invalidStallFailure(stepIndex, "call action requires flow")
+		}
+	default:
+		return nil, invalidStallFailure(stepIndex, fmt.Sprintf("unsupported action %q", policy.Action))
+	}
+	if policy.After <= 0 {
+		return nil, invalidStallFailure(stepIndex, "after must be greater than zero")
+	}
+
+	return policy, nil
+}
+
+func resolveStallAfter(runtime exprruntime.Runtime, raw any) (time.Duration, error) {
+	resolved, err := runtime.Resolve(raw)
+	if err != nil {
+		return 0, err
+	}
+
+	switch typed := resolved.(type) {
+	case int:
+		return time.Duration(typed * int(time.Minute)), nil
+	case int64:
+		return time.Duration(typed) * time.Minute, nil
+	case float64:
+		return time.Duration(typed * float64(time.Minute)), nil
+	case string:
+		if duration, err := time.ParseDuration(typed); err == nil {
+			return duration, nil
+		}
+		minutes, err := strconv.ParseFloat(typed, 64)
+		if err != nil {
+			return 0, fmt.Errorf("expected minutes number or duration string")
+		}
+		return time.Duration(minutes * float64(time.Minute)), nil
+	default:
+		return 0, fmt.Errorf("expected minutes number or duration string")
+	}
+}
+
+func invalidStallFailure(stepIndex int, reason string) *state.Failure {
+	return &state.Failure{
+		Code:    "invalid_stall",
+		Message: fmt.Sprintf("step %d stall is invalid: %s", stepIndex, reason),
+	}
+}
+
+func stepExecutionLabel(sequence int, attempt int) string {
+	return fmt.Sprintf("seq-%06d-a%02d", sequence, attempt)
+}
+
+func (r *Runner) stallCallAction(config Config, stepIndex int, step spec.Step, previous *state.StepResult, flow string) (stepAction, state.StepResult) {
+	target, ok := config.Spec.Flows[flow]
+	if !ok {
+		return stepAction{}, finalizeStatus(state.StepResult{
+			Index:  stepIndex,
+			ID:     step.ID,
+			Type:   step.ExecutorType(),
+			Status: state.StepStatusFailed,
+			Error: &state.Failure{
+				Code:    "unknown_flow",
+				Message: fmt.Sprintf("step %d stall flow %q is not defined", stepIndex, flow),
+			},
+		})
+	}
+
+	return stepAction{
+		pushFrame: &state.FlowFrame{
+			Flow:      flow,
+			StepCount: len(target.Steps),
+			Previous:  previous,
+			Return: &state.FrameReturn{
+				StepType:   stallCallReturnType,
+				ResultType: step.ExecutorType(),
+				StepIndex:  stepIndex,
+				StepID:     step.ID,
+				Flow:       flow,
+			},
+		},
+	}, state.StepResult{}
 }
 
 func (r *Runner) prepareSwitch(
@@ -766,6 +991,9 @@ func returnedControlResult(meta *state.FrameReturn, produced *state.StepResult) 
 		Type:   meta.StepType,
 		Status: state.StepStatusSucceeded,
 	})
+	if meta.ResultType != "" {
+		result.Type = meta.ResultType
+	}
 
 	switch meta.StepType {
 	case "call":
@@ -774,6 +1002,21 @@ func returnedControlResult(meta *state.FrameReturn, produced *state.StepResult) 
 		result.Value = switchResultValue(meta.CaseIndex, produced)
 	case "for_each":
 		result.Value = forEachResultValue(meta.ForEach, produced)
+	case stallCallReturnType:
+		if produced == nil {
+			result.Status = state.StepStatusFailed
+			result.Error = &state.Failure{
+				Code:    "invalid_return",
+				Message: fmt.Sprintf("step %d stall call returned no result", meta.StepIndex),
+			}
+			return result
+		}
+		result = executorapi.NormalizeResult(*produced)
+		result.Index = meta.StepIndex
+		result.ID = meta.StepID
+		if meta.ResultType != "" {
+			result.Type = meta.ResultType
+		}
 	default:
 		result.Status = state.StepStatusFailed
 		result.Error = &state.Failure{

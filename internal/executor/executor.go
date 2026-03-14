@@ -16,14 +16,15 @@ type Executor interface {
 type Factory func() Executor
 
 type StepContext struct {
-	RunID     string
-	RunDir    string
-	SpecPath  string
-	Spec      spec.Document
-	Workspace workspace.Config
-	FlowName  string
-	StepIndex int
-	Step      spec.Step
-	Previous  *state.StepResult
-	Runtime   exprruntime.Runtime
+	RunID          string
+	RunDir         string
+	SpecPath       string
+	Spec           spec.Document
+	Workspace      workspace.Config
+	FlowName       string
+	StepIndex      int
+	Step           spec.Step
+	Previous       *state.StepResult
+	Runtime        exprruntime.Runtime
+	ExecutionLabel string
 }
