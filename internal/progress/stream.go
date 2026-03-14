@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -178,7 +179,7 @@ func (r *plainStreamRenderer) WriteProgress(event Event) {
 	if block == "" {
 		return
 	}
-	_, _ = fmt.Fprintln(r.writer, block)
+	_, _ = fmt.Fprintf(r.writer, "\n%s\n", block)
 }
 
 func (r *plainStreamRenderer) Close() error {
@@ -229,7 +230,7 @@ func (m streamModel) View() string {
 	if len(blocks) == 0 {
 		return ""
 	}
-	return strings.Join(blocks, "\n")
+	return renderProgressBlocks(blocks)
 }
 
 func (m streamModel) applyEvent(event Event) (streamModel, tea.Cmd) {
@@ -437,16 +438,22 @@ func renderStepDetails(step Step, descriptor StepDescriptor, options renderStepO
 	if !ok {
 		return descriptor.DetailLines
 	}
+	plusWidth, minusWidth := gitCommitDiffColumnWidths(insertions, deletions, files)
 
-	lines = append(lines, wrapDescriptorText(
-		fmt.Sprintf("+%d -%d files: %d", insertions, deletions, changedFiles),
+	lines = append(lines, renderGitCommitTotalsLine(
+		insertions,
+		deletions,
+		changedFiles,
+		plusWidth,
+		minusWidth,
 		currentDetailWidth,
+		options.styles,
 	)...)
 	if len(files) == 0 {
 		return lines
 	}
 
-	lines = append(lines, renderGitCommitFileTable(step, files, currentDetailWidth, options.styles)...)
+	lines = append(lines, renderGitCommitFileTable(step, files, plusWidth, minusWidth, currentDetailWidth, options.styles)...)
 	return lines
 }
 
@@ -554,13 +561,45 @@ func gitCommitMessage(step Step) string {
 	return strings.TrimSpace(data.DetailText[0])
 }
 
-func renderGitCommitFileTable(step Step, files []commitFileDescriptor, width int, styles streamStyles) []string {
+func gitCommitDiffColumnWidths(insertions int, deletions int, files []commitFileDescriptor) (int, int) {
+	plusWidth := lipgloss.Width(fmt.Sprintf("+%d", insertions))
+	minusWidth := lipgloss.Width(fmt.Sprintf("-%d", deletions))
+	for _, file := range files {
+		plusWidth = max(plusWidth, lipgloss.Width(fmt.Sprintf("+%d", file.Insertions)))
+		minusWidth = max(minusWidth, lipgloss.Width(fmt.Sprintf("-%d", file.Deletions)))
+	}
+	return plusWidth, minusWidth
+}
+
+func renderGitCommitTotalsLine(
+	insertions int,
+	deletions int,
+	changedFiles int,
+	plusWidth int,
+	minusWidth int,
+	width int,
+	styles streamStyles,
+) []string {
+	plusText := fmt.Sprintf("%*s", plusWidth, fmt.Sprintf("+%d", insertions))
+	minusText := fmt.Sprintf("%*s", minusWidth, fmt.Sprintf("-%d", deletions))
+	words := []styledWord{
+		{text: plusText},
+		{text: minusText},
+		{text: "files:"},
+		{text: strconv.Itoa(changedFiles)},
+	}
+	if styles.colorize {
+		words[0].render = func(text string) string { return styles.diffPlus.Render(text) }
+		words[1].render = func(text string) string { return styles.diffMinus.Render(text) }
+	}
+	return wrapStyledWords(words, width)
+}
+
+func renderGitCommitFileTable(step Step, files []commitFileDescriptor, plusWidth int, minusWidth int, width int, styles streamStyles) []string {
 	if len(files) == 0 {
 		return nil
 	}
 
-	plusWidth := 0
-	minusWidth := 0
 	pathWidth := 0
 	type gitCommitTableRow struct {
 		plus  string
@@ -571,8 +610,6 @@ func renderGitCommitFileTable(step Step, files []commitFileDescriptor, width int
 	for _, file := range files {
 		plusText := fmt.Sprintf("+%d", file.Insertions)
 		minusText := fmt.Sprintf("-%d", file.Deletions)
-		plusWidth = max(plusWidth, lipgloss.Width(plusText))
-		minusWidth = max(minusWidth, lipgloss.Width(minusText))
 		pathWidth = max(pathWidth, lipgloss.Width(file.Path))
 		tableRows = append(tableRows, gitCommitTableRow{
 			plus:  plusText,
@@ -826,6 +863,13 @@ func cloneActiveSteps(steps []Step) []Step {
 
 func currentUTC() time.Time {
 	return time.Now().UTC()
+}
+
+func renderProgressBlocks(blocks []string) string {
+	if len(blocks) == 0 {
+		return ""
+	}
+	return "\n" + strings.Join(blocks, "\n\n")
 }
 
 var _ Sink = (*StreamController)(nil)
