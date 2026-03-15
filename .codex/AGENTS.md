@@ -59,12 +59,12 @@ Best solution excludes the problem. For example,
 
 The most effective way to compact context window is:
 - Precisely scope the current task;
-- Pin docs and code related;
+- Pin docs and code related.
 
 After compact and before proceeding, reread:
   - ~/.codex/AGENTS.md, 
   - scope, docs, code related, 
-  - and the last conversation interaction.
+  - and the last two messages from the previous conversation.
 
 
 ## Development Policy
