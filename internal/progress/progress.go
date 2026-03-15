@@ -18,33 +18,26 @@ const (
 	EventRunFinished  EventKind = "run_finished"
 )
 
-type RunStatus string
+type RunStatus = state.RunStatus
 
 const (
-	RunStatusRunning   RunStatus = "running"
-	RunStatusSucceeded RunStatus = "succeeded"
-	RunStatusFailed    RunStatus = "failed"
+	RunStatusRunning   = state.RunStatusRunning
+	RunStatusSucceeded = state.RunStatusSucceeded
+	RunStatusFailed    = state.RunStatusFailed
 )
 
-type StepStatus string
+type StepStatus = state.StepStatus
 
 const (
-	StepStatusRunning   StepStatus = "running"
-	StepStatusSucceeded StepStatus = "succeeded"
-	StepStatusFailed    StepStatus = "failed"
-	StepStatusSkipped   StepStatus = "skipped"
+	StepStatusRunning   = state.StepStatusRunning
+	StepStatusSucceeded = state.StepStatusSucceeded
+	StepStatusFailed    = state.StepStatusFailed
+	StepStatusSkipped   = state.StepStatusSkipped
 )
 
-type Failure struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-}
+type Failure = state.Failure
 
-type Artifacts struct {
-	Stdout string            `json:"stdout,omitempty"`
-	Stderr string            `json:"stderr,omitempty"`
-	Files  map[string]string `json:"files,omitempty"`
-}
+type Artifacts = state.Artifacts
 
 type Step struct {
 	Flow       string          `json:"flow"`
@@ -208,14 +201,14 @@ func (r *Reporter) RunFinished(status RunStatus, failure *Failure) {
 	defer r.mu.Unlock()
 
 	r.snapshot.Status = status
-	r.snapshot.Failure = cloneFailure(failure)
+	r.snapshot.Failure = state.CloneFailure(failure)
 	r.emitLocked(Event{
 		Kind:    EventRunFinished,
 		At:      time.Now().UTC(),
 		RunID:   r.snapshot.RunID,
 		Command: r.snapshot.Command,
 		Status:  status,
-		Failure: cloneFailure(failure),
+		Failure: state.CloneFailure(failure),
 	})
 }
 
@@ -224,7 +217,7 @@ func (r *Reporter) emitLocked(event Event) {
 	if event.Status == "" {
 		event.Status = r.snapshot.Status
 	}
-	event.Failure = cloneFailure(event.Failure)
+	event.Failure = state.CloneFailure(event.Failure)
 	event.Step = cloneStepPointer(event.Step)
 	event.Snapshot = cloneSnapshot(r.snapshot)
 	if r.sink != nil {
@@ -279,7 +272,7 @@ func cloneSnapshot(snapshot Snapshot) Snapshot {
 		RunID:   snapshot.RunID,
 		Command: snapshot.Command,
 		Status:  snapshot.Status,
-		Failure: cloneFailure(snapshot.Failure),
+		Failure: state.CloneFailure(snapshot.Failure),
 	}
 	if len(snapshot.Active) > 0 {
 		cloned.Active = make([]Step, len(snapshot.Active))
@@ -302,34 +295,10 @@ func cloneSnapshot(snapshot Snapshot) Snapshot {
 
 func cloneStep(step Step) Step {
 	step.Value = jsonutil.CloneValue(step.Value)
-	step.Error = cloneFailure(step.Error)
-	step.Artifacts = cloneArtifacts(step.Artifacts)
+	step.Error = state.CloneFailure(step.Error)
+	step.Artifacts = state.CloneArtifacts(step.Artifacts)
 	step.Descriptor = cloneDescriptorData(step.Descriptor)
 	return step
-}
-
-func cloneFailure(failure *Failure) *Failure {
-	if failure == nil {
-		return nil
-	}
-	cloned := *failure
-	return &cloned
-}
-
-func cloneArtifacts(artifacts Artifacts) Artifacts {
-	cloned := Artifacts{
-		Stdout: artifacts.Stdout,
-		Stderr: artifacts.Stderr,
-	}
-	if len(artifacts.Files) > 0 {
-		cloned.Files = make(map[string]string, len(artifacts.Files))
-		for name, path := range artifacts.Files {
-			cloned.Files[name] = path
-		}
-	} else {
-		cloned.Files = map[string]string{}
-	}
-	return cloned
 }
 
 func StepFromResult(flowName string, result state.StepResult) Step {
@@ -338,46 +307,9 @@ func StepFromResult(flowName string, result state.StepResult) Step {
 		Index:     result.Index,
 		ID:        result.ID,
 		Type:      result.Type,
-		Status:    stepStatusFromState(result.Status),
+		Status:    result.Status,
 		Value:     jsonutil.CloneValue(result.Value),
-		Error:     failureFromState(result.Error),
-		Artifacts: artifactsFromState(result.Artifacts),
-	}
-}
-
-func failureFromState(failure *state.Failure) *Failure {
-	if failure == nil {
-		return nil
-	}
-	return &Failure{
-		Code:    failure.Code,
-		Message: failure.Message,
-	}
-}
-
-func artifactsFromState(artifacts state.Artifacts) Artifacts {
-	cloned := Artifacts{
-		Stdout: artifacts.Stdout,
-		Stderr: artifacts.Stderr,
-	}
-	if len(artifacts.Files) > 0 {
-		cloned.Files = make(map[string]string, len(artifacts.Files))
-		for name, path := range artifacts.Files {
-			cloned.Files[name] = path
-		}
-	} else {
-		cloned.Files = map[string]string{}
-	}
-	return cloned
-}
-
-func stepStatusFromState(status state.StepStatus) StepStatus {
-	switch status {
-	case state.StepStatusSucceeded:
-		return StepStatusSucceeded
-	case state.StepStatusSkipped:
-		return StepStatusSkipped
-	default:
-		return StepStatusFailed
+		Error:     state.CloneFailure(result.Error),
+		Artifacts: state.CloneArtifacts(result.Artifacts),
 	}
 }

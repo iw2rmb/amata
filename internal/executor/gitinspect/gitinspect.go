@@ -3,7 +3,6 @@ package gitinspect
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 
 	"auto/internal/executor"
 	"auto/internal/gitadapter"
@@ -31,7 +30,7 @@ func (e *Executor) Execute(ctx context.Context, stepCtx executor.StepContext) st
 		return executor.Failed("invalid_executor", fmt.Sprintf("step %d: git inspect service is required", stepCtx.StepIndex))
 	}
 
-	cwd, err := resolveCWD(stepCtx)
+	cwd, err := executor.ResolveCWD(stepCtx)
 	if err != nil {
 		return executor.Failed("invalid_cwd", fmt.Sprintf("step %d: %v", stepCtx.StepIndex, err))
 	}
@@ -46,21 +45,4 @@ func (e *Executor) Execute(ctx context.Context, stepCtx executor.StepContext) st
 		"hasDiff": snapshot.HasDiff,
 		"files":   snapshot.Files,
 	})
-}
-
-func resolveCWD(stepCtx executor.StepContext) (string, error) {
-	value, ok := stepCtx.Step.Fields["cwd"]
-	if !ok {
-		return stepCtx.Workspace.Root, nil
-	}
-
-	text, err := stepCtx.Runtime.ResolveString(value)
-	if err != nil {
-		return "", err
-	}
-	if filepath.IsAbs(text) {
-		return filepath.Clean(text), nil
-	}
-
-	return filepath.Clean(filepath.Join(stepCtx.Workspace.Root, text)), nil
 }

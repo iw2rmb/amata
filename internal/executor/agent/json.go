@@ -70,7 +70,7 @@ func CommandEnv(overrides map[string]string) []string {
 	for key := range base {
 		keys = append(keys, key)
 	}
-	sortStrings(keys)
+	sort.Strings(keys)
 
 	env := make([]string, 0, len(keys))
 	for _, key := range keys {
@@ -104,10 +104,6 @@ func stripOuterFence(text string) (string, bool) {
 
 	content := strings.TrimSuffix(text[start+1:], "```")
 	return strings.TrimSpace(content), true
-}
-
-func sortStrings(values []string) {
-	sort.Strings(values)
 }
 
 func isJSONStartRune(r rune) bool {

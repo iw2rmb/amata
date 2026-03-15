@@ -164,7 +164,7 @@ func metadataDocument(providerName string, request Request, providerMetadata map
 		metadata["reasoning"] = request.Reasoning
 	}
 
-	keys := sortedKeys(providerMetadata)
+	keys := jsonutil.SortedKeys(providerMetadata)
 	for _, key := range keys {
 		metadata[key] = jsonutil.CloneValue(providerMetadata[key])
 	}
@@ -175,19 +175,6 @@ func metadataDocument(providerName string, request Request, providerMetadata map
 func sortedEnvKeys(values map[string]string) []string {
 	if len(values) == 0 {
 		return []string{}
-	}
-
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
-}
-
-func sortedKeys(values map[string]any) []string {
-	if len(values) == 0 {
-		return nil
 	}
 
 	keys := make([]string, 0, len(values))

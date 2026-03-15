@@ -77,7 +77,7 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 		Stdout:     result.stdout,
 		Stderr:     result.stderr,
 		Metadata: map[string]any{
-			"command": commandWithBinary("codex", args),
+			"command": executor.CommandWithBinary("codex", args),
 		},
 	}
 	if request.Structured != nil {
@@ -135,11 +135,4 @@ func invalidProviderOutput(response agent.Response, message string) (agent.Respo
 		Code:    "invalid_provider_output",
 		Message: message,
 	}
-}
-
-func commandWithBinary(binary string, args []string) []string {
-	command := make([]string, 0, len(args)+1)
-	command = append(command, binary)
-	command = append(command, args...)
-	return command
 }

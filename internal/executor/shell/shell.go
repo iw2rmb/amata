@@ -30,7 +30,7 @@ func (e *Executor) Execute(ctx context.Context, stepCtx executor.StepContext) st
 		return executor.Failed("invalid_command", fmt.Sprintf("step %d: %v", stepCtx.StepIndex, err))
 	}
 
-	cwd, err := resolveCWD(stepCtx)
+	cwd, err := executor.ResolveCWD(stepCtx)
 	if err != nil {
 		return executor.Failed("invalid_cwd", fmt.Sprintf("step %d: %v", stepCtx.StepIndex, err))
 	}
@@ -108,23 +108,6 @@ func resolveCommand(stepCtx executor.StepContext, value any) ([]string, error) {
 	default:
 		return nil, fmt.Errorf("command must be a string or string array")
 	}
-}
-
-func resolveCWD(stepCtx executor.StepContext) (string, error) {
-	value, ok := stepCtx.Step.Fields["cwd"]
-	if !ok {
-		return stepCtx.Workspace.Root, nil
-	}
-
-	text, err := stepCtx.Runtime.ResolveString(value)
-	if err != nil {
-		return "", err
-	}
-	if filepath.IsAbs(text) {
-		return filepath.Clean(text), nil
-	}
-
-	return filepath.Clean(filepath.Join(stepCtx.Workspace.Root, text)), nil
 }
 
 func captureArtifacts(

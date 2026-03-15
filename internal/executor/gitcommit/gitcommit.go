@@ -3,7 +3,6 @@ package gitcommit
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"auto/internal/executor"
@@ -38,7 +37,7 @@ func (e *Executor) Execute(ctx context.Context, stepCtx executor.StepContext) st
 		return executor.Failed("invalid_message", fmt.Sprintf("step %d: %v", stepCtx.StepIndex, err))
 	}
 
-	cwd, err := resolveCWD(stepCtx)
+	cwd, err := executor.ResolveCWD(stepCtx)
 	if err != nil {
 		return executor.Failed("invalid_cwd", fmt.Sprintf("step %d: %v", stepCtx.StepIndex, err))
 	}
@@ -118,51 +117,32 @@ func resolveMessage(stepCtx executor.StepContext) (string, error) {
 	return text, nil
 }
 
-func resolveCWD(stepCtx executor.StepContext) (string, error) {
-	value, ok := stepCtx.Step.Fields["cwd"]
-	if !ok {
-		return stepCtx.Workspace.Root, nil
-	}
-
-	text, err := stepCtx.Runtime.ResolveString(value)
-	if err != nil {
-		return "", err
-	}
-	if filepath.IsAbs(text) {
-		return filepath.Clean(text), nil
-	}
-
-	return filepath.Clean(filepath.Join(stepCtx.Workspace.Root, text)), nil
-}
-
 func resolveExcludePaths(stepCtx executor.StepContext) ([]string, error) {
 	value, ok := stepCtx.Step.Fields["exclude_paths"]
 	if !ok {
 		return nil, nil
 	}
 
+	var items []any
 	switch raw := value.(type) {
 	case []any:
-		paths := make([]string, 0, len(raw))
-		for index, item := range raw {
-			text, err := stepCtx.Runtime.ResolveString(item)
-			if err != nil {
-				return nil, fmt.Errorf("exclude_paths[%d]: %w", index, err)
-			}
-			paths = append(paths, text)
-		}
-		return paths, nil
+		items = raw
 	case []string:
-		paths := make([]string, 0, len(raw))
-		for index, item := range raw {
-			text, err := stepCtx.Runtime.ResolveString(item)
-			if err != nil {
-				return nil, fmt.Errorf("exclude_paths[%d]: %w", index, err)
-			}
-			paths = append(paths, text)
+		items = make([]any, len(raw))
+		for i, s := range raw {
+			items[i] = s
 		}
-		return paths, nil
 	default:
 		return nil, fmt.Errorf("exclude_paths must be an array")
 	}
+
+	paths := make([]string, 0, len(items))
+	for index, item := range items {
+		text, err := stepCtx.Runtime.ResolveString(item)
+		if err != nil {
+			return nil, fmt.Errorf("exclude_paths[%d]: %w", index, err)
+		}
+		paths = append(paths, text)
+	}
+	return paths, nil
 }

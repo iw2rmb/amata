@@ -22,6 +22,7 @@ const (
 type StepStatus string
 
 const (
+	StepStatusRunning   StepStatus = "running"
 	StepStatusSucceeded StepStatus = "succeeded"
 	StepStatusFailed    StepStatus = "failed"
 	StepStatusSkipped   StepStatus = "skipped"
@@ -148,7 +149,7 @@ func (s *Store) Append(event RunEvent) (Snapshot, error) {
 	switch event.Kind {
 	case EventRunInitialized, EventFramePushed, EventControlContinued:
 		if event.Frame != nil && event.Frame.ID == "" {
-			event.Frame.ID = frameIDForSequence(event.Sequence)
+			event.Frame.ID = FrameID(event.Sequence)
 		}
 	case EventStepRecorded:
 		if event.Step != nil && len(current.Frames) > 0 {
@@ -401,7 +402,7 @@ func apply(snapshot Snapshot, event RunEvent) (Snapshot, error) {
 		}
 	case EventRunFinished:
 		snapshot.Status = event.Status
-		snapshot.Failure = cloneFailure(event.Failure)
+		snapshot.Failure = CloneFailure(event.Failure)
 	default:
 		return Snapshot{}, fmt.Errorf("unsupported event kind %q", event.Kind)
 	}
@@ -410,7 +411,7 @@ func apply(snapshot Snapshot, event RunEvent) (Snapshot, error) {
 	return snapshot, nil
 }
 
-func cloneFailure(in *Failure) *Failure {
+func CloneFailure(in *Failure) *Failure {
 	if in == nil {
 		return nil
 	}
@@ -478,8 +479,8 @@ func cloneStepResult(in StepResult) StepResult {
 	out := in
 	out.Previous = cloneStepRef(in.Previous)
 	out.Value = jsonutil.CloneValue(in.Value)
-	out.Error = cloneFailure(in.Error)
-	out.Artifacts = cloneArtifacts(in.Artifacts)
+	out.Error = CloneFailure(in.Error)
+	out.Artifacts = CloneArtifacts(in.Artifacts)
 	return out
 }
 
@@ -511,11 +512,11 @@ func (s Snapshot) StepByRef(ref *StepRef) *StepResult {
 	return nil
 }
 
-func frameIDForSequence(sequence int) string {
+func FrameID(sequence int) string {
 	return fmt.Sprintf("frame-%06d", sequence)
 }
 
-func cloneArtifacts(in Artifacts) Artifacts {
+func CloneArtifacts(in Artifacts) Artifacts {
 	out := Artifacts{
 		Stdout: in.Stdout,
 		Stderr: in.Stderr,

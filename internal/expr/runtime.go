@@ -2,7 +2,6 @@ package expr
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	"auto/internal/jsonutil"
@@ -45,7 +44,7 @@ func (r Runtime) Resolve(value any) (any, error) {
 		}
 
 		resolved := make(map[string]any, len(typed))
-		keys := sortedKeys(typed)
+		keys := jsonutil.SortedKeys(typed)
 		for _, key := range keys {
 			value, err := r.Resolve(typed[key])
 			if err != nil {
@@ -94,7 +93,7 @@ func (r Runtime) WithBindings(bindings map[string]any) Runtime {
 		baseCtx = map[string]any{}
 	}
 	baseCtx = jsonutil.CloneMap(baseCtx)
-	keys := sortedKeys(bindings)
+	keys := jsonutil.SortedKeys(bindings)
 	for _, key := range keys {
 		baseCtx[key] = jsonutil.CloneValue(bindings[key])
 	}
@@ -137,7 +136,7 @@ func expressionString(value map[string]any) (string, bool, error) {
 
 func toGlobals(ctx map[string]any) (starlark.StringDict, error) {
 	globals := starlark.StringDict{}
-	keys := sortedKeys(ctx)
+	keys := jsonutil.SortedKeys(ctx)
 	for _, key := range keys {
 		value, err := toStarlark(jsonutil.CloneValue(ctx[key]))
 		if err != nil {
@@ -195,7 +194,7 @@ func toStarlark(value any) (starlark.Value, error) {
 		return starlark.NewList(items), nil
 	case map[string]any:
 		fields := map[string]starlark.Value{}
-		keys := sortedKeys(typed)
+		keys := jsonutil.SortedKeys(typed)
 		for _, key := range keys {
 			value, err := toStarlark(typed[key])
 			if err != nil {
@@ -277,14 +276,4 @@ func fromStarlark(value starlark.Value) (any, error) {
 	default:
 		return nil, fmt.Errorf("unsupported result type %s", value.Type())
 	}
-}
-
-
-func sortedKeys(values map[string]any) []string {
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
 }

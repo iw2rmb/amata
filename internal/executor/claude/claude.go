@@ -85,7 +85,7 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 		Stdout:     result.stdout,
 		Stderr:     result.stderr,
 		Metadata: map[string]any{
-			"command": commandWithBinary("claude", args),
+			"command": executor.CommandWithBinary("claude", args),
 		},
 	}
 	if structuredOutputMode != "" {
@@ -130,11 +130,4 @@ func (execRunner) Run(ctx context.Context, spec command) (commandResult, error) 
 		stdout: stdout.Bytes(),
 		stderr: stderr.Bytes(),
 	}, err
-}
-
-func commandWithBinary(binary string, args []string) []string {
-	command := make([]string, 0, len(args)+1)
-	command = append(command, binary)
-	command = append(command, args...)
-	return command
 }

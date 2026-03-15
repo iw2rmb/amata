@@ -1,6 +1,9 @@
 package jsonutil
 
-import "reflect"
+import (
+	"reflect"
+	"sort"
+)
 
 func CloneValue(value any) any {
 	switch typed := value.(type) {
@@ -28,6 +31,15 @@ func CloneMap(source map[string]any) map[string]any {
 		cloned[key] = CloneValue(value)
 	}
 	return cloned
+}
+
+func SortedKeys(values map[string]any) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func cloneReflected(value reflect.Value) any {

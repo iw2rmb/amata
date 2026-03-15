@@ -205,7 +205,7 @@ func resolveEnv(stepCtx executor.StepContext, values ...any) (map[string]string,
 	}
 
 	resolved := make(map[string]string, len(merged))
-	for _, key := range sortedKeys(merged) {
+	for _, key := range jsonutil.SortedKeys(merged) {
 		if key == "" {
 			return nil, fmt.Errorf("environment variable names must not be empty")
 		}

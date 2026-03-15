@@ -121,7 +121,7 @@ func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state
 			if err != nil {
 				return state.Snapshot{}, err
 			}
-			reporter.RunFinished(progress.RunStatusFailed, progressFailure(failure))
+			reporter.RunFinished(progress.RunStatusFailed, state.CloneFailure(failure))
 			return snapshot, RunFailedError{
 				RunID:   config.RunID,
 				Failure: *failure,
@@ -145,7 +145,7 @@ func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state
 		snapshot, err = store.Append(state.RunEvent{
 			Kind: state.EventRunInitialized,
 			Frame: &state.FlowFrame{
-				ID:        frameIDForEventSequence(1),
+				ID:        state.FrameID(1),
 				Flow:      config.Spec.Entry,
 				StepCount: len(entryFlow.Steps),
 			},
@@ -194,7 +194,7 @@ func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state
 			if frame.Return.StepType == "for_each" {
 				nextFrame, finalized := r.prepareForEachContinuation(config, plan, responses, lookup, parentFrame, parentPrevious, parentStep, frame.Return, produced)
 				if nextFrame != nil {
-					nextFrame.ID = frameIDForEventSequence(snapshot.LastSequence + 1)
+					nextFrame.ID = state.FrameID(snapshot.LastSequence + 1)
 					snapshot, err = store.Append(state.RunEvent{
 						Kind:  state.EventControlContinued,
 						Frame: nextFrame,
@@ -222,14 +222,14 @@ func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state
 
 		stepIndex := frame.NextStep
 		step := flow.Steps[stepIndex]
-		runtime := exprruntime.NewRuntime(buildRuntimeContextWithStepLookup(config, previous, lookup, frame.Bindings))
+		runtime := exprruntime.NewRuntime(buildRuntimeContext(config, previous, lookup, frame.Bindings))
 
 		switch step.ExecutorType() {
 		case "call":
 			reporter.StepStarted(progressStep(config, frame.Flow, stepIndex, step, previous, frame.Bindings, lookup))
 			action, result := r.prepareStepAction(config, runtime, previous, stepIndex, step)
 			if action.pushFrame != nil {
-				action.pushFrame.ID = frameIDForEventSequence(snapshot.LastSequence + 1)
+				action.pushFrame.ID = state.FrameID(snapshot.LastSequence + 1)
 				snapshot, err = store.Append(state.RunEvent{
 					Kind:  state.EventFramePushed,
 					Frame: action.pushFrame,
@@ -246,7 +246,7 @@ func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state
 			reporter.StepStarted(progressStep(config, frame.Flow, stepIndex, step, previous, frame.Bindings, lookup))
 			action, result := r.prepareSwitch(config, runtime, plan, responses, lookup, frame.Flow, previous, frame.Bindings, stepIndex, step)
 			if action.pushFrame != nil {
-				action.pushFrame.ID = frameIDForEventSequence(snapshot.LastSequence + 1)
+				action.pushFrame.ID = state.FrameID(snapshot.LastSequence + 1)
 				snapshot, err = store.Append(state.RunEvent{
 					Kind:  state.EventFramePushed,
 					Frame: action.pushFrame,
@@ -263,7 +263,7 @@ func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state
 			reporter.StepStarted(progressStep(config, frame.Flow, stepIndex, step, previous, frame.Bindings, lookup))
 			action, result := r.prepareForEach(config, runtime, plan, responses, lookup, frame.Flow, previous, frame.Bindings, stepIndex, step)
 			if action.pushFrame != nil {
-				action.pushFrame.ID = frameIDForEventSequence(snapshot.LastSequence + 1)
+				action.pushFrame.ID = state.FrameID(snapshot.LastSequence + 1)
 				snapshot, err = store.Append(state.RunEvent{
 					Kind:  state.EventFramePushed,
 					Frame: action.pushFrame,
@@ -280,7 +280,7 @@ func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state
 			reporter.StepStarted(progressStep(config, frame.Flow, stepIndex, step, previous, frame.Bindings, lookup))
 			action, result := r.executeStep(ctx, config, responses, snapshot, frame.Flow, stepIndex, step, previous, frame.Bindings)
 			if action.pushFrame != nil {
-				action.pushFrame.ID = frameIDForEventSequence(snapshot.LastSequence + 1)
+				action.pushFrame.ID = state.FrameID(snapshot.LastSequence + 1)
 				snapshot, err = store.Append(state.RunEvent{
 					Kind:  state.EventFramePushed,
 					Frame: action.pushFrame,
@@ -308,7 +308,7 @@ func (r *Runner) executeStep(
 	previous *state.StepResult,
 	bindings map[string]any,
 ) (stepAction, state.StepResult) {
-	runtime := exprruntime.NewRuntime(buildRuntimeContextWithStepLookup(config, previous, snapshot.StepByRef, bindings))
+	runtime := exprruntime.NewRuntime(buildRuntimeContext(config, previous, snapshot.StepByRef, bindings))
 	action, result := r.prepareStepAction(config, runtime, previous, stepIndex, step)
 	if result.Status != "" || action.pushFrame != nil {
 		return action, finalizeStatus(result)
@@ -956,7 +956,7 @@ func (r *Runner) finalizeStepResult(
 	step spec.Step,
 	result state.StepResult,
 ) state.StepResult {
-	runtime := exprruntime.NewRuntime(buildRuntimeContextWithStepLookup(config, previous, lookup, bindings))
+	runtime := exprruntime.NewRuntime(buildRuntimeContext(config, previous, lookup, bindings))
 
 	if result.Status == state.StepStatusSucceeded {
 		resolved, failure := responses.Apply(result.Index, config.SpecPath, step, result)
@@ -1141,7 +1141,7 @@ func (r *Runner) recordResultEvent(
 	if err != nil {
 		return state.Snapshot{}, err
 	}
-	reporter.RunFinished(progress.RunStatusFailed, progressFailure(failure))
+	reporter.RunFinished(progress.RunStatusFailed, state.CloneFailure(failure))
 
 	return snapshot, RunFailedError{
 		RunID:   runID,
@@ -1185,19 +1185,10 @@ func progressStepContext(config Config, flowName string, stepIndex int, step spe
 		StepIndex: stepIndex,
 		Step:      step,
 		Previous:  previous,
-		Runtime:   exprruntime.NewRuntime(buildRuntimeContextWithStepLookup(config, previous, lookup, bindings)),
+		Runtime:   exprruntime.NewRuntime(buildRuntimeContext(config, previous, lookup, bindings)),
 	}
 }
 
-func progressFailure(failure *state.Failure) *progress.Failure {
-	if failure == nil {
-		return nil
-	}
-	return &progress.Failure{
-		Code:    failure.Code,
-		Message: failure.Message,
-	}
-}
 
 func resumeActiveProgressSteps(config Config, plan *flowPlan, snapshot state.Snapshot) []progress.Step {
 	if len(snapshot.Frames) < 2 {
@@ -1236,10 +1227,6 @@ func stepRef(step *state.StepResult) *state.StepRef {
 		return nil
 	}
 	return state.StepRefFor(*step)
-}
-
-func frameIDForEventSequence(sequence int) string {
-	return fmt.Sprintf("frame-%06d", sequence)
 }
 
 func shouldSkipStep(stepIndex int, step spec.Step, runtime exprruntime.Runtime) (bool, *state.Failure) {
