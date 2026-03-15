@@ -149,10 +149,9 @@ schemas:
 flows:
   main:
     steps:
-      - type: call
-        flow: implement_loop
+      - call: implement_loop
 
-      - command:
+      - shell:
           - python3
           - "{{ ctx.spec.dir }}/scripts/roadmap_items.py"
           - summary
@@ -160,12 +159,9 @@ flows:
           - $.params.roadmap_file
         response:
           from: stdout
-          schema:
-            $ref: "#/schemas/roadmap_complete_result"
+          schema: "#/schemas/roadmap_complete_result"
 
-      - type: codex
-        reasoning: $.params.codex_correctness_reasoning
-        prompt: |
+      - codex: |
           Repository root: {{ ctx.workspace.root }}
           Roadmap file: {{ ctx.params.roadmap_file }}
 
@@ -174,14 +170,11 @@ flows:
           Do not commit.
           Output ONLY valid JSON:
             {"approved":true,"notes":"..."}
-        response:
-          schema:
-            $ref: "#/schemas/review_result"
+        reasoning: $.params.codex_correctness_reasoning
+        response: "#/schemas/review_result"
         expect: $.value["approved"]
 
-      - type: claude
-        reasoning: $.params.claude_refactor_reasoning
-        prompt: |
+      - claude: |
           Repository root: {{ ctx.workspace.root }}
           Roadmap file: {{ ctx.params.roadmap_file }}
 
@@ -191,14 +184,11 @@ flows:
           Do not commit.
           Output ONLY valid JSON:
             {"approved":true,"notes":"..."}
-        response:
-          schema:
-            $ref: "#/schemas/review_result"
+        reasoning: $.params.claude_refactor_reasoning
+        response: "#/schemas/review_result"
         expect: $.value["approved"]
 
-      - type: codex
-        reasoning: $.params.codex_correctness_reasoning
-        prompt: |
+      - codex: |
           Repository root: {{ ctx.workspace.root }}
           Roadmap file: {{ ctx.params.roadmap_file }}
 
@@ -208,17 +198,14 @@ flows:
           Do not commit.
           Output ONLY valid JSON:
             {"approved":true,"notes":"...","commitMessage":"..."}
-        response:
-          schema:
-            $ref: "#/schemas/sanity_result"
+        reasoning: $.params.codex_correctness_reasoning
+        response: "#/schemas/sanity_result"
         expect: $.value["approved"]
 
       - type: git.commit
         message: $.prev.value["commitMessage"]
 
-      - type: codex
-        reasoning: $.params.codex_docs_reasoning
-        prompt: |
+      - codex: |
           Repository root: {{ ctx.workspace.root }}
           Completed roadmap file: {{ ctx.params.roadmap_file }}
 
@@ -232,16 +219,15 @@ flows:
           5. Leave changes uncommitted.
           Output ONLY valid JSON:
             {"commitMessage":"cleanup: remove completed roadmap artifacts and refresh docs"}
-        response:
-          schema:
-            $ref: "#/schemas/docs_result"
+        reasoning: $.params.codex_docs_reasoning
+        response: "#/schemas/docs_result"
 
       - type: git.commit
         message: $.prev.value["commitMessage"]
 
   implement_loop:
     steps:
-      - command:
+      - shell:
           - python3
           - "{{ ctx.spec.dir }}/scripts/roadmap_items.py"
           - next-open
@@ -249,22 +235,12 @@ flows:
           - $.params.roadmap_file
         response:
           from: stdout
-          schema:
-            $ref: "#/schemas/next_open_result"
+          schema: "#/schemas/next_open_result"
 
-      - type: switch
-        cases:
-          - when:
-              expr: not ctx.prev.value["hasOpenItem"]
+      - switch:
+          - when: ctx.prev.value["hasOpenItem"]
             steps:
-              - expr: $.prev.value
-
-          - when:
-              expr: ctx.prev.value["hasOpenItem"]
-            steps:
-              - type: codex
-                reasoning: $.prev.value["item"]["reasoning"]
-                prompt: |
+              - codex: |
                   Implement next open item from the {{ ctx.params.roadmap_file }}.
                   Repository root: {{ ctx.workspace.root }}
 
@@ -278,13 +254,12 @@ flows:
 
                   Selected roadmap item JSON:
                   {{ ctx.prev.value["item"] }}
-                response:
-                  schema:
-                    $ref: "#/schemas/implement_result"
+                reasoning: $.prev.value["item"]["reasoning"]
+                response: "#/schemas/implement_result"
                 expect:
                   expr: ctx.value["itemTitle"] == ctx.prev.value["item"]["title"] and ctx.value["itemLabel"] == ctx.prev.value["item"]["label"]
 
-              - command:
+              - shell:
                   - python3
                   - "{{ ctx.spec.dir }}/scripts/roadmap_items.py"
                   - match
@@ -306,12 +281,9 @@ flows:
                   - summary={{ ctx.prev.value["summary"] }}
                 response:
                   from: stdout
-                  schema:
-                    $ref: "#/schemas/matched_item_result"
+                  schema: "#/schemas/matched_item_result"
 
-              - type: codex
-                reasoning: $.prev.value["carry"]["reviewReasoning"]
-                prompt: |
+              - codex: |
                   Repository root: {{ ctx.workspace.root }}
                   Roadmap file: {{ ctx.params.roadmap_file }}
                   Requested review reasoning: {{ ctx.prev.value["carry"]["reviewReasoning"] }}
@@ -327,14 +299,16 @@ flows:
 
                   Proposed commit message:
                   {{ ctx.prev.value["carry"]["commitMessage"] }}
-                response:
-                  schema:
-                    $ref: "#/schemas/review_commit_result"
+                reasoning: $.prev.value["carry"]["reviewReasoning"]
+                response: "#/schemas/review_commit_result"
                 expect:
                   expr: ctx.value["approved"] and ctx.value["itemTitle"] == ctx.prev.value["carry"]["itemTitle"] and ctx.value["itemLabel"] == ctx.prev.value["carry"]["itemLabel"]
 
               - type: git.commit
                 message: $.prev.value["commitMessage"]
 
-              - type: call
-                flow: implement_loop
+              - call: implement_loop
+
+          - default: not ctx.prev.value["hasOpenItem"]
+            steps:
+              - expr: $.prev.value

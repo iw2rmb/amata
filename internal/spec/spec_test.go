@@ -165,6 +165,14 @@ func TestLoadRejectsInvalidBuiltInStepSchemas(t *testing.T) {
 			wantFragment: "bogus",
 		},
 		{
+			name: "shell shorthand rejects object",
+			steps: `
+      - shell:
+          expr: '"echo hi"'
+`,
+			wantFragment: "step does not declare an executor",
+		},
+		{
 			name: "git commit missing message",
 			steps: `
       - type: git.commit
@@ -277,5 +285,144 @@ flows:
 
 	if got := len(loaded.Spec.Flows["main"].Steps); got != 3 {
 		t.Fatalf("main step count = %d, want 3", got)
+	}
+}
+
+func TestLoadAcceptsStepAndResponseShorthand(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	schemaPath := filepath.Join(tempDir, "commit.schema.json")
+	specPath := filepath.Join(tempDir, "workflow.yaml")
+
+	if err := os.WriteFile(schemaPath, []byte(`{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}`), 0o644); err != nil {
+		t.Fatalf("write schema: %v", err)
+	}
+
+	specBody := `
+version: amata/v1
+name: sample
+entry: main
+flows:
+  main:
+    steps:
+      - call: next
+      - shell: echo hi
+        response: ./commit.schema.json
+      - codex: |
+          Output ONLY valid JSON.
+        response:
+          type: object
+          properties:
+            approved: boolean
+          required: [approved]
+          additionalProperties: false
+      - claude:
+          expr: '"prompt"'
+      - switch:
+          - when: $.prev.value["hasItem"]
+            steps:
+              - call: next
+          - default: not ctx.prev.value["hasItem"]
+            steps:
+              - expr: $.prev.value
+      - type: for_each
+        items: [one]
+        steps:
+          - shell:
+              - sh
+              - -lc
+              - echo hi
+  next:
+    steps:
+      - type: expr
+        expr: '"done"'
+`
+
+	if err := os.WriteFile(specPath, []byte(specBody), 0o644); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+
+	loaded, err := spec.Load(specPath)
+	if err != nil {
+		t.Fatalf("load spec: %v", err)
+	}
+
+	mainSteps := loaded.Spec.Flows["main"].Steps
+	if got := mainSteps[0].Type; got != "call" {
+		t.Fatalf("step 0 type = %q, want call", got)
+	}
+	if got := mainSteps[0].Fields["flow"]; got != "next" {
+		t.Fatalf("step 0 flow = %#v, want next", got)
+	}
+
+	if got := mainSteps[1].Type; got != "shell" {
+		t.Fatalf("step 1 type = %q, want shell", got)
+	}
+	responseFields, ok := mainSteps[1].Fields["response"].(map[string]any)
+	if !ok {
+		t.Fatalf("step 1 response = %#v, want map", mainSteps[1].Fields["response"])
+	}
+	if got := responseFields["schema"]; got != "./commit.schema.json" {
+		t.Fatalf("step 1 response.schema = %#v, want ./commit.schema.json", got)
+	}
+
+	if got := mainSteps[2].Type; got != "codex" {
+		t.Fatalf("step 2 type = %q, want codex", got)
+	}
+	if _, ok := mainSteps[2].Fields["prompt"].(string); !ok {
+		t.Fatalf("step 2 prompt = %#v, want string", mainSteps[2].Fields["prompt"])
+	}
+	responseFields, ok = mainSteps[2].Fields["response"].(map[string]any)
+	if !ok {
+		t.Fatalf("step 2 response = %#v, want map", mainSteps[2].Fields["response"])
+	}
+	schemaFields, ok := responseFields["schema"].(map[string]any)
+	if !ok {
+		t.Fatalf("step 2 response.schema = %#v, want schema map", responseFields["schema"])
+	}
+	if got := schemaFields["type"]; got != "object" {
+		t.Fatalf("step 2 response.schema.type = %#v, want object", got)
+	}
+
+	if got := mainSteps[3].Type; got != "claude" {
+		t.Fatalf("step 3 type = %q, want claude", got)
+	}
+	promptFields, ok := mainSteps[3].Fields["prompt"].(map[string]any)
+	if !ok {
+		t.Fatalf("step 3 prompt = %#v, want expr map", mainSteps[3].Fields["prompt"])
+	}
+	if got := promptFields["expr"]; got != `"prompt"` {
+		t.Fatalf("step 3 prompt.expr = %#v, want %q", got, `"prompt"`)
+	}
+
+	if got := mainSteps[4].Type; got != "switch" {
+		t.Fatalf("step 4 type = %q, want switch", got)
+	}
+	cases, ok := mainSteps[4].Fields["cases"].([]any)
+	if !ok || len(cases) != 2 {
+		t.Fatalf("step 4 cases = %#v, want 2 switch cases", mainSteps[4].Fields["cases"])
+	}
+	firstCase, ok := cases[0].(map[string]any)
+	if !ok {
+		t.Fatalf("step 4 case 0 = %#v, want map", cases[0])
+	}
+	firstWhen, ok := firstCase["when"].(map[string]any)
+	if !ok {
+		t.Fatalf("step 4 case 0 when = %#v, want expr map", firstCase["when"])
+	}
+	if got := firstWhen["expr"]; got != `$.prev.value["hasItem"]` {
+		t.Fatalf("step 4 case 0 when.expr = %#v, want hasItem expression", got)
+	}
+	secondCase, ok := cases[1].(map[string]any)
+	if !ok {
+		t.Fatalf("step 4 case 1 = %#v, want map", cases[1])
+	}
+	secondWhen, ok := secondCase["when"].(map[string]any)
+	if !ok {
+		t.Fatalf("step 4 case 1 when = %#v, want expr map", secondCase["when"])
+	}
+	if got := secondWhen["expr"]; got != `not ctx.prev.value["hasItem"]` {
+		t.Fatalf("step 4 case 1 when.expr = %#v, want negated hasItem expression", got)
 	}
 }

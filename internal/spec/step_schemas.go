@@ -1,7 +1,6 @@
 package spec
 
 import (
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -9,6 +8,7 @@ import (
 
 	embeddedschemas "auto/schemas"
 	jsonschema "github.com/santhosh-tekuri/jsonschema/v6"
+	"gopkg.in/yaml.v3"
 )
 
 var (
@@ -53,30 +53,23 @@ func validateBuiltInSteps(document Document) error {
 
 func compiledStepSchemas() (map[string]*jsonschema.Schema, error) {
 	stepSchemasOnce.Do(func() {
-		names, err := embeddedschemas.Names()
+		documents, err := embeddedSchemaDocuments()
 		if err != nil {
-			stepSchemasErr = fmt.Errorf("load embedded step schemas: %w", err)
+			stepSchemasErr = err
 			return
 		}
 
 		compiler := jsonschema.NewCompiler()
 		compiler.DefaultDraft(jsonschema.Draft2020)
 
+		names := make([]string, 0, len(documents))
+		for name := range documents {
+			names = append(names, name)
+		}
+		sort.Strings(names)
 		for _, name := range names {
-			data, err := embeddedschemas.Read(name)
-			if err != nil {
-				stepSchemasErr = fmt.Errorf("read embedded step schema %q: %w", name, err)
-				return
-			}
-
-			var document any
-			if err := json.Unmarshal(data, &document); err != nil {
-				stepSchemasErr = fmt.Errorf("decode embedded step schema %q: %w", name, err)
-				return
-			}
-
 			resource := "embedded:///" + name + embeddedschemas.Suffix
-			if err := compiler.AddResource(resource, document); err != nil {
+			if err := compiler.AddResource(resource, documents[name]); err != nil {
 				stepSchemasErr = fmt.Errorf("add embedded step schema %q: %w", name, err)
 				return
 			}
@@ -212,47 +205,16 @@ func decodeNestedSteps(raw any) ([]Step, error) {
 		return nil, fmt.Errorf("steps must be an array")
 	}
 
-	steps := make([]Step, 0, len(values))
-	for stepIndex, value := range values {
-		step, err := decodeNestedStep(value)
-		if err != nil {
-			return nil, fmt.Errorf("step %d: %w", stepIndex, err)
-		}
-		steps = append(steps, step)
+	data, err := yaml.Marshal(values)
+	if err != nil {
+		return nil, fmt.Errorf("marshal steps: %w", err)
 	}
 
+	var steps []Step
+	if err := yaml.Unmarshal(data, &steps); err != nil {
+		return nil, fmt.Errorf("decode steps: %w", err)
+	}
 	return steps, nil
-}
-
-func decodeNestedStep(raw any) (Step, error) {
-	fields, ok := raw.(map[string]any)
-	if !ok {
-		return Step{}, fmt.Errorf("step must be an object")
-	}
-
-	step := Step{
-		Fields: make(map[string]any, len(fields)),
-	}
-	for key, value := range fields {
-		switch key {
-		case "id":
-			text, ok := value.(string)
-			if !ok {
-				return Step{}, fmt.Errorf("id must be a string")
-			}
-			step.ID = text
-		case "type":
-			text, ok := value.(string)
-			if !ok {
-				return Step{}, fmt.Errorf("type must be a string")
-			}
-			step.Type = text
-		default:
-			step.Fields[key] = value
-		}
-	}
-
-	return step, nil
 }
 
 func trimEmbeddedSchemaPrefix(err error) error {

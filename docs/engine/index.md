@@ -37,7 +37,7 @@ flows:
 Current behavior:
 - `version`, `name`, `entry`, and `flows` are required.
 - `entry` must name a flow present in `flows`.
-- `flows` may include named subflows that are reachable through `type: call` and synthetic `switch` and `for_each` child frames.
+- `flows` may include named subflows that are reachable through `type: call`, `call: <flow>`, and synthetic `switch` and `for_each` child frames.
 - `workspace.root` and `workspace.state_dir` are accepted and normalized before execution.
 - `params` are exposed to expressions and templates under `ctx.params`.
 - Repeated `--set key=value` flags override declared `spec.params` entries for the launched run and persist inside the stored normalized spec.
@@ -50,8 +50,14 @@ Current behavior:
   - `command` -> `shell`
   - `expr` -> `expr`
   - `assert` -> `assert`
+- Additional built-in shorthands expand to their canonical field form:
+  - `call: <flow>` -> `type: call` plus `flow: <flow>`
+  - `shell: <command>` -> `type: shell` plus `command: <command>`
+  - `switch: <cases>` -> `type: switch` plus `cases: <cases>`
+  - `codex: <prompt>` -> `type: codex` plus `prompt: <prompt>`
+  - `claude: <prompt>` -> `type: claude` plus `prompt: <prompt>`
 - `when` resolves through the shared expression runtime and must evaluate to a boolean. `false` skips the step before executor dispatch.
-- `switch`, `call`, and `for_each` currently require an explicit `type`.
+- `switch` and `for_each` still require an explicit `type`.
 
 ## Expression Runtime
 
@@ -195,11 +201,14 @@ Renderer metadata guarantees:
 ### `switch`
 
 Supported fields:
+- `switch`: shorthand for `cases`
 - `type: switch`
 - `cases`: required ordered list of branches
 
 Behavior:
 - Each case may declare `when` and `steps`.
+- `when: <expr>` is shorthand for `when: {expr: <expr>}`.
+- `default: <expr>` is an alias for `when: {expr: <expr>}` on a branch object. An unconditional fallback branch still omits both `when` and `default`.
 - Cases are evaluated in order and only the first matching branch runs.
 - The selected branch runs in a child flow frame.
 - The step succeeds with a structured `value` containing `matched`, `case`, `status`, `value`, `error`, and `artifacts` from the nested branch result.
@@ -210,6 +219,7 @@ Behavior:
 
 Supported fields:
 - `type: call`
+- `call`: shorthand for `flow`
 - `flow`: required expression-bearing string naming the target flow
 
 Behavior:
@@ -237,6 +247,7 @@ Behavior:
 ### `shell`
 
 Supported fields:
+- `shell`: shorthand for `command`
 - `command`: required string or string array
 - `cwd`: optional string
 - `files`: optional map of artifact name to file path
@@ -276,6 +287,7 @@ Behavior:
 
 Supported fields:
 - `type: codex`
+- `codex`: shorthand for `prompt`
 - `prompt`: required expression-bearing string
 - `model`: required string after applying `defaults.executors.codex`
 - `reasoning`: optional string
@@ -295,6 +307,7 @@ Behavior:
 
 Supported fields:
 - `type: claude`
+- `claude`: shorthand for `prompt`
 - `prompt`: required expression-bearing string
 - `model`: required string after applying `defaults.executors.claude`
 - `reasoning`: optional string
@@ -354,6 +367,12 @@ response:
   schema: <json-schema-object-or-ref-or-path>
 ```
 
+or the schema-only shorthand:
+
+```yaml
+response: <json-schema-object-or-ref-or-path>
+```
+
 Current behavior:
 - `response.from` defaults to `value`, which preserves the executor-native structured result.
 - `stdout`, `stderr`, `stdout_lines`, `stderr_lines`, and named artifact sources read the captured artifact contents and publish them as step `value`.
@@ -362,6 +381,7 @@ Current behavior:
 - `response.schema` validates the resolved `value` before `expect` runs or later steps can consume `ctx.prev.value`.
 - `response.schema` may use workflow-owned refs such as `#/schemas/review_result`.
 - `response.schema` may also be a path-like string to a `.json` schema file, resolved relative to `ctx.spec.dir`.
+- `response: <schema>` is equivalent to `response: {schema: <schema>}`.
 - Named schemas support the local shorthand forms used in the design examples, such as `approved: boolean`.
 - For Codex structured output, the resolved top-level response schema must be an object schema. Provider-unsupported schema keywords fail the step with `invalid_response_schema` before `codex exec` runs.
 - Invalid response schemas fail the step with `invalid_response_schema`.
@@ -371,6 +391,7 @@ Current behavior:
 ## Step Conditions and Expectations
 
 - `when` runs before executor dispatch in the normal runtime context.
+- `when: <expr>` is shorthand for `when: {expr: <expr>}`.
 - `expect` runs only after a succeeded step.
 - `expect` extends the normal runtime context with the current step result at `ctx.status`, `ctx.value`, `ctx.error`, and `ctx.artifacts`.
 - Those temporary bindings exist only during `expect`; downstream steps still read prior results through `ctx.prev`.
