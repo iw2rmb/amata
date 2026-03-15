@@ -21,6 +21,11 @@ Additional policies **MUST** be loaded when naming is literally corresponds the 
 
 Repetitive boilerplate is the primary source of bugs.
 The solution is to unify and generalize.
+- Before edits, search for existing helpers in the same domain.
+- After edits, review only the diff for duplication.
+- If a new helper overlaps an existing one, unify before commit.
+- If test setup is copied across packages, extract shared test helper before commit.
+- In the final answer, report what duplication was removed.
 
 
 ### Overengineering
