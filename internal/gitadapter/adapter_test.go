@@ -127,6 +127,36 @@ func TestCommitExcludesAbsolutePrefixesAndKeepsExcludedStagedChanges(t *testing.
 	}
 }
 
+func TestCommitIncludesBodyInDescription(t *testing.T) {
+	t.Parallel()
+
+	repoDir := initRepository(t)
+	writeFile(t, filepath.Join(repoDir, "engine.txt"), "engine change\n")
+
+	client := New()
+	snapshot, err := client.Inspect(context.Background(), repoDir)
+	if err != nil {
+		t.Fatalf("inspect repository: %v", err)
+	}
+
+	result, err := client.Commit(context.Background(), snapshot, CommitOptions{
+		Message: "engine: commit tracked changes",
+		Body:    "line one\n\nline two",
+	})
+	if err != nil {
+		t.Fatalf("commit repository changes: %v", err)
+	}
+	if !result.Committed {
+		t.Fatalf("result.Committed = false, want true")
+	}
+
+	got := strings.TrimRight(runGit(t, repoDir, "log", "-1", "--pretty=%B"), "\n")
+	want := "engine: commit tracked changes\n\nline one\n\nline two"
+	if got != want {
+		t.Fatalf("commit message body = %q, want %q", got, want)
+	}
+}
+
 func TestFilterPathsUsesDirectoryPrefixSemantics(t *testing.T) {
 	t.Parallel()
 

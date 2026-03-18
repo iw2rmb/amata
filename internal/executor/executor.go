@@ -4,10 +4,10 @@ import (
 	"context"
 	"path/filepath"
 
-	exprruntime "auto/internal/expr"
-	"auto/internal/spec"
-	"auto/internal/state"
-	"auto/internal/workspace"
+	exprruntime "github.com/iw2rmb/amata/internal/expr"
+	"github.com/iw2rmb/amata/internal/spec"
+	"github.com/iw2rmb/amata/internal/state"
+	"github.com/iw2rmb/amata/internal/workspace"
 )
 
 type Executor interface {

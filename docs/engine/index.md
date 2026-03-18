@@ -340,11 +340,13 @@ Behavior:
 Supported fields:
 - `type: git.commit`
 - `message`: required string
+- `body`: optional string
 - `cwd`: optional string
 - `exclude_paths`: optional array of repo-relative path prefixes
 
 Behavior:
-- `message`, `cwd`, and `exclude_paths` items resolve through the shared expression/template runtime before execution.
+- `message`, `body`, `cwd`, and `exclude_paths` items resolve through the shared expression/template runtime before execution.
+- When `body` is provided and not empty, the commit uses `message` as the subject line and `body` as the description body.
 - `cwd` defaults to `workspace.root`.
 - Relative `cwd` values resolve from `workspace.root`.
 - The executor fails with `not_git_repo` when `cwd` is not inside a Git work tree.

@@ -5,7 +5,7 @@ import (
 	"io"
 	"testing"
 
-	"auto/internal/progress"
+	"github.com/iw2rmb/amata/internal/progress"
 )
 
 func TestRunCLIDoesNotInitializeProgressControllerForInvalidCommand(t *testing.T) {

@@ -9,14 +9,14 @@ import (
 	"strings"
 	"testing"
 
-	"auto/internal/executor"
-	"auto/internal/executor/agent"
-	exprruntime "auto/internal/expr"
-	"auto/internal/runtime/response"
-	"auto/internal/schema"
-	"auto/internal/spec"
-	"auto/internal/state"
-	"auto/internal/workspace"
+	"github.com/iw2rmb/amata/internal/executor"
+	"github.com/iw2rmb/amata/internal/executor/agent"
+	exprruntime "github.com/iw2rmb/amata/internal/expr"
+	"github.com/iw2rmb/amata/internal/runtime/response"
+	"github.com/iw2rmb/amata/internal/schema"
+	"github.com/iw2rmb/amata/internal/spec"
+	"github.com/iw2rmb/amata/internal/state"
+	"github.com/iw2rmb/amata/internal/workspace"
 )
 
 func TestExecutorResolvesDefaultsTemplatesAndPersistsArtifacts(t *testing.T) {

@@ -3,7 +3,7 @@ package runtime
 import (
 	"fmt"
 
-	"auto/internal/spec"
+	"github.com/iw2rmb/amata/internal/spec"
 	"gopkg.in/yaml.v3"
 )
 

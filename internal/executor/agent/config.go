@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"sort"
 
-	"auto/internal/executor"
-	"auto/internal/jsonutil"
-	"auto/internal/schema"
+	"github.com/iw2rmb/amata/internal/executor"
+	"github.com/iw2rmb/amata/internal/jsonutil"
+	"github.com/iw2rmb/amata/internal/schema"
 )
 
 type ResolvedStep struct {

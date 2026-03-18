@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"auto/internal/jsonutil"
+	"github.com/iw2rmb/amata/internal/jsonutil"
 	jsonschema "github.com/santhosh-tekuri/jsonschema/v6"
 )
 

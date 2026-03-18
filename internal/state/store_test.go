@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"auto/internal/state"
+	"github.com/iw2rmb/amata/internal/state"
 )
 
 func TestStoreAppendsEventsImmutablyAndRebuildsSnapshot(t *testing.T) {

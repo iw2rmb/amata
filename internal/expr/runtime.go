@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"auto/internal/jsonutil"
-	templateapi "auto/internal/template"
+	"github.com/iw2rmb/amata/internal/jsonutil"
+	templateapi "github.com/iw2rmb/amata/internal/template"
 
 	"go.starlark.net/starlark"
 )

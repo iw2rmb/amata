@@ -7,10 +7,10 @@ import (
 	"os"
 	"strings"
 
-	"auto/internal/jsonutil"
-	"auto/internal/schema"
-	"auto/internal/spec"
-	"auto/internal/state"
+	"github.com/iw2rmb/amata/internal/jsonutil"
+	"github.com/iw2rmb/amata/internal/schema"
+	"github.com/iw2rmb/amata/internal/spec"
+	"github.com/iw2rmb/amata/internal/state"
 )
 
 const (

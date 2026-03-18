@@ -3,7 +3,7 @@ package runtime
 import (
 	"testing"
 
-	"auto/internal/spec"
+	"github.com/iw2rmb/amata/internal/spec"
 )
 
 func TestBuildFlowPlanAddsNestedSwitchBranchFlows(t *testing.T) {

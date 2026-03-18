@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"auto/internal/executor"
-	"auto/internal/state"
+	"github.com/iw2rmb/amata/internal/executor"
+	"github.com/iw2rmb/amata/internal/state"
 )
 
 type Executor struct{}

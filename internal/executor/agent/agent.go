@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"sort"
 
-	"auto/internal/executor"
-	"auto/internal/jsonutil"
-	"auto/internal/state"
+	"github.com/iw2rmb/amata/internal/executor"
+	"github.com/iw2rmb/amata/internal/jsonutil"
+	"github.com/iw2rmb/amata/internal/state"
 )
 
 type Provider interface {

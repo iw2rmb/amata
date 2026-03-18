@@ -28,6 +28,7 @@ type Snapshot struct {
 
 type CommitOptions struct {
 	Message      string
+	Body         string
 	ExcludePaths []string
 }
 
@@ -122,7 +123,7 @@ func (c *Client) Commit(ctx context.Context, snapshot Snapshot, opts CommitOptio
 		return result, nil
 	}
 
-	commit, err := c.cli.commitPaths(ctx, snapshot.Root, opts.Message, includedPaths)
+	commit, err := c.cli.commitPaths(ctx, snapshot.Root, opts.Message, opts.Body, includedPaths)
 	if err != nil {
 		return CommitResult{}, err
 	}

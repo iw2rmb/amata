@@ -1,4 +1,4 @@
-module auto
+module github.com/iw2rmb/amata
 
 go 1.25.8
 

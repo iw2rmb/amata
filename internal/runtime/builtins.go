@@ -1,14 +1,14 @@
 package runtime
 
 import (
-	"auto/internal/executor"
-	assertexec "auto/internal/executor/assert"
-	claudeexec "auto/internal/executor/claude"
-	codexexec "auto/internal/executor/codex"
-	exprexec "auto/internal/executor/expr"
-	gitcommitexec "auto/internal/executor/gitcommit"
-	gitinspectexec "auto/internal/executor/gitinspect"
-	shellexec "auto/internal/executor/shell"
+	"github.com/iw2rmb/amata/internal/executor"
+	assertexec "github.com/iw2rmb/amata/internal/executor/assert"
+	claudeexec "github.com/iw2rmb/amata/internal/executor/claude"
+	codexexec "github.com/iw2rmb/amata/internal/executor/codex"
+	exprexec "github.com/iw2rmb/amata/internal/executor/expr"
+	gitcommitexec "github.com/iw2rmb/amata/internal/executor/gitcommit"
+	gitinspectexec "github.com/iw2rmb/amata/internal/executor/gitinspect"
+	shellexec "github.com/iw2rmb/amata/internal/executor/shell"
 )
 
 func builtinRegistry() *Registry {

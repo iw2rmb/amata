@@ -19,6 +19,9 @@
     "message": {
       "$ref": "common.string-or-expr.amata.schema.json"
     },
+    "body": {
+      "$ref": "common.string-or-expr.amata.schema.json"
+    },
     "cwd": {
       "$ref": "common.string-or-expr.amata.schema.json"
     },

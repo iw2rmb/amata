@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"auto/internal/runtime"
+	"github.com/iw2rmb/amata/internal/runtime"
 )
 
 func main() {

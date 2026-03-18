@@ -37,8 +37,13 @@ func (gitCLI) hasCachedDiff(ctx context.Context, repoRoot string, paths []string
 	return false, formatGitError(args, err, output)
 }
 
-func (gitCLI) commitPaths(ctx context.Context, repoRoot string, message string, paths []string) (string, error) {
-	args := append([]string{"commit", "--quiet", "-m", message, "--"}, paths...)
+func (gitCLI) commitPaths(ctx context.Context, repoRoot string, message string, body string, paths []string) (string, error) {
+	args := []string{"commit", "--quiet", "-m", message}
+	if strings.TrimSpace(body) != "" {
+		args = append(args, "-m", body)
+	}
+	args = append(args, "--")
+	args = append(args, paths...)
 	if _, err := runGitCommand(ctx, repoRoot, args...); err != nil {
 		return "", fmt.Errorf("commit included paths: %w", err)
 	}

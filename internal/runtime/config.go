@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"auto/internal/jsonutil"
-	"auto/internal/spec"
-	"auto/internal/workspace"
+	"github.com/iw2rmb/amata/internal/jsonutil"
+	"github.com/iw2rmb/amata/internal/spec"
+	"github.com/iw2rmb/amata/internal/workspace"
 	"gopkg.in/yaml.v3"
 )
 

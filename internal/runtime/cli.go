@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"auto/internal/progress"
-	"auto/internal/spec"
+	"github.com/iw2rmb/amata/internal/progress"
+	"github.com/iw2rmb/amata/internal/spec"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )

@@ -3,7 +3,7 @@ package schema_test
 import (
 	"testing"
 
-	"auto/internal/schema"
+	"github.com/iw2rmb/amata/internal/schema"
 )
 
 func TestRegistryCompileResolvesWorkflowOwnedRefs(t *testing.T) {

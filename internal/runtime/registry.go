@@ -3,7 +3,7 @@ package runtime
 import (
 	"fmt"
 
-	"auto/internal/executor"
+	"github.com/iw2rmb/amata/internal/executor"
 )
 
 type Registry struct {

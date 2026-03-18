@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"auto/internal/executor/agent"
+	"github.com/iw2rmb/amata/internal/executor/agent"
 )
 
 func TestProviderStructuredOutputModes(t *testing.T) {

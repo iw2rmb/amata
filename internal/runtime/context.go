@@ -3,9 +3,9 @@ package runtime
 import (
 	"path/filepath"
 
-	"auto/internal/jsonutil"
-	"auto/internal/state"
-	"auto/internal/workspace"
+	"github.com/iw2rmb/amata/internal/jsonutil"
+	"github.com/iw2rmb/amata/internal/state"
+	"github.com/iw2rmb/amata/internal/workspace"
 )
 
 func specContext(path string) map[string]any {

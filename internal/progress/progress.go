@@ -4,8 +4,8 @@ import (
 	"sync"
 	"time"
 
-	"auto/internal/jsonutil"
-	"auto/internal/state"
+	"github.com/iw2rmb/amata/internal/jsonutil"
+	"github.com/iw2rmb/amata/internal/state"
 )
 
 type EventKind string

@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"auto/internal/jsonutil"
+	"github.com/iw2rmb/amata/internal/jsonutil"
 )
 
 type RunStatus string

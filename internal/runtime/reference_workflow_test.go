@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	runtimelib "auto/internal/runtime"
-	"auto/internal/state"
+	runtimelib "github.com/iw2rmb/amata/internal/runtime"
+	"github.com/iw2rmb/amata/internal/state"
 )
 
 func TestReferenceWorkflowHelperProcess(t *testing.T) {

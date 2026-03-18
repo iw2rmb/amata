@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	embeddedschemas "auto/schemas"
+	embeddedschemas "github.com/iw2rmb/amata/schemas"
 	jsonschema "github.com/santhosh-tekuri/jsonschema/v6"
 	"gopkg.in/yaml.v3"
 )

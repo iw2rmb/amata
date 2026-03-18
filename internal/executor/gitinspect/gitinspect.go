@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"auto/internal/executor"
-	"auto/internal/gitadapter"
-	"auto/internal/state"
+	"github.com/iw2rmb/amata/internal/executor"
+	"github.com/iw2rmb/amata/internal/gitadapter"
+	"github.com/iw2rmb/amata/internal/state"
 )
 
 type inspectService interface {

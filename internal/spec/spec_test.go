@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"auto/internal/spec"
+	"github.com/iw2rmb/amata/internal/spec"
 )
 
 func TestLoadParsesSupportedTopLevelFields(t *testing.T) {
@@ -272,6 +272,8 @@ flows:
       - type: git.commit
         message:
           expr: '"commit message"'
+        body:
+          expr: '"commit body"'
 `
 
 	if err := os.WriteFile(specPath, []byte(specBody), 0o644); err != nil {

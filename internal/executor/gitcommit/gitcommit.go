@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"auto/internal/executor"
-	"auto/internal/gitadapter"
-	"auto/internal/state"
+	"github.com/iw2rmb/amata/internal/executor"
+	"github.com/iw2rmb/amata/internal/gitadapter"
+	"github.com/iw2rmb/amata/internal/state"
 )
 
 type commitService interface {
@@ -36,6 +36,10 @@ func (e *Executor) Execute(ctx context.Context, stepCtx executor.StepContext) st
 	if err != nil {
 		return executor.Failed("invalid_message", fmt.Sprintf("step %d: %v", stepCtx.StepIndex, err))
 	}
+	body, err := resolveBody(stepCtx)
+	if err != nil {
+		return executor.Failed("invalid_body", fmt.Sprintf("step %d: %v", stepCtx.StepIndex, err))
+	}
 
 	cwd, err := executor.ResolveCWD(stepCtx)
 	if err != nil {
@@ -58,6 +62,7 @@ func (e *Executor) Execute(ctx context.Context, stepCtx executor.StepContext) st
 	excludePaths = append(excludePaths, stepCtx.Workspace.StateDir)
 	result, err := e.service.Commit(ctx, snapshot, gitadapter.CommitOptions{
 		Message:      message,
+		Body:         body,
 		ExcludePaths: excludePaths,
 	})
 	if err != nil {
@@ -113,6 +118,19 @@ func resolveMessage(stepCtx executor.StepContext) (string, error) {
 	}
 	if strings.TrimSpace(text) == "" {
 		return "", fmt.Errorf("message must not be empty")
+	}
+	return text, nil
+}
+
+func resolveBody(stepCtx executor.StepContext) (string, error) {
+	value, ok := stepCtx.Step.Fields["body"]
+	if !ok {
+		return "", nil
+	}
+
+	text, err := stepCtx.Runtime.ResolveString(value)
+	if err != nil {
+		return "", err
 	}
 	return text, nil
 }

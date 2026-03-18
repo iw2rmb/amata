@@ -9,13 +9,13 @@ import (
 	"strings"
 	"testing"
 
-	"auto/internal/executor"
-	"auto/internal/executor/gitinspect"
-	exprruntime "auto/internal/expr"
-	"auto/internal/gitadapter"
-	"auto/internal/spec"
-	"auto/internal/state"
-	"auto/internal/workspace"
+	"github.com/iw2rmb/amata/internal/executor"
+	"github.com/iw2rmb/amata/internal/executor/gitinspect"
+	exprruntime "github.com/iw2rmb/amata/internal/expr"
+	"github.com/iw2rmb/amata/internal/gitadapter"
+	"github.com/iw2rmb/amata/internal/spec"
+	"github.com/iw2rmb/amata/internal/state"
+	"github.com/iw2rmb/amata/internal/workspace"
 )
 
 func TestExecutorReturnsTypedSnapshot(t *testing.T) {

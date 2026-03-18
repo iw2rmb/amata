@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"auto/internal/progress"
-	"auto/internal/runtime"
-	"auto/internal/state"
+	"github.com/iw2rmb/amata/internal/progress"
+	"github.com/iw2rmb/amata/internal/runtime"
+	"github.com/iw2rmb/amata/internal/state"
 
 	"gopkg.in/yaml.v3"
 )

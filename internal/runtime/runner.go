@@ -8,14 +8,14 @@ import (
 	"strconv"
 	"time"
 
-	executorapi "auto/internal/executor"
-	exprruntime "auto/internal/expr"
-	"auto/internal/jsonutil"
-	"auto/internal/progress"
-	"auto/internal/runtime/response"
-	"auto/internal/schema"
-	"auto/internal/spec"
-	"auto/internal/state"
+	executorapi "github.com/iw2rmb/amata/internal/executor"
+	exprruntime "github.com/iw2rmb/amata/internal/expr"
+	"github.com/iw2rmb/amata/internal/jsonutil"
+	"github.com/iw2rmb/amata/internal/progress"
+	"github.com/iw2rmb/amata/internal/runtime/response"
+	"github.com/iw2rmb/amata/internal/schema"
+	"github.com/iw2rmb/amata/internal/spec"
+	"github.com/iw2rmb/amata/internal/state"
 )
 
 type Runner struct {
@@ -1188,7 +1188,6 @@ func progressStepContext(config Config, flowName string, stepIndex int, step spe
 		Runtime:   exprruntime.NewRuntime(buildRuntimeContext(config, previous, lookup, bindings)),
 	}
 }
-
 
 func resumeActiveProgressSteps(config Config, plan *flowPlan, snapshot state.Snapshot) []progress.Step {
 	if len(snapshot.Frames) < 2 {

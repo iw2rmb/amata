@@ -12,11 +12,11 @@ import (
 	"strings"
 	"testing"
 
-	executorapi "auto/internal/executor"
-	"auto/internal/progress"
-	"auto/internal/spec"
-	"auto/internal/state"
-	"auto/internal/workspace"
+	executorapi "github.com/iw2rmb/amata/internal/executor"
+	"github.com/iw2rmb/amata/internal/progress"
+	"github.com/iw2rmb/amata/internal/spec"
+	"github.com/iw2rmb/amata/internal/state"
+	"github.com/iw2rmb/amata/internal/workspace"
 )
 
 func TestRunnerResumeContinuesFromFirstIncompleteStep(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	embeddedschemas "auto/schemas"
+	embeddedschemas "github.com/iw2rmb/amata/schemas"
 	"gopkg.in/yaml.v3"
 )
 

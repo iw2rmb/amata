@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"auto/internal/executor"
-	exprruntime "auto/internal/expr"
-	"auto/internal/progress"
-	"auto/internal/spec"
-	"auto/internal/state"
-	"auto/internal/workspace"
+	"github.com/iw2rmb/amata/internal/executor"
+	exprruntime "github.com/iw2rmb/amata/internal/expr"
+	"github.com/iw2rmb/amata/internal/progress"
+	"github.com/iw2rmb/amata/internal/spec"
+	"github.com/iw2rmb/amata/internal/state"
+	"github.com/iw2rmb/amata/internal/workspace"
 )
 
 func TestStepDescriptorShapes(t *testing.T) {

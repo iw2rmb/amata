@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"auto/internal/executor"
-	"auto/internal/executor/agent"
-	"auto/internal/state"
+	"github.com/iw2rmb/amata/internal/executor"
+	"github.com/iw2rmb/amata/internal/executor/agent"
+	"github.com/iw2rmb/amata/internal/state"
 )
 
 type StatusSymbolKind string

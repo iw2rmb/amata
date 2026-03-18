@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"os/exec"
 
-	"auto/internal/executor"
-	"auto/internal/executor/agent"
+	"github.com/iw2rmb/amata/internal/executor"
+	"github.com/iw2rmb/amata/internal/executor/agent"
 )
 
 type runner interface {

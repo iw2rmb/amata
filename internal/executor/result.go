@@ -1,6 +1,6 @@
 package executor
 
-import "auto/internal/state"
+import "github.com/iw2rmb/amata/internal/state"
 
 func Succeeded(value any) state.StepResult {
 	return state.StepResult{
