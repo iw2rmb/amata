@@ -6,8 +6,6 @@ Documentation: <Relevant docs. Use design docs or roadmap docs for this subject,
 
 > Use `Users/vk/@iw2rmb/amata/COSMIC.md` for functional-process granularity and decomposition. Do not mix it with subject documentation. Omit this line in the resulting roadmap.
 
-Legend: [ ] todo, [x] done.
-
 > Rules:
 > - Use COSMIC-style granularity: one functional action per numbered line.
 > - Name concrete components, classes, functions, and structs. Do not go deeper.
@@ -24,7 +22,7 @@ Legend: [ ] todo, [x] done.
     1. <One-liner test scenario 1>
     2. <One-liner test scenario 2>
     3. ...
-  - Reasoning: <Estimated reasoning level required for gpt-5.4 model: xhigh|high|medium|low>
+  - Reasoning: <Estimated reasoning level required for the task: xhigh|high|medium|low>
 
 - [ ] <n.n Next item short title-summary>
 ...
