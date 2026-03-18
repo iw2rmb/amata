@@ -87,7 +87,7 @@ func TestStepDescriptorShapes(t *testing.T) {
 			},
 			wantStatus:        progress.StatusSymbolRunning,
 			wantType:          "codex",
-			wantPrimary:       "gpt-5.4 high",
+			wantPrimary:       "gpt-5.4:high",
 			wantSummary:       []string{"gpt-5.4", "high"},
 			wantWrappedPrompt: true,
 		},

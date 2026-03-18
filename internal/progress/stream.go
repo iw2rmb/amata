@@ -65,6 +65,8 @@ type streamStyles struct {
 	strong      lipgloss.Style
 	pathAdded   lipgloss.Style
 	pathDeleted lipgloss.Style
+	statusOK    lipgloss.Style
+	statusFail  lipgloss.Style
 }
 
 type progressEventMsg struct {
@@ -216,7 +218,7 @@ func (m streamModel) View() string {
 	blocks := make([]string, 0, len(m.history)+len(visibleActive))
 	blocks = append(blocks, m.history...)
 	for index, step := range visibleActive {
-		statusToken := "•"
+		statusToken := "⏺"
 		if index == len(visibleActive)-1 {
 			statusToken = m.spinner.View()
 		}
@@ -297,6 +299,8 @@ func newStreamStyles(colorize bool) streamStyles {
 		strong:      lipgloss.NewStyle().Bold(true),
 		pathAdded:   lipgloss.NewStyle().Foreground(lipgloss.Color("#98c379")),
 		pathDeleted: lipgloss.NewStyle().Foreground(lipgloss.Color("#e06c75")),
+		statusOK:    lipgloss.NewStyle().Foreground(lipgloss.Color("#98c379")),
+		statusFail:  lipgloss.NewStyle().Foreground(lipgloss.Color("#e06c75")),
 	}
 }
 
@@ -319,7 +323,7 @@ func blockForEvent(event Event, settings streamRenderSettings) string {
 		styles := defaultStreamStyles()
 		for _, step := range visibleActive {
 			blocks = append(blocks, renderStepBlock(step, renderStepOptions{
-				statusToken: "•",
+				statusToken: "⏺",
 				now:         settings.now(),
 				width:       resolvedWidth(settings.width),
 				styles:      styles,
@@ -334,7 +338,7 @@ func blockForEvent(event Event, settings streamRenderSettings) string {
 			return ""
 		}
 		return renderStepBlock(*event.Step, renderStepOptions{
-			statusToken: "•",
+			statusToken: "⏺",
 			now:         settings.now(),
 			width:       resolvedWidth(settings.width),
 			styles:      defaultStreamStyles(),
@@ -367,11 +371,16 @@ func renderFailureBlock(failure *Failure, settings streamRenderSettings) string 
 		return ""
 	}
 
+	styles := defaultStreamStyles()
+	prefix := "⏺"
+	if styles.colorize {
+		prefix = styles.statusFail.Render(prefix)
+	}
 	lines := wrapWithPrefix(
-		fmt.Sprintf("X %s run", formatElapsed(0)),
+		fmt.Sprintf("%s %s run", prefix, formatElapsed(0)),
 		failure.Message,
 		resolvedWidth(settings.width),
-		defaultStreamStyles().detail,
+		styles.detail,
 	)
 	return strings.Join(lines, "\n")
 }
@@ -383,10 +392,12 @@ func renderStepBlock(step Step, options renderStepOptions) string {
 	})
 
 	headlinePrefix := strings.TrimSpace(strings.Join([]string{
-		options.statusToken,
+		renderStatusToken(step, options.statusToken, options.styles),
 		formatElapsed(descriptor.Elapsed),
-		descriptor.StepType,
 	}, " "))
+	if !options.styles.colorize {
+		headlinePrefix = strings.TrimSpace(strings.Join([]string{headlinePrefix, descriptor.StepType}, " "))
+	}
 	lines := renderStepHeadline(step, descriptor, headlinePrefix, options)
 	for _, detail := range renderStepDetails(step, descriptor, options) {
 		lines = append(lines, options.styles.detail.Render(detail))
@@ -395,28 +406,65 @@ func renderStepBlock(step Step, options renderStepOptions) string {
 }
 
 func renderStepHeadline(step Step, descriptor StepDescriptor, prefix string, options renderStepOptions) []string {
+	if !options.styles.colorize {
+		if step.Type != "git.commit" {
+			return wrapWithPrefix(prefix, descriptor.PrimaryText, options.width, options.styles.detail)
+		}
+
+		shortCommit, _, _, _, _, ok := gitCommitRenderData(step)
+		if !ok {
+			return wrapWithPrefix(prefix, descriptor.PrimaryText, options.width, options.styles.detail)
+		}
+
+		message := gitCommitMessage(step)
+		if message == "" {
+			return wrapWithPrefix(prefix, shortCommit, options.width, options.styles.detail)
+		}
+		return wrapWithPrefix(prefix, shortCommit+" "+message, options.width, options.styles.detail)
+	}
+
 	if step.Type != "git.commit" {
-		return wrapWithPrefix(prefix, descriptor.PrimaryText, options.width, options.styles.detail)
+		return renderHeadlineWithStepType(prefix, descriptor.StepType, descriptor.PrimaryText, options)
 	}
 
 	shortCommit, _, _, _, _, ok := gitCommitRenderData(step)
 	if !ok {
-		return wrapWithPrefix(prefix, descriptor.PrimaryText, options.width, options.styles.detail)
+		return renderHeadlineWithStepType(prefix, descriptor.StepType, descriptor.PrimaryText, options)
 	}
 
 	message := gitCommitMessage(step)
 	if message == "" {
-		return wrapWithPrefix(prefix, shortCommit, options.width, options.styles.detail)
+		return renderHeadlineWithStepType(prefix, descriptor.StepType, shortCommit, options)
 	}
 	if !options.styles.colorize {
-		return wrapWithPrefix(prefix, shortCommit+" "+message, options.width, options.styles.detail)
+		return renderHeadlineWithStepType(prefix, descriptor.StepType, shortCommit+" "+message, options)
 	}
 
-	words := []styledWord{{text: shortCommit}}
+	words := []styledWord{renderStepTypeWord(descriptor.StepType, options.styles), {text: shortCommit}}
 	words = append(words, styledWords(message, func(text string) string {
 		return options.styles.strong.Render(text)
 	})...)
 	return wrapStyledWordsWithPrefix(prefix, words, options.width, options.styles.detail)
+}
+
+func renderHeadlineWithStepType(prefix string, stepType string, primaryText string, options renderStepOptions) []string {
+	if !options.styles.colorize {
+		return wrapWithPrefix(prefix, strings.TrimSpace(strings.Join(nonEmptyStrings(stepType, primaryText), " ")), options.width, options.styles.detail)
+	}
+
+	words := []styledWord{renderStepTypeWord(stepType, options.styles)}
+	words = append(words, styledWords(primaryText, nil)...)
+	return wrapStyledWordsWithPrefix(prefix, words, options.width, options.styles.detail)
+}
+
+func renderStepTypeWord(stepType string, styles streamStyles) styledWord {
+	word := styledWord{text: stepType}
+	if styles.colorize {
+		word.render = func(text string) string {
+			return styles.strong.Render(text)
+		}
+	}
+	return word
 }
 
 func renderStepDetails(step Step, descriptor StepDescriptor, options renderStepOptions) []string {
@@ -812,13 +860,27 @@ func stepHasVisibleDescriptor(step Step) bool {
 func statusTokenForStep(step Step) string {
 	switch step.Status {
 	case StepStatusSucceeded:
-		return "✓"
+		return "⏺"
 	case StepStatusSkipped:
 		return "-"
 	case StepStatusFailed:
-		return "X"
+		return "⏺"
 	default:
-		return "•"
+		return "⏺"
+	}
+}
+
+func renderStatusToken(step Step, token string, styles streamStyles) string {
+	if !styles.colorize {
+		return token
+	}
+	switch step.Status {
+	case StepStatusSucceeded:
+		return styles.statusOK.Render(token)
+	case StepStatusFailed:
+		return styles.statusFail.Render(token)
+	default:
+		return token
 	}
 }
 

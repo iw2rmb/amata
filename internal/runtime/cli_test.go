@@ -13,6 +13,7 @@ import (
 	"auto/internal/progress"
 	"auto/internal/runtime"
 	"auto/internal/state"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -196,7 +197,7 @@ flows:
 	}
 
 	output := stderr.String()
-	for _, want := range []string{"assert true", "•", "✓"} {
+	for _, want := range []string{"assert true", "⏺", "⏺"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("stderr = %q, want %q", output, want)
 		}

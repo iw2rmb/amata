@@ -32,7 +32,7 @@ func TestBlockForEventFormatsPlainText(t *testing.T) {
 					Status:    StepStatusRunning,
 					StartedAt: startedAt,
 					Descriptor: &DescriptorData{
-						PrimaryText: "gpt-5.4 high",
+						PrimaryText: "gpt-5.4:high",
 						DetailText: []string{
 							"Implement descriptor-repo with enough detail to wrap across multiple descriptor lines cleanly.",
 						},
@@ -41,7 +41,7 @@ func TestBlockForEventFormatsPlainText(t *testing.T) {
 			},
 			width: 40,
 			want: strings.Join([]string{
-				"• 00:05 codex gpt-5.4 high",
+				"⏺ 00:05 codex gpt-5.4:high",
 				"  ",
 				"   Implement descriptor-repo with enough",
 				"   detail to wrap across multiple",
@@ -81,7 +81,7 @@ func TestBlockForEventFormatsPlainText(t *testing.T) {
 			},
 			width: 34,
 			want: strings.Join([]string{
-				"✓ 00:05 git.commit abc123d engine:",
+				"⏺ 00:05 git.commit abc123d engine:",
 				"  persist",
 				"  structured",
 				"  commit summary",
@@ -149,7 +149,7 @@ func TestStreamModelRendersSingleAnimatedSpinnerForDeepestActiveStep(t *testing.
 	nextModel, _ = nextModel.applyEvent(Event{Kind: EventStepStarted, Step: &child})
 
 	view := nextModel.View()
-	if !strings.Contains(view, "• 00:05 call apply") {
+	if !strings.Contains(view, "⏺ 00:05 call apply") {
 		t.Fatalf("view = %q, want static running parent line", view)
 	}
 
@@ -157,8 +157,47 @@ func TestStreamModelRendersSingleAnimatedSpinnerForDeepestActiveStep(t *testing.
 	if !strings.Contains(view, activeSpinnerPrefix) {
 		t.Fatalf("view = %q, want animated child line %q", view, activeSpinnerPrefix)
 	}
-	if strings.Contains(view, "• 00:05 shell go test ./internal/runtime") {
+	if strings.Contains(view, "⏺ 00:05 shell go test ./internal/runtime") {
 		t.Fatalf("view = %q, want only one static running bullet", view)
+	}
+}
+
+func TestRenderStepBlockColorizesStatusTokensAndBoldsStepType(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.March, 14, 10, 0, 5, 0, time.UTC)
+	styles := newStreamStyles(true)
+	options := renderStepOptions{
+		now:         now,
+		width:       80,
+		styles:      styles,
+		statusToken: "⏺",
+	}
+
+	succeeded := renderStepBlock(Step{
+		Type:       "shell",
+		Status:     StepStatusSucceeded,
+		StartedAt:  now.Add(-5 * time.Second),
+		FinishedAt: now,
+		Descriptor: &DescriptorData{
+			PrimaryText: "echo ok",
+		},
+	}, options)
+	if !strings.Contains(succeeded, styles.statusOK.Render("⏺")+" 00:05 "+styles.strong.Render("shell")+" echo ok") {
+		t.Fatalf("succeeded block = %q, want green bullet and bold step type", succeeded)
+	}
+
+	failed := renderStepBlock(Step{
+		Type:       "assert",
+		Status:     StepStatusFailed,
+		StartedAt:  now.Add(-1 * time.Second),
+		FinishedAt: now,
+		Descriptor: &DescriptorData{
+			PrimaryText: "false",
+		},
+	}, options)
+	if !strings.Contains(failed, styles.statusFail.Render("⏺")+" 00:01 "+styles.strong.Render("assert")+" false") {
+		t.Fatalf("failed block = %q, want red bullet and bold step type", failed)
 	}
 }
 
@@ -206,17 +245,17 @@ func TestStreamModelViewCollapsesDeepActiveStackToOuterAndLeaf(t *testing.T) {
 				Status:    StepStatusRunning,
 				StartedAt: now.Add(-2 * time.Second),
 				Descriptor: &DescriptorData{
-					PrimaryText: "gpt-5.4 medium",
+					PrimaryText: "gpt-5.4:medium",
 				},
 			},
 		},
 	}
 
 	view := model.View()
-	if !strings.Contains(view, "• 00:10 call implement_loop") {
+	if !strings.Contains(view, "⏺ 00:10 "+model.styles.strong.Render("call")+" implement_loop") {
 		t.Fatalf("view = %q, want outermost active step", view)
 	}
-	if !strings.Contains(view, model.spinner.View()+" 00:02 codex gpt-5.4 medium") {
+	if !strings.Contains(view, model.spinner.View()+" 00:02 "+model.styles.strong.Render("codex")+" gpt-5.4:medium") {
 		t.Fatalf("view = %q, want deepest active step", view)
 	}
 	if strings.Contains(view, "switch 2 cases") {
@@ -290,9 +329,9 @@ func TestStreamModelKeepsFinishedHistoryVisibleAcrossLaterEvents(t *testing.T) {
 
 	view := nextModel.View()
 	for _, want := range []string{
-		`✓ 00:05 shell /bin/sh -c "sleep 1"`,
-		"X 00:01 assert false",
-		"X 00:00 run intentional failure",
+		`⏺ 00:05 shell /bin/sh -c "sleep 1"`,
+		"⏺ 00:01 assert false",
+		"⏺ 00:00 run intentional failure",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view = %q, want %q", view, want)
@@ -396,16 +435,16 @@ func TestStreamModelCollapsesNestedLoopScaffoldingInFinishedHistory(t *testing.T
 	for _, unwanted := range []string{
 		"switch case 0",
 		"switch case 1",
-		"\n✓ 00:00 expr\n✓ 00:00 expr",
+		"\n⏺ 00:00 expr\n⏺ 00:00 expr",
 	} {
 		if strings.Contains(view, unwanted) {
 			t.Fatalf("view = %q, want nested loop scaffolding hidden", view)
 		}
 	}
-	if !strings.Contains(view, "✓ 05:59 call implement_loop") {
+	if !strings.Contains(view, "⏺ 05:59 call implement_loop") {
 		t.Fatalf("view = %q, want outer loop summary", view)
 	}
-	if !strings.Contains(view, "✓ 00:00 assert true") {
+	if !strings.Contains(view, "⏺ 00:00 assert true") {
 		t.Fatalf("view = %q, want terminal assertion", view)
 	}
 }
@@ -566,7 +605,7 @@ func TestNewStreamControllerUsesPlainRendererForNonTTYWriter(t *testing.T) {
 		},
 	})
 
-	if got, want := strings.TrimSpace(output.String()), "✓ 00:05 assert true"; got != want {
+	if got, want := strings.TrimSpace(output.String()), "⏺ 00:05 assert true"; got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}
 }

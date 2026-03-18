@@ -270,12 +270,26 @@ func agentDescriptor(stepCtx executor.StepContext, providerName string) (*Descri
 		return nil, fmt.Errorf("%s step: %s", providerName, err.Message)
 	}
 
+	primary := formatAgentModelReasoning(resolved.Model, resolved.Reasoning)
 	data := &DescriptorData{
-		PrimaryText: strings.TrimSpace(strings.Join(nonEmptyStrings(resolved.Model, resolved.Reasoning), " ")),
+		PrimaryText: primary,
 		DetailText:  []string{resolved.Prompt},
 	}
 	data.FinalSummaryDetails = nonEmptyStrings(resolved.Model, resolved.Reasoning)
 	return data, nil
+}
+
+func formatAgentModelReasoning(model string, reasoning string) string {
+	model = strings.TrimSpace(model)
+	reasoning = strings.TrimSpace(reasoning)
+	switch {
+	case model == "":
+		return reasoning
+	case reasoning == "":
+		return model
+	default:
+		return model + ":" + reasoning
+	}
 }
 
 func callFlow(stepCtx executor.StepContext) (string, error) {
