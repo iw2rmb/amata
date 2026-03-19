@@ -63,5 +63,3 @@ Evidence needed before design work:
 ## References
 
 - First-version contract: [docs/engine/index.md](../docs/engine/index.md)
-- Current Dagu workflow overview: [dagu/implement-roadmap/README.md](../dagu/implement-roadmap/README.md)
-- Current Codex wrapper behavior: [dagu/implement-roadmap/scripts/run-codex-prompt.sh](../dagu/implement-roadmap/scripts/run-codex-prompt.sh)
