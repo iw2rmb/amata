@@ -14,7 +14,8 @@ Additional policies **MUST** be loaded when naming is literally corresponds the 
 ## Aster
 
 - **Aster** is a framework for the effective codebase navigation and manipulation.
-- Follow instructions at `http://localhost:9090/v1/coding-agents-instructions`.
+- Follow instructions at `http://localhost:9090/v1/coding-agents-instructions`. 
+- Fallback to known instruments when Aster fails to respond or satisfy.
 
 
 ## Architecture Patterns Policy
@@ -45,26 +46,6 @@ Race conditions must be solved by:
   - execution order determinism,
   - execution independence;
   but never by time waits because they are not guaranteed.
-  
-  
-### [TRIZ](https://en.wikipedia.org/wiki/TRIZ)
-
-Best solution excludes the problem. For example,
-  - Complex cache management and invalidation can be solved by fixing perfomance bottles that led to caching in the first place, thus removing caching.
-  - Complex state management can be solved by splitting components into distinctive domains with clear borders.
-  - Complex support of multiple communication channels can be solved by stripping to one that fits all needs.
-
-
-## Context Window Compacting Policy
-
-The most effective way to compact context window is:
-- Precisely scope the current task;
-- Pin docs and code related.
-
-After compact and before proceeding, reread:
-  - ~/.codex/AGENTS.md, 
-  - scope, docs, code related, 
-  - and the last two messages from the previous conversation.
 
 
 ## Development Policy
