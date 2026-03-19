@@ -738,6 +738,119 @@ func TestExecutorPreservesStreamWriterContentOnProviderError(t *testing.T) {
 	assertArtifactContents(t, result.Artifacts.Stderr, "partial error\n")
 }
 
+func TestExecutorMapsCancellationToStableCode(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	runDir := filepath.Join(rootDir, ".amata", "runs", "run-cancel-code")
+	workspaceConfig := workspace.Config{
+		Root:     rootDir,
+		StateDir: filepath.Join(rootDir, ".amata"),
+	}
+	step := spec.Step{
+		ID:   "cancel-code",
+		Type: "claude",
+		Fields: map[string]any{
+			"prompt": "do something",
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	provider := &fakeProvider{
+		name: "claude",
+		execute: func(_ context.Context, _ agent.Request) (agent.Response, *agent.Error) {
+			cancel()
+			// Provider surfaces a different code; executor must override it.
+			return agent.Response{}, &agent.Error{Code: "agent_failed", Message: "provider saw cancellation"}
+		},
+	}
+
+	result := agent.New(provider).Execute(ctx, executor.StepContext{
+		RunDir: runDir,
+		Spec: spec.Document{
+			Defaults: map[string]any{
+				"executors": map[string]any{
+					"claude": map[string]any{"model": "sonnet"},
+				},
+			},
+		},
+		Workspace: workspaceConfig,
+		StepIndex: 0,
+		Step:      step,
+		Runtime:   runtimeForWorkspace(workspaceConfig, nil),
+	})
+
+	if result.Status != state.StepStatusFailed {
+		t.Fatalf("result status = %q, want failed", result.Status)
+	}
+	if result.Error == nil || result.Error.Code != "canceled" {
+		t.Fatalf("result error = %#v, want code=canceled", result.Error)
+	}
+}
+
+func TestExecutorPreservesPartialArtifactsOnCancellation(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	runDir := filepath.Join(rootDir, ".amata", "runs", "run-cancel-partial")
+	workspaceConfig := workspace.Config{
+		Root:     rootDir,
+		StateDir: filepath.Join(rootDir, ".amata"),
+	}
+	step := spec.Step{
+		ID:   "cancel-partial",
+		Type: "claude",
+		Fields: map[string]any{
+			"prompt": "do something",
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	provider := &fakeProvider{
+		name: "claude",
+		execute: func(_ context.Context, request agent.Request) (agent.Response, *agent.Error) {
+			if _, err := request.StdoutWriter.Write([]byte("partial stdout\n")); err != nil {
+				t.Fatalf("write to StdoutWriter: %v", err)
+			}
+			if _, err := request.StderrWriter.Write([]byte("partial stderr\n")); err != nil {
+				t.Fatalf("write to StderrWriter: %v", err)
+			}
+			cancel()
+			return agent.Response{
+				Transcript: []byte("partial"),
+			}, &agent.Error{Code: "agent_failed", Message: "canceled mid-execution"}
+		},
+	}
+
+	result := agent.New(provider).Execute(ctx, executor.StepContext{
+		RunDir: runDir,
+		Spec: spec.Document{
+			Defaults: map[string]any{
+				"executors": map[string]any{
+					"claude": map[string]any{"model": "sonnet"},
+				},
+			},
+		},
+		Workspace: workspaceConfig,
+		StepIndex: 0,
+		Step:      step,
+		Runtime:   runtimeForWorkspace(workspaceConfig, nil),
+	})
+
+	if result.Status != state.StepStatusFailed {
+		t.Fatalf("result status = %q, want failed", result.Status)
+	}
+	if result.Error == nil || result.Error.Code != "canceled" {
+		t.Fatalf("result error = %#v, want code=canceled", result.Error)
+	}
+
+	// Partial content written to both stream writers must survive cancellation.
+	assertArtifactContents(t, result.Artifacts.Stdout, "partial stdout\n")
+	assertArtifactContents(t, result.Artifacts.Stderr, "partial stderr\n")
+}
+
 type fakeProvider struct {
 	name    string
 	execute func(context.Context, agent.Request) (agent.Response, *agent.Error)

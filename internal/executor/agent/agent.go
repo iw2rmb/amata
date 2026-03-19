@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -87,6 +88,16 @@ func (e *Executor) Execute(ctx context.Context, stepCtx executor.StepContext) st
 	request.StderrWriter = capture.StderrWriter()
 
 	response, execErr := e.provider.Execute(ctx, request)
+
+	// Normalize context cancellation/deadline to a stable failure code at the
+	// executor boundary, regardless of what error the provider surfaced.
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		msg := "canceled"
+		if errors.Is(ctxErr, context.DeadlineExceeded) {
+			msg = "deadline exceeded"
+		}
+		execErr = &Error{Code: "canceled", Message: msg}
+	}
 
 	writeErr := capture.Write(response.Stdout, response.Stderr)
 	closeErr := capture.Close()
