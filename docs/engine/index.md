@@ -2,8 +2,6 @@
 
 This document describes the shipped `amata` engine behavior in this repository.
 
-See [Documentation](../index.md).
-
 ## Summary
 
 `amata` is a local CLI runner with two commands:
