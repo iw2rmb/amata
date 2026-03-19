@@ -204,6 +204,87 @@ func TestStoreAssignsFrameAndPreviousRefsToRecordedSteps(t *testing.T) {
 	}
 }
 
+func TestStoreStepStartedDoesNotAdvanceFrame(t *testing.T) {
+	t.Parallel()
+
+	runDir := t.TempDir()
+	store := state.NewStore(runDir)
+
+	if _, err := store.Append(state.RunEvent{
+		Kind: state.EventRunInitialized,
+		Frame: &state.FlowFrame{
+			Flow:      "main",
+			StepCount: 1,
+		},
+	}); err != nil {
+		t.Fatalf("append init event: %v", err)
+	}
+
+	snapshot, err := store.Append(state.RunEvent{
+		Kind: state.EventStepStarted,
+		Step: &state.StepResult{
+			Index:  0,
+			ID:     "first",
+			Type:   "expr",
+			Status: state.StepStatusRunning,
+		},
+	})
+	if err != nil {
+		t.Fatalf("append step started event: %v", err)
+	}
+	if got := snapshot.Frames[0].NextStep; got != 0 {
+		t.Fatalf("next step after start = %d, want 0", got)
+	}
+	if got := len(snapshot.Steps); got != 0 {
+		t.Fatalf("recorded steps after start = %d, want 0", got)
+	}
+
+	snapshot, err = store.Append(state.RunEvent{
+		Kind: state.EventStepRecorded,
+		Step: &state.StepResult{
+			Index:  0,
+			ID:     "first",
+			Type:   "expr",
+			Status: state.StepStatusSucceeded,
+		},
+	})
+	if err != nil {
+		t.Fatalf("append step recorded event: %v", err)
+	}
+	if got := snapshot.Frames[0].NextStep; got != 1 {
+		t.Fatalf("next step after record = %d, want 1", got)
+	}
+}
+
+func TestStoreRejectsNonRunningStepStartedStatus(t *testing.T) {
+	t.Parallel()
+
+	runDir := t.TempDir()
+	store := state.NewStore(runDir)
+
+	if _, err := store.Append(state.RunEvent{
+		Kind: state.EventRunInitialized,
+		Frame: &state.FlowFrame{
+			Flow:      "main",
+			StepCount: 1,
+		},
+	}); err != nil {
+		t.Fatalf("append init event: %v", err)
+	}
+
+	if _, err := store.Append(state.RunEvent{
+		Kind: state.EventStepStarted,
+		Step: &state.StepResult{
+			Index:  0,
+			ID:     "first",
+			Type:   "expr",
+			Status: state.StepStatusSucceeded,
+		},
+	}); err == nil {
+		t.Fatalf("expected invalid started status to fail")
+	}
+}
+
 func TestStoreControlContinuedReplacesCompletedChildFrame(t *testing.T) {
 	t.Parallel()
 

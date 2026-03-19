@@ -137,11 +137,13 @@ Execution rules:
 - `snapshot.json` is rewritten after each appended event.
 - Durable frame state uses stable frame ids plus flat previous-step refs; recursive `ctx.prev` chains are rebuilt from those refs at runtime and on `resume`.
 
-The event log uses six event kinds:
+The event log uses eight event kinds:
 - `run_initialized`
 - `run_resumed`
 - `frame_pushed`
+- `control_continued`
 - `control_returned`
+- `step_started`
 - `step_recorded`
 - `run_finished`
 

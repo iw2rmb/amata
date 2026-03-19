@@ -3686,6 +3686,16 @@ func TestRunnerAgentArtifactsAreReadableDuringAndAfterExecution(t *testing.T) {
 	if string(midRunData) != "chunk1\n" {
 		t.Fatalf("mid-run stdout = %q, want %q", string(midRunData), "chunk1\n")
 	}
+	eventsLog, err := os.ReadFile(filepath.Join(config.RunDir, "events.ndjson"))
+	if err != nil {
+		t.Fatalf("read events log during execution: %v", err)
+	}
+	if !strings.Contains(string(eventsLog), `"kind":"step_started"`) {
+		t.Fatalf("events log during execution missing step_started event:\n%s", eventsLog)
+	}
+	if !strings.Contains(string(eventsLog), `"id":"stream-step"`) {
+		t.Fatalf("events log during execution missing stream-step id:\n%s", eventsLog)
+	}
 
 	close(continueExecution)
 	res := <-resultCh

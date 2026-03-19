@@ -36,6 +36,7 @@ const (
 	EventFramePushed      EventKind = "frame_pushed"
 	EventControlContinued EventKind = "control_continued"
 	EventControlReturned  EventKind = "control_returned"
+	EventStepStarted      EventKind = "step_started"
 	EventStepRecorded     EventKind = "step_recorded"
 	EventRunFinished      EventKind = "run_finished"
 )
@@ -151,7 +152,7 @@ func (s *Store) Append(event RunEvent) (Snapshot, error) {
 		if event.Frame != nil && event.Frame.ID == "" {
 			event.Frame.ID = FrameID(event.Sequence)
 		}
-	case EventStepRecorded:
+	case EventStepStarted, EventStepRecorded:
 		if event.Step != nil && len(current.Frames) > 0 {
 			top := current.Frames[len(current.Frames)-1]
 			if event.Step.FrameID == "" {
@@ -326,6 +327,29 @@ func apply(snapshot Snapshot, event RunEvent) (Snapshot, error) {
 			return Snapshot{}, fmt.Errorf("control continue for flow %q before completion", top.Flow)
 		}
 		snapshot.Frames[len(snapshot.Frames)-1] = cloneFlowFrame(*event.Frame)
+	case EventStepStarted:
+		if event.Step == nil {
+			return Snapshot{}, fmt.Errorf("step start event is missing step result")
+		}
+		if len(snapshot.Frames) == 0 {
+			return Snapshot{}, fmt.Errorf("step start event has no flow frame")
+		}
+		expected := snapshot.Frames[len(snapshot.Frames)-1].NextStep
+		if event.Step.Index != expected {
+			return Snapshot{}, fmt.Errorf("step start event index %d does not match expected next step %d", event.Step.Index, expected)
+		}
+		if event.Step.FrameID != snapshot.Frames[len(snapshot.Frames)-1].ID {
+			return Snapshot{}, fmt.Errorf("step start event frame id %q does not match active frame %q", event.Step.FrameID, snapshot.Frames[len(snapshot.Frames)-1].ID)
+		}
+		if event.Step.Sequence != event.Sequence {
+			return Snapshot{}, fmt.Errorf("step start event sequence %d does not match event sequence %d", event.Step.Sequence, event.Sequence)
+		}
+		if !equalStepRef(event.Step.Previous, snapshot.Frames[len(snapshot.Frames)-1].Previous) {
+			return Snapshot{}, fmt.Errorf("step start event previous ref %#v does not match frame previous %#v", event.Step.Previous, snapshot.Frames[len(snapshot.Frames)-1].Previous)
+		}
+		if event.Step.Status != StepStatusRunning {
+			return Snapshot{}, fmt.Errorf("step start event status %q is not running", event.Step.Status)
+		}
 	case EventStepRecorded:
 		if event.Step == nil {
 			return Snapshot{}, fmt.Errorf("step event is missing step result")
