@@ -25,7 +25,7 @@ Documentation: docs/engine/index.md
     2. `go test ./internal/runtime -run TestBuiltin` confirms `crush` registration does not regress executor wiring.
   - Reasoning: high
 
-- [ ] 1.3 Extend progress rendering to treat `crush` as an agent step
+- [x] 1.3 Extend progress rendering to treat `crush` as an agent step
   - Repository: amata
     1. Update `internal/progress/descriptor.go` agent-step branching so `crush` resolves model and prompt through `agent.ResolveStep`.
     2. Update `internal/progress/stream.go` detail rendering so `crush` uses agent prompt markdown rendering.

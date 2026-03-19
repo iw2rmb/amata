@@ -146,7 +146,7 @@ func descriptorDataFromContext(stepCtx executor.StepContext) (*DescriptorData, e
 			PrimaryText:         fmt.Sprintf("%d items", itemCount),
 			FinalSummaryDetails: []string{fmt.Sprintf("%d items", itemCount)},
 		}, nil
-	case "codex", "claude":
+	case "codex", "claude", "crush":
 		return agentDescriptor(stepCtx, stepCtx.Step.ExecutorType())
 	case "shell":
 		command, err := shellCommand(stepCtx)
@@ -262,6 +262,15 @@ func elapsedForStep(step Step, now time.Time) time.Duration {
 		return 0
 	}
 	return finish.Sub(step.StartedAt)
+}
+
+func isAgentStepType(stepType string) bool {
+	switch stepType {
+	case "codex", "claude", "crush":
+		return true
+	default:
+		return false
+	}
 }
 
 func agentDescriptor(stepCtx executor.StepContext, providerName string) (*DescriptorData, error) {

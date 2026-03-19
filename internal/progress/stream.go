@@ -468,7 +468,7 @@ func renderStepTypeWord(stepType string, styles streamStyles) styledWord {
 }
 
 func renderStepDetails(step Step, descriptor StepDescriptor, options renderStepOptions) []string {
-	if step.Type == "codex" || step.Type == "claude" {
+	if isAgentStepType(step.Type) {
 		return renderAgentPromptDetails(step, descriptor, options)
 	}
 	if step.Type != "git.commit" {

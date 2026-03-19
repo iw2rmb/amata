@@ -49,6 +49,27 @@ func TestBlockForEventFormatsPlainText(t *testing.T) {
 			}, "\n"),
 		},
 		{
+			name: "crush step started",
+			event: Event{
+				Kind: EventStepStarted,
+				Step: &Step{
+					Type:      "crush",
+					Status:    StepStatusRunning,
+					StartedAt: startedAt,
+					Descriptor: &DescriptorData{
+						PrimaryText: "claude-sonnet-4-5",
+						DetailText:  []string{"Implement the feature."},
+					},
+				},
+			},
+			width: 40,
+			want: strings.Join([]string{
+				"⏺ 00:05 crush claude-sonnet-4-5",
+				"  ",
+				"   Implement the feature.",
+			}, "\n"),
+		},
+		{
 			name: "git commit finished",
 			event: Event{
 				Kind: EventStepFinished,
