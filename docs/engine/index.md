@@ -337,7 +337,7 @@ Supported fields:
 Behavior:
 - `prompt`, `model`, `cwd`, and `env` resolve through the shared expression/template runtime before execution.
 - `cwd` falls back to `defaults.cwd`, then `workspace.root`.
-- `reasoning` is not supported; a step that sets `reasoning` fails immediately with code `unsupported_option`.
+- `reasoning` is not a recognized field on `type: crush` steps; the step schema uses `additionalProperties: false`, so a spec that declares `reasoning` on a crush step is rejected at spec-load time with a validation error before execution begins. At runtime, if `reasoning` reaches provider request resolution via defaults or other means, the executor fails the step with code `unsupported_option`.
 - `crush run --yolo --quiet --model <model>` is invoked with the rendered prompt on stdin.
 - When `response.schema` targets `value`, the executor appends engine-owned JSON instructions to the prompt (`prompt_fallback` structured-output mode) and parses the JSON object from the final transcript.
 - Raw provider stdout, stderr, the rendered prompt, the final transcript, and provider metadata persist as step artifacts.
