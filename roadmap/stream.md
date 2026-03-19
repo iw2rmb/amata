@@ -4,7 +4,7 @@ Scope: Stream `claude` and `codex` step `stdout`/`stderr` into artifact files wh
 
 Documentation: `docs/engine/index.md`
 
-- [ ] 1.1 Define streaming artifact contract for agent executors
+- [x] 1.1 Define streaming artifact contract for agent executors
   - Repository: `amata`
     1. Refactor `internal/executor/agent/agent.go` artifact flow so `stdout.txt` and `stderr.txt` can be created before provider execution and reused after provider completion.
     2. Add a shared stream-capture helper in `internal/executor/agent` that owns file lifecycle, writer wiring, and deterministic cleanup semantics.

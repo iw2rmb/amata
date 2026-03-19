@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -26,6 +27,12 @@ type Request struct {
 	Env         map[string]string
 	ArtifactDir string
 	Structured  *StructuredOutput
+	// StdoutWriter and StderrWriter are wired to pre-created artifact files
+	// before the provider executes. Streaming providers write incrementally;
+	// buffered providers leave these unused and return bytes in Response.Stdout
+	// and Response.Stderr instead.
+	StdoutWriter io.Writer
+	StderrWriter io.Writer
 }
 
 type StructuredOutput struct {
@@ -72,9 +79,33 @@ func (e *Executor) Execute(ctx context.Context, stepCtx executor.StepContext) st
 		return executor.Failed(requestErr.Code, fmt.Sprintf("step %d: %s", stepCtx.StepIndex, requestErr.Message))
 	}
 
+	capture, captureOpenErr := OpenStreamCapture(stepDir)
+	if captureOpenErr != nil {
+		return executor.Failed("artifact_capture_failed", fmt.Sprintf("step %d: open stream capture: %v", stepCtx.StepIndex, captureOpenErr))
+	}
+	request.StdoutWriter = capture.StdoutWriter()
+	request.StderrWriter = capture.StderrWriter()
+
 	response, execErr := e.provider.Execute(ctx, request)
 
+	writeErr := capture.Write(response.Stdout, response.Stderr)
+	closeErr := capture.Close()
+
+	captureErr := writeErr
+	if captureErr == nil {
+		captureErr = closeErr
+	}
+
 	artifacts, artifactErr := captureArtifacts(stepDir, e.provider.Name(), request, response)
+	artifacts.Stdout = capture.StdoutPath()
+	artifacts.Stderr = capture.StderrPath()
+
+	if captureErr != nil {
+		result := executor.Failed("artifact_capture_failed", fmt.Sprintf("step %d: write stream capture: %v", stepCtx.StepIndex, captureErr))
+		result.Artifacts = artifacts
+		return result
+	}
+
 	if artifactErr != nil {
 		result := executor.Failed("artifact_capture_failed", fmt.Sprintf("step %d: capture artifacts: %v", stepCtx.StepIndex, artifactErr))
 		result.Artifacts = artifacts
@@ -107,18 +138,6 @@ func (e *Executor) Execute(ctx context.Context, stepCtx executor.StepContext) st
 
 func captureArtifacts(stepDir string, providerName string, request Request, response Response) (state.Artifacts, error) {
 	artifacts := executor.EmptyArtifacts()
-
-	stdoutPath := filepath.Join(stepDir, "stdout.txt")
-	if err := os.WriteFile(stdoutPath, response.Stdout, 0o644); err != nil {
-		return artifacts, err
-	}
-	artifacts.Stdout = stdoutPath
-
-	stderrPath := filepath.Join(stepDir, "stderr.txt")
-	if err := os.WriteFile(stderrPath, response.Stderr, 0o644); err != nil {
-		return artifacts, err
-	}
-	artifacts.Stderr = stderrPath
 
 	files := map[string]string{}
 

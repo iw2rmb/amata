@@ -558,6 +558,127 @@ func TestExecutorReturnsInvalidProviderPayloadFailureAndPersistsArtifacts(t *tes
 	}
 }
 
+func TestExecutorFailsWithArtifactCaptureFailedWhenStreamOpenFails(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	runDir := filepath.Join(rootDir, ".amata", "runs", "run-capture-open-fail")
+	workspaceConfig := workspace.Config{
+		Root:     rootDir,
+		StateDir: filepath.Join(rootDir, ".amata"),
+	}
+	step := spec.Step{
+		ID:   "capture-open-fail",
+		Type: "claude",
+		Fields: map[string]any{
+			"prompt": "do something",
+		},
+	}
+
+	// Pre-create the stepDir as read-only so MkdirAll succeeds (dir already
+	// exists) but OpenStreamCapture cannot create files inside it.
+	stepDir := filepath.Join(runDir, "artifacts", "step-00-capture-open-fail")
+	if err := os.MkdirAll(stepDir, 0o755); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	if err := os.Chmod(stepDir, 0o444); err != nil {
+		t.Fatalf("setup chmod: %v", err)
+	}
+	t.Cleanup(func() { os.Chmod(stepDir, 0o755) })
+
+	provider := &fakeProvider{
+		name: "claude",
+		execute: func(_ context.Context, _ agent.Request) (agent.Response, *agent.Error) {
+			t.Fatalf("provider must not be called when stream open fails")
+			return agent.Response{}, nil
+		},
+	}
+
+	result := agent.New(provider).Execute(context.Background(), executor.StepContext{
+		RunDir: runDir,
+		Spec: spec.Document{
+			Defaults: map[string]any{
+				"executors": map[string]any{
+					"claude": map[string]any{"model": "sonnet"},
+				},
+			},
+		},
+		Workspace: workspaceConfig,
+		StepIndex: 0,
+		Step:      step,
+		Runtime:   runtimeForWorkspace(workspaceConfig, nil),
+	})
+
+	if result.Status != state.StepStatusFailed {
+		t.Fatalf("result status = %q, want failed", result.Status)
+	}
+	if result.Error == nil || result.Error.Code != "artifact_capture_failed" {
+		t.Fatalf("result error = %#v, want artifact_capture_failed", result.Error)
+	}
+}
+
+func TestExecutorPreservesStreamWriterContentOnProviderError(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	runDir := filepath.Join(rootDir, ".amata", "runs", "run-partial-stream")
+	workspaceConfig := workspace.Config{
+		Root:     rootDir,
+		StateDir: filepath.Join(rootDir, ".amata"),
+	}
+	step := spec.Step{
+		ID:   "partial-stream",
+		Type: "claude",
+		Fields: map[string]any{
+			"prompt": "do something",
+		},
+	}
+
+	provider := &fakeProvider{
+		name: "claude",
+		execute: func(_ context.Context, request agent.Request) (agent.Response, *agent.Error) {
+			// Simulate a streaming provider: write directly to the artifact writer
+			// before returning an error (e.g. provider crash mid-execution).
+			if _, err := request.StdoutWriter.Write([]byte("partial output\n")); err != nil {
+				t.Fatalf("write to StdoutWriter: %v", err)
+			}
+			return agent.Response{
+				Transcript: []byte("partial"),
+				// Stdout/Stderr are empty: content was streamed via StdoutWriter.
+			}, &agent.Error{
+				Code:    "provider_crashed",
+				Message: "provider crashed mid-execution",
+			}
+		},
+	}
+
+	result := agent.New(provider).Execute(context.Background(), executor.StepContext{
+		RunDir: runDir,
+		Spec: spec.Document{
+			Defaults: map[string]any{
+				"executors": map[string]any{
+					"claude": map[string]any{"model": "sonnet"},
+				},
+			},
+		},
+		Workspace: workspaceConfig,
+		StepIndex: 0,
+		Step:      step,
+		Runtime:   runtimeForWorkspace(workspaceConfig, nil),
+	})
+
+	if result.Status != state.StepStatusFailed {
+		t.Fatalf("result status = %q, want failed", result.Status)
+	}
+	if result.Error == nil || result.Error.Code != "provider_crashed" {
+		t.Fatalf("result error = %#v, want provider_crashed", result.Error)
+	}
+
+	// Content written to StdoutWriter before the crash must be persisted.
+	assertArtifactContents(t, result.Artifacts.Stdout, "partial output\n")
+	assertArtifactContents(t, result.Artifacts.Stderr, "")
+}
+
 type fakeProvider struct {
 	name    string
 	execute func(context.Context, agent.Request) (agent.Response, *agent.Error)
