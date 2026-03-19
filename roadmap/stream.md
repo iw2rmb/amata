@@ -28,7 +28,7 @@ Documentation: `docs/engine/index.md`
     3. Run `go test ./internal/executor/codex ./internal/executor/agent`.
   - Reasoning: high
 
-- [ ] 1.3 Implement Claude stdout/stderr live streaming
+- [x] 1.3 Implement Claude stdout/stderr live streaming
   - Repository: `amata`
     1. Update `internal/executor/claude/claude.go` runner to stream process pipes to artifact-backed writers with the same helper contract as `codex`.
     2. Preserve structured-output envelope parsing behavior and `response.Value` population for both provider-schema and fallback modes.

@@ -3,6 +3,8 @@ package claude
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -42,7 +44,6 @@ func TestProviderStructuredOutputModes(t *testing.T) {
 					captured = spec
 					return commandResult{
 						stdout: []byte("```json\n{\"approved\":true}\n```\n"),
-						stderr: []byte(""),
 					}, nil
 				}),
 				structuredOutputSupported: testCase.supported,
@@ -110,7 +111,6 @@ func TestProviderUnwrapsStructuredOutputEnvelope(t *testing.T) {
 		runner: fakeRunner(func(_ context.Context, spec command) (commandResult, error) {
 			return commandResult{
 				stdout: []byte(`{"type":"result","stop_reason":"end_turn","session_id":"abc","usage":{"input_tokens":1},"structured_output":{"approved":true,"notes":"ok"}}`),
-				stderr: []byte(""),
 			}, nil
 		}),
 		structuredOutputSupported: true,
@@ -144,7 +144,6 @@ func TestProviderReportsAgentFailureBeforeStructuredParse(t *testing.T) {
 		runner: fakeRunner(func(_ context.Context, spec command) (commandResult, error) {
 			return commandResult{
 				stdout: []byte("not json"),
-				stderr: []byte("failure"),
 			}, errors.New("exit status 1")
 		}),
 		structuredOutputSupported: true,
@@ -163,6 +162,144 @@ func TestProviderReportsAgentFailureBeforeStructuredParse(t *testing.T) {
 	}
 	if execErr.Code != "agent_failed" {
 		t.Fatalf("error code = %q, want agent_failed", execErr.Code)
+	}
+}
+
+func TestProviderStreamsStdoutWhileRunning(t *testing.T) {
+	t.Parallel()
+
+	artifactDir := t.TempDir()
+	stdoutPath := filepath.Join(artifactDir, "stdout.txt")
+	stderrPath := filepath.Join(artifactDir, "stderr.txt")
+	stdoutFile, err := os.Create(stdoutPath)
+	if err != nil {
+		t.Fatalf("create stdout file: %v", err)
+	}
+	defer stdoutFile.Close()
+	stderrFile, err := os.Create(stderrPath)
+	if err != nil {
+		t.Fatalf("create stderr file: %v", err)
+	}
+	defer stderrFile.Close()
+
+	firstChunkWritten := make(chan struct{})
+	continueWriting := make(chan struct{})
+
+	prov := provider{
+		runner: fakeRunner(func(_ context.Context, spec command) (commandResult, error) {
+			if _, err := spec.stdoutWriter.Write([]byte("chunk1\n")); err != nil {
+				t.Errorf("write chunk1: %v", err)
+			}
+			close(firstChunkWritten)
+			<-continueWriting
+			if _, err := spec.stdoutWriter.Write([]byte("chunk2\n")); err != nil {
+				t.Errorf("write chunk2: %v", err)
+			}
+			return commandResult{stdout: []byte("chunk1\nchunk2\n")}, nil
+		}),
+		structuredOutputSupported: true,
+	}
+
+	type execResult struct {
+		response agent.Response
+		err      *agent.Error
+	}
+	resultCh := make(chan execResult, 1)
+	go func() {
+		resp, execErr := prov.Execute(context.Background(), agent.Request{
+			Prompt:       "test",
+			Model:        "sonnet",
+			CWD:          "/repo",
+			StdoutWriter: stdoutFile,
+			StderrWriter: stderrFile,
+		})
+		resultCh <- execResult{resp, execErr}
+	}()
+
+	<-firstChunkWritten
+	data, err := os.ReadFile(stdoutPath)
+	if err != nil {
+		t.Fatalf("read stdout mid-run: %v", err)
+	}
+	if string(data) != "chunk1\n" {
+		t.Fatalf("mid-run stdout = %q, want chunk1 only", string(data))
+	}
+
+	close(continueWriting)
+	res := <-resultCh
+	if res.err != nil {
+		t.Fatalf("execute error = %#v", res.err)
+	}
+
+	data, err = os.ReadFile(stdoutPath)
+	if err != nil {
+		t.Fatalf("read stdout after run: %v", err)
+	}
+	if string(data) != "chunk1\nchunk2\n" {
+		t.Fatalf("final stdout = %q, want chunk1+chunk2", string(data))
+	}
+	if string(res.response.Transcript) != "chunk1\nchunk2\n" {
+		t.Fatalf("transcript = %q, want chunk1+chunk2", string(res.response.Transcript))
+	}
+}
+
+func TestProviderPreservesPartialOutputOnError(t *testing.T) {
+	t.Parallel()
+
+	artifactDir := t.TempDir()
+	stdoutPath := filepath.Join(artifactDir, "stdout.txt")
+	stderrPath := filepath.Join(artifactDir, "stderr.txt")
+	stdoutFile, err := os.Create(stdoutPath)
+	if err != nil {
+		t.Fatalf("create stdout file: %v", err)
+	}
+	defer stdoutFile.Close()
+	stderrFile, err := os.Create(stderrPath)
+	if err != nil {
+		t.Fatalf("create stderr file: %v", err)
+	}
+	defer stderrFile.Close()
+
+	prov := provider{
+		runner: fakeRunner(func(_ context.Context, spec command) (commandResult, error) {
+			if _, err := spec.stdoutWriter.Write([]byte("partial output\n")); err != nil {
+				t.Errorf("write stdout: %v", err)
+			}
+			if _, err := spec.stderrWriter.Write([]byte("error detail\n")); err != nil {
+				t.Errorf("write stderr: %v", err)
+			}
+			return commandResult{stdout: []byte("partial output\n")}, errors.New("exit status 1")
+		}),
+		structuredOutputSupported: true,
+	}
+
+	_, execErr := prov.Execute(context.Background(), agent.Request{
+		Prompt:       "test",
+		Model:        "sonnet",
+		CWD:          "/repo",
+		StdoutWriter: stdoutFile,
+		StderrWriter: stderrFile,
+	})
+	if execErr == nil {
+		t.Fatalf("expected execute error")
+	}
+	if execErr.Code != "agent_failed" {
+		t.Fatalf("error code = %q, want agent_failed", execErr.Code)
+	}
+
+	assertFileContents(t, stdoutPath, "partial output\n")
+	assertFileContents(t, stderrPath, "error detail\n")
+}
+
+func assertFileContents(t *testing.T, path string, want string) {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	if string(data) != want {
+		t.Fatalf("%s = %q, want %q", path, string(data), want)
 	}
 }
 
