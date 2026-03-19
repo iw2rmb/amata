@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"testing"
 
 	executorapi "github.com/iw2rmb/amata/internal/executor"
+	codexexec "github.com/iw2rmb/amata/internal/executor/codex"
 	"github.com/iw2rmb/amata/internal/progress"
 	"github.com/iw2rmb/amata/internal/spec"
 	"github.com/iw2rmb/amata/internal/state"
@@ -3708,6 +3710,133 @@ func TestRunnerAgentArtifactsAreReadableDuringAndAfterExecution(t *testing.T) {
 	}
 	if string(finalData) != "chunk1\nchunk2\n" {
 		t.Fatalf("final stdout = %q, want %q", string(finalData), "chunk1\nchunk2\n")
+	}
+}
+
+func TestRunnerAgentExecutorStreamsThroughRealCapturePath(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "agent-stream",
+		Entry:   "main",
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID:   "agent-step",
+						Type: "codex",
+						Fields: map[string]any{
+							"prompt": "hello",
+							"model":  "fake-model",
+						},
+					},
+				},
+			},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	firstChunkReady := make(chan string, 1)
+	continueExecution := make(chan struct{})
+
+	fakeRun := codexexec.RunnerFunc(func(_ context.Context, args []string, _ string, _ []string, _ []byte, stdout, _ io.Writer) error {
+		// Derive artifact dir from the -o flag so we can compute the stdout path.
+		var outputPath string
+		for i, arg := range args {
+			if arg == "-o" && i+1 < len(args) {
+				outputPath = args[i+1]
+			}
+		}
+		stdoutPath := filepath.Join(filepath.Dir(outputPath), "stdout.txt")
+
+		// Stream first chunk through the writer wired to the pre-created artifact file.
+		if _, err := fmt.Fprint(stdout, "chunk1\n"); err != nil {
+			return err
+		}
+
+		firstChunkReady <- stdoutPath
+		<-continueExecution
+
+		if _, err := fmt.Fprint(stdout, "chunk2\n"); err != nil {
+			return err
+		}
+		return os.WriteFile(outputPath, []byte("fake transcript"), 0o644)
+	})
+
+	registry := NewRegistry()
+	if err := registry.Register("codex", func() executorapi.Executor {
+		return codexexec.NewWithRunner(fakeRun)
+	}); err != nil {
+		t.Fatalf("register codex executor: %v", err)
+	}
+
+	var events []progress.Event
+	sink := progress.SinkFunc(func(event progress.Event) {
+		events = append(events, event)
+	})
+
+	type runResult struct {
+		snapshot state.Snapshot
+		err      error
+	}
+	resultCh := make(chan runResult, 1)
+	go func() {
+		snapshot, err := NewRunner(registry, WithRunnerProgressSink(sink)).Run(context.Background(), config)
+		resultCh <- runResult{snapshot, err}
+	}()
+
+	// Confirm artifact file is readable while the agent executor is still running,
+	// exercising the agent.StreamCapture pre-creation contract.
+	stdoutPath := <-firstChunkReady
+	midRunData, err := os.ReadFile(stdoutPath)
+	if err != nil {
+		t.Fatalf("read stdout during agent execution: %v", err)
+	}
+	if string(midRunData) != "chunk1\n" {
+		t.Fatalf("mid-run stdout = %q, want %q", string(midRunData), "chunk1\n")
+	}
+
+	close(continueExecution)
+	res := <-resultCh
+	if res.err != nil {
+		t.Fatalf("run: %v", res.err)
+	}
+
+	if len(res.snapshot.Steps) != 1 {
+		t.Fatalf("step count = %d, want 1", len(res.snapshot.Steps))
+	}
+	step := res.snapshot.Steps[0]
+	if step.Status != state.StepStatusSucceeded {
+		t.Fatalf("step status = %q, want succeeded", step.Status)
+	}
+	if step.Artifacts.Stdout == "" {
+		t.Fatal("stdout artifact path empty after step completion")
+	}
+	finalData, err := os.ReadFile(step.Artifacts.Stdout)
+	if err != nil {
+		t.Fatalf("read stdout after completion: %v", err)
+	}
+	if string(finalData) != "chunk1\nchunk2\n" {
+		t.Fatalf("final stdout = %q, want %q", string(finalData), "chunk1\nchunk2\n")
+	}
+
+	// Confirm progress event ordering is stable throughout the streaming scenario.
+	assertProgressKindsAndSteps(t, events,
+		[]progress.EventKind{
+			progress.EventRunStarted,
+			progress.EventStepStarted,
+			progress.EventStepFinished,
+			progress.EventRunFinished,
+		},
+		[]string{"", "agent-step", "agent-step", ""},
+	)
+	finished := events[len(events)-1]
+	if finished.Status != progress.RunStatusSucceeded {
+		t.Fatalf("final event status = %q, want succeeded", finished.Status)
 	}
 }
 

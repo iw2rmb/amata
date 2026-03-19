@@ -105,16 +105,20 @@ After compact and before proceeding, reread:
 
 ### Policy
 
-- When committing, you **MUST** ensure that `docs/`, `roadmap/`, `design/`, `research/` updated with diff in mind.
-- When updating, ensure that every document is kept within its domain or split documents.
-- `design/**` and `roadmap/**` are short-lived working documents. Once the corresponding work is implemented and no unfinished design or roadmap depends on them as prerequisites, remove both the design doc and its roadmap.
-- In `design/**` and `roadmap/**`, references to other design docs or roadmaps are allowed only for not-yet-implemented prerequisites. Do not use completed transient docs as long-lived explanations of current behavior.
-- Explanations of shipped behavior, schemas, standards, instructions, difficult algorithms, decisions, and principles belong in `docs/**`. When design or roadmap text needs to explain current implementation, point to `docs/**`, not to completed design or roadmap history.
-- `docs/**` is the long-lived, self-sufficient documentation surface. It must not refer to `design/**`, `research/**`, or `roadmap/**`.
-- `docs/**` should not repeat design history. It should capture structured current-state snapshots of features, subjects, schemas, instructions, standards, and important implementation principles, relying on the codebase and code comments for low-level detail.
-- When document exceeds 1000 LOC, consider splitting into narrower domains, or extracting `##`-sections or large tables into separate files.
-- Keep all documents cross-referenced.
-- For cross-reference integrity checks, run `~/@iw2rmb/amata/scripts/check_docs_links.sh` from the target project root.
+Below are instructions handling `docs/`, `roadmap/`, `design/`, `research/` folders and changes in these folders.
+
+- When committing, you **MUST** ensure that `docs/`, `roadmap/`, `design/`, `research/` are updated accordingly with diff taken into account.
+
+When updating docs in these folders, follow these rules:
+  - Ensure that every document is kept within its domain or split documents.
+  - `design/**` and `roadmap/**` are short-lived working documents. Once the corresponding work is implemented and no unfinished design or roadmap depends on them as prerequisites, remove both the design doc and its roadmap.
+  - In `design/**` and `roadmap/**`, references to other design docs or roadmaps are allowed only for not-yet-implemented prerequisites. Do not use completed transient docs as long-lived explanations of current behavior.
+  - Explanations of shipped behavior, schemas, standards, instructions, difficult algorithms, decisions, and principles belong in `docs/**`. When design or roadmap text needs to explain current implementation, point to `docs/**`, not to completed design or roadmap history.
+  - `docs/**` is the long-lived, self-sufficient documentation surface. It must not refer to `design/**`, `research/**`, or `roadmap/**`.
+  - `docs/**` should not repeat design history. It should capture structured current-state snapshots of features, subjects, schemas, instructions, standards, and important implementation principles, relying on the codebase and code comments for low-level detail.
+  - When document exceeds 1000 LOC, consider splitting into narrower domains, or extracting `##`-sections or large tables into separate files.
+  - Keep all documents cross-referenced.
+  - For cross-reference integrity checks, run `~/@iw2rmb/amata/scripts/check_docs_links.sh` from the target project root.
 
 
 ## Tests Writing Policy

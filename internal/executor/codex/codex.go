@@ -13,29 +13,22 @@ import (
 	"github.com/iw2rmb/amata/internal/executor/agent"
 )
 
-type runner interface {
-	Run(context.Context, command) (commandResult, error)
-}
-
-type command struct {
-	args         []string
-	dir          string
-	env          []string
-	stdin        []byte
-	stdoutWriter io.Writer
-	stderrWriter io.Writer
-}
-
-type commandResult struct{}
+// RunnerFunc executes the codex CLI. The default implementation uses os/exec.
+// Tests may supply a fake via NewWithRunner.
+type RunnerFunc func(ctx context.Context, args []string, dir string, env []string, stdin []byte, stdout, stderr io.Writer) error
 
 type provider struct {
-	runner runner
+	run RunnerFunc
 }
 
-type execRunner struct{}
-
 func New() executor.Executor {
-	return agent.New(provider{runner: execRunner{}})
+	return NewWithRunner(execRun)
+}
+
+// NewWithRunner returns an executor that uses run to invoke the codex CLI.
+// Intended for tests that need to inject a controllable fake.
+func NewWithRunner(run RunnerFunc) executor.Executor {
+	return agent.New(provider{run: run})
 }
 
 func (provider) Name() string {
@@ -60,16 +53,7 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 	}
 	args = append(args, "-o", outputPath, "-")
 
-	spec := command{
-		args:         args,
-		dir:          request.CWD,
-		env:          agent.CommandEnv(request.Env),
-		stdin:        []byte(request.Prompt),
-		stdoutWriter: request.StdoutWriter,
-		stderrWriter: request.StderrWriter,
-	}
-
-	_, runErr := p.runner.Run(ctx, spec)
+	runErr := p.run(ctx, args, request.CWD, agent.CommandEnv(request.Env), []byte(request.Prompt), request.StdoutWriter, request.StderrWriter)
 
 	transcript, readErr := os.ReadFile(outputPath)
 
@@ -112,16 +96,14 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 	return response, nil
 }
 
-func (execRunner) Run(ctx context.Context, spec command) (commandResult, error) {
-	cmd := exec.CommandContext(ctx, "codex", spec.args...)
-	cmd.Dir = spec.dir
-	cmd.Env = spec.env
-	cmd.Stdin = bytes.NewReader(spec.stdin)
-	cmd.Stdout = spec.stdoutWriter
-	cmd.Stderr = spec.stderrWriter
-
-	err := cmd.Run()
-	return commandResult{}, err
+func execRun(ctx context.Context, args []string, dir string, env []string, stdin []byte, stdout, stderr io.Writer) error {
+	cmd := exec.CommandContext(ctx, "codex", args...)
+	cmd.Dir = dir
+	cmd.Env = env
+	cmd.Stdin = bytes.NewReader(stdin)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	return cmd.Run()
 }
 
 func invalidProviderOutput(response agent.Response, message string) (agent.Response, *agent.Error) {

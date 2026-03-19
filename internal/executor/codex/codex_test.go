@@ -3,6 +3,7 @@ package codex
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,19 +16,23 @@ func TestProviderPassesSettingsAndParsesStructuredOutput(t *testing.T) {
 	t.Parallel()
 
 	artifactDir := t.TempDir()
-	var captured command
 
-	provider := provider{
-		runner: fakeRunner(func(_ context.Context, spec command) (commandResult, error) {
-			captured = spec
-			if err := os.WriteFile(filepath.Join(artifactDir, "last-message.txt"), []byte("{\"approved\":true}\n"), 0o644); err != nil {
-				t.Fatalf("write last message: %v", err)
-			}
-			return commandResult{}, nil
-		}),
+	var capturedArgs []string
+	var capturedDir string
+	var capturedEnv []string
+	var capturedStdin []byte
+
+	prov := provider{
+		run: func(_ context.Context, args []string, dir string, env []string, stdin []byte, _, _ io.Writer) error {
+			capturedArgs = args
+			capturedDir = dir
+			capturedEnv = env
+			capturedStdin = stdin
+			return os.WriteFile(filepath.Join(artifactDir, "last-message.txt"), []byte("{\"approved\":true}\n"), 0o644)
+		},
 	}
 
-	response, execErr := provider.Execute(context.Background(), agent.Request{
+	response, execErr := prov.Execute(context.Background(), agent.Request{
 		Prompt:      "Implement item",
 		Model:       "gpt-5.4",
 		Reasoning:   "high",
@@ -42,26 +47,26 @@ func TestProviderPassesSettingsAndParsesStructuredOutput(t *testing.T) {
 		t.Fatalf("execute error = %#v", execErr)
 	}
 
-	if captured.dir != "/repo" {
-		t.Fatalf("dir = %q, want /repo", captured.dir)
+	if capturedDir != "/repo" {
+		t.Fatalf("dir = %q, want /repo", capturedDir)
 	}
-	if string(captured.stdin) != "Implement item" {
-		t.Fatalf("stdin = %q, want prompt", string(captured.stdin))
+	if string(capturedStdin) != "Implement item" {
+		t.Fatalf("stdin = %q, want prompt", string(capturedStdin))
 	}
-	if !containsArgPair(captured.args, "--model", "gpt-5.4") {
-		t.Fatalf("args = %#v, want --model gpt-5.4", captured.args)
+	if !containsArgPair(capturedArgs, "--model", "gpt-5.4") {
+		t.Fatalf("args = %#v, want --model gpt-5.4", capturedArgs)
 	}
-	if !containsArgPair(captured.args, "--output-schema", filepath.Join(artifactDir, "response-schema.json")) {
-		t.Fatalf("args = %#v, want structured schema flag", captured.args)
+	if !containsArgPair(capturedArgs, "--output-schema", filepath.Join(artifactDir, "response-schema.json")) {
+		t.Fatalf("args = %#v, want structured schema flag", capturedArgs)
 	}
-	if !containsArgPair(captured.args, "-o", filepath.Join(artifactDir, "last-message.txt")) {
-		t.Fatalf("args = %#v, want last message output flag", captured.args)
+	if !containsArgPair(capturedArgs, "-o", filepath.Join(artifactDir, "last-message.txt")) {
+		t.Fatalf("args = %#v, want last message output flag", capturedArgs)
 	}
-	if !containsString(captured.args, `model_reasoning_effort="high"`) {
-		t.Fatalf("args = %#v, want reasoning setting", captured.args)
+	if !containsString(capturedArgs, `model_reasoning_effort="high"`) {
+		t.Fatalf("args = %#v, want reasoning setting", capturedArgs)
 	}
-	if !containsEnv(captured.env, "CODEX_TEST=1") {
-		t.Fatalf("env = %#v, want CODEX_TEST override", captured.env)
+	if !containsEnv(capturedEnv, "CODEX_TEST=1") {
+		t.Fatalf("env = %#v, want CODEX_TEST override", capturedEnv)
 	}
 
 	value, ok := response.Value.(map[string]any)
@@ -80,13 +85,13 @@ func TestProviderReportsAgentFailureBeforeTranscriptValidation(t *testing.T) {
 	t.Parallel()
 
 	artifactDir := t.TempDir()
-	provider := provider{
-		runner: fakeRunner(func(_ context.Context, spec command) (commandResult, error) {
-			return commandResult{}, errors.New("exit status 1")
-		}),
+	prov := provider{
+		run: func(_ context.Context, _ []string, _ string, _ []string, _ []byte, _, _ io.Writer) error {
+			return errors.New("exit status 1")
+		},
 	}
 
-	_, execErr := provider.Execute(context.Background(), agent.Request{
+	_, execErr := prov.Execute(context.Background(), agent.Request{
 		Prompt:      "Implement item",
 		Model:       "gpt-5.4",
 		CWD:         "/repo",
@@ -124,20 +129,23 @@ func TestProviderStreamsStdoutWhileRunning(t *testing.T) {
 	continueWriting := make(chan struct{})
 
 	prov := provider{
-		runner: fakeRunner(func(_ context.Context, spec command) (commandResult, error) {
-			if _, err := spec.stdoutWriter.Write([]byte("chunk1\n")); err != nil {
+		run: func(_ context.Context, args []string, _ string, _ []string, _ []byte, stdout, _ io.Writer) error {
+			if _, err := stdout.Write([]byte("chunk1\n")); err != nil {
 				t.Errorf("write chunk1: %v", err)
 			}
 			close(firstChunkWritten)
 			<-continueWriting
-			if _, err := spec.stdoutWriter.Write([]byte("chunk2\n")); err != nil {
+			if _, err := stdout.Write([]byte("chunk2\n")); err != nil {
 				t.Errorf("write chunk2: %v", err)
 			}
-			if err := os.WriteFile(filepath.Join(artifactDir, "last-message.txt"), []byte("result\n"), 0o644); err != nil {
-				t.Errorf("write last-message: %v", err)
+			var outputPath string
+			for i, arg := range args {
+				if arg == "-o" && i+1 < len(args) {
+					outputPath = args[i+1]
+				}
 			}
-			return commandResult{}, nil
-		}),
+			return os.WriteFile(outputPath, []byte("result\n"), 0o644)
+		},
 	}
 
 	type execResult struct {
@@ -201,16 +209,16 @@ func TestProviderPreservesPartialOutputOnCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	prov := provider{
-		runner: fakeRunner(func(_ context.Context, spec command) (commandResult, error) {
-			if _, err := spec.stdoutWriter.Write([]byte("partial stdout\n")); err != nil {
+		run: func(_ context.Context, _ []string, _ string, _ []string, _ []byte, stdout, stderr io.Writer) error {
+			if _, err := stdout.Write([]byte("partial stdout\n")); err != nil {
 				t.Errorf("write stdout: %v", err)
 			}
-			if _, err := spec.stderrWriter.Write([]byte("partial stderr\n")); err != nil {
+			if _, err := stderr.Write([]byte("partial stderr\n")); err != nil {
 				t.Errorf("write stderr: %v", err)
 			}
 			cancel()
-			return commandResult{}, errors.New("signal: killed")
-		}),
+			return errors.New("signal: killed")
+		},
 	}
 
 	_, execErr := prov.Execute(ctx, agent.Request{
@@ -250,15 +258,15 @@ func TestProviderPreservesPartialOutputOnNonZeroExit(t *testing.T) {
 	defer stderrFile.Close()
 
 	prov := provider{
-		runner: fakeRunner(func(_ context.Context, spec command) (commandResult, error) {
-			if _, err := spec.stdoutWriter.Write([]byte("partial output\n")); err != nil {
+		run: func(_ context.Context, _ []string, _ string, _ []string, _ []byte, stdout, stderr io.Writer) error {
+			if _, err := stdout.Write([]byte("partial output\n")); err != nil {
 				t.Errorf("write stdout: %v", err)
 			}
-			if _, err := spec.stderrWriter.Write([]byte("error detail\n")); err != nil {
+			if _, err := stderr.Write([]byte("error detail\n")); err != nil {
 				t.Errorf("write stderr: %v", err)
 			}
-			return commandResult{}, errors.New("exit status 1")
-		}),
+			return errors.New("exit status 1")
+		},
 	}
 
 	_, execErr := prov.Execute(context.Background(), agent.Request{
@@ -290,12 +298,6 @@ func assertFileContents(t *testing.T, path string, want string) {
 	if string(data) != want {
 		t.Fatalf("%s = %q, want %q", path, string(data), want)
 	}
-}
-
-type fakeRunner func(context.Context, command) (commandResult, error)
-
-func (f fakeRunner) Run(ctx context.Context, spec command) (commandResult, error) {
-	return f(ctx, spec)
 }
 
 func containsArgPair(args []string, name string, value string) bool {
