@@ -103,6 +103,40 @@ func TestProviderStructuredOutputModes(t *testing.T) {
 	}
 }
 
+func TestProviderUnwrapsStructuredOutputEnvelope(t *testing.T) {
+	t.Parallel()
+
+	provider := provider{
+		runner: fakeRunner(func(_ context.Context, spec command) (commandResult, error) {
+			return commandResult{
+				stdout: []byte(`{"type":"result","stop_reason":"end_turn","session_id":"abc","usage":{"input_tokens":1},"structured_output":{"approved":true,"notes":"ok"}}`),
+				stderr: []byte(""),
+			}, nil
+		}),
+		structuredOutputSupported: true,
+	}
+
+	response, execErr := provider.Execute(context.Background(), agent.Request{
+		Prompt: "Review the diff",
+		Model:  "sonnet",
+		CWD:    "/repo",
+		Structured: &agent.StructuredOutput{
+			JSON: `{"type":"object","properties":{"approved":{"type":"boolean"},"notes":{"type":"string"}},"required":["approved","notes"]}`,
+		},
+	})
+	if execErr != nil {
+		t.Fatalf("execute error = %#v", execErr)
+	}
+
+	value, ok := response.Value.(map[string]any)
+	if !ok {
+		t.Fatalf("response value type = %T, want map[string]any", response.Value)
+	}
+	if value["approved"] != true || value["notes"] != "ok" {
+		t.Fatalf("response value = %#v, want unwrapped structured_output payload", response.Value)
+	}
+}
+
 func TestProviderReportsAgentFailureBeforeStructuredParse(t *testing.T) {
 	t.Parallel()
 

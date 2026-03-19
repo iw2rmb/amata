@@ -107,6 +107,9 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 				Message: fmt.Sprintf("claude output is invalid: %v", err),
 			}
 		}
+		if structuredOutputMode == "provider_schema" {
+			value = unwrapProviderStructuredOutput(value)
+		}
 		response.Value = value
 		response.HasValue = true
 	}
@@ -130,4 +133,32 @@ func (execRunner) Run(ctx context.Context, spec command) (commandResult, error) 
 		stdout: stdout.Bytes(),
 		stderr: stderr.Bytes(),
 	}, err
+}
+
+func unwrapProviderStructuredOutput(value any) any {
+	envelope, ok := value.(map[string]any)
+	if !ok {
+		return value
+	}
+
+	inner, ok := envelope["structured_output"]
+	if !ok {
+		return value
+	}
+
+	if !looksLikeClaudeJSONEnvelope(envelope) {
+		return value
+	}
+	return inner
+}
+
+func looksLikeClaudeJSONEnvelope(envelope map[string]any) bool {
+	if typ, _ := envelope["type"].(string); typ == "result" {
+		return true
+	}
+
+	_, hasSessionID := envelope["session_id"]
+	_, hasStopReason := envelope["stop_reason"]
+	_, hasUsage := envelope["usage"]
+	return hasSessionID && hasStopReason && hasUsage
 }
