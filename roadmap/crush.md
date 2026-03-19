@@ -14,7 +14,7 @@ Documentation: docs/engine/index.md
     2. `go test ./internal/executor/agent -run TestExecutor` confirms `agent.Executor` error normalization still applies to `crush`.
   - Reasoning: high
 
-- [ ] 1.2 Implement `crush` as a built-in executor and spec step type
+- [x] 1.2 Implement `crush` as a built-in executor and spec step type
   - Repository: amata
     1. Add `internal/executor/crush/crush.go` with `provider.Name` and `provider.Execute` wired through `agent.New`.
     2. Register `crush` in `internal/runtime/builtins.go` so runtime dispatch can instantiate the new executor.

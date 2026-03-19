@@ -5,6 +5,7 @@ import (
 	assertexec "github.com/iw2rmb/amata/internal/executor/assert"
 	claudeexec "github.com/iw2rmb/amata/internal/executor/claude"
 	codexexec "github.com/iw2rmb/amata/internal/executor/codex"
+	crushexec "github.com/iw2rmb/amata/internal/executor/crush"
 	exprexec "github.com/iw2rmb/amata/internal/executor/expr"
 	gitcommitexec "github.com/iw2rmb/amata/internal/executor/gitcommit"
 	gitinspectexec "github.com/iw2rmb/amata/internal/executor/gitinspect"
@@ -18,6 +19,7 @@ func builtinRegistry() *Registry {
 	mustRegister(registry, "assert", assertexec.New)
 	mustRegister(registry, "codex", codexexec.New)
 	mustRegister(registry, "claude", claudeexec.New)
+	mustRegister(registry, "crush", crushexec.New)
 	mustRegister(registry, "git.inspect", gitinspectexec.New)
 	mustRegister(registry, "git.commit", gitcommitexec.New)
 	return registry

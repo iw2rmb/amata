@@ -22,6 +22,7 @@ var builtinStepSchemaNames = []string{
 	"call",
 	"claude",
 	"codex",
+	"crush",
 	"expr",
 	"for_each",
 	"git.commit",

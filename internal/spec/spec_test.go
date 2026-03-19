@@ -321,6 +321,7 @@ flows:
           additionalProperties: false
       - claude:
           expr: '"prompt"'
+      - crush: do the thing
       - switch:
           - when: $.prev.value["hasItem"]
             steps:
@@ -398,33 +399,40 @@ flows:
 		t.Fatalf("step 3 prompt.expr = %#v, want %q", got, `"prompt"`)
 	}
 
-	if got := mainSteps[4].Type; got != "switch" {
-		t.Fatalf("step 4 type = %q, want switch", got)
+	if got := mainSteps[4].Type; got != "crush" {
+		t.Fatalf("step 4 type = %q, want crush", got)
 	}
-	cases, ok := mainSteps[4].Fields["cases"].([]any)
+	if got := mainSteps[4].Fields["prompt"]; got != "do the thing" {
+		t.Fatalf("step 4 prompt = %#v, want \"do the thing\"", got)
+	}
+
+	if got := mainSteps[5].Type; got != "switch" {
+		t.Fatalf("step 5 type = %q, want switch", got)
+	}
+	cases, ok := mainSteps[5].Fields["cases"].([]any)
 	if !ok || len(cases) != 2 {
-		t.Fatalf("step 4 cases = %#v, want 2 switch cases", mainSteps[4].Fields["cases"])
+		t.Fatalf("step 5 cases = %#v, want 2 switch cases", mainSteps[5].Fields["cases"])
 	}
 	firstCase, ok := cases[0].(map[string]any)
 	if !ok {
-		t.Fatalf("step 4 case 0 = %#v, want map", cases[0])
+		t.Fatalf("step 5 case 0 = %#v, want map", cases[0])
 	}
 	firstWhen, ok := firstCase["when"].(map[string]any)
 	if !ok {
-		t.Fatalf("step 4 case 0 when = %#v, want expr map", firstCase["when"])
+		t.Fatalf("step 5 case 0 when = %#v, want expr map", firstCase["when"])
 	}
 	if got := firstWhen["expr"]; got != `$.prev.value["hasItem"]` {
-		t.Fatalf("step 4 case 0 when.expr = %#v, want hasItem expression", got)
+		t.Fatalf("step 5 case 0 when.expr = %#v, want hasItem expression", got)
 	}
 	secondCase, ok := cases[1].(map[string]any)
 	if !ok {
-		t.Fatalf("step 4 case 1 = %#v, want map", cases[1])
+		t.Fatalf("step 5 case 1 = %#v, want map", cases[1])
 	}
 	secondWhen, ok := secondCase["when"].(map[string]any)
 	if !ok {
-		t.Fatalf("step 4 case 1 when = %#v, want expr map", secondCase["when"])
+		t.Fatalf("step 5 case 1 when = %#v, want expr map", secondCase["when"])
 	}
 	if got := secondWhen["expr"]; got != `not ctx.prev.value["hasItem"]` {
-		t.Fatalf("step 4 case 1 when.expr = %#v, want negated hasItem expression", got)
+		t.Fatalf("step 5 case 1 when.expr = %#v, want negated hasItem expression", got)
 	}
 }
