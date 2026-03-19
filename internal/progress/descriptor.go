@@ -146,8 +146,6 @@ func descriptorDataFromContext(stepCtx executor.StepContext) (*DescriptorData, e
 			PrimaryText:         fmt.Sprintf("%d items", itemCount),
 			FinalSummaryDetails: []string{fmt.Sprintf("%d items", itemCount)},
 		}, nil
-	case "codex", "claude", "crush":
-		return agentDescriptor(stepCtx, stepCtx.Step.ExecutorType())
 	case "shell":
 		command, err := shellCommand(stepCtx)
 		if err != nil {
@@ -181,6 +179,9 @@ func descriptorDataFromContext(stepCtx executor.StepContext) (*DescriptorData, e
 		}
 		return &DescriptorData{DetailText: []string{message}}, nil
 	default:
+		if isAgentStepType(stepCtx.Step.ExecutorType()) {
+			return agentDescriptor(stepCtx, stepCtx.Step.ExecutorType())
+		}
 		return nil, nil
 	}
 }
