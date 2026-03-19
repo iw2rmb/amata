@@ -4,7 +4,7 @@ Scope: Add first-class `crush` workflow-step support alongside `codex` and `clau
 
 Documentation: docs/engine/index.md
 
-- [ ] 1.1 Lock `crush` execution contract and edge-case behavior
+- [x] 1.1 Lock `crush` execution contract and edge-case behavior
   - Repository: amata
     1. Define the `crush run` invocation contract in `internal/executor/crush/provider.Execute` using `--yolo`, `--quiet`, `--model`, and stdin prompt input.
     2. Define `reasoning` handling for `crush` in `internal/executor/crush/provider.Execute` so unsupported values do not fail silently.

@@ -854,6 +854,53 @@ func TestExecutorPreservesPartialArtifactsOnCancellation(t *testing.T) {
 	assertArtifactContents(t, result.Artifacts.Stderr, "partial stderr\n")
 }
 
+func TestExecutorNormalizesProviderCrashForCrush(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	runDir := filepath.Join(rootDir, ".amata", "runs", "run-crush-crash")
+	workspaceConfig := workspace.Config{
+		Root:     rootDir,
+		StateDir: filepath.Join(rootDir, ".amata"),
+	}
+	step := spec.Step{
+		ID:   "crush-crash",
+		Type: "crush",
+		Fields: map[string]any{
+			"prompt": "do something",
+		},
+	}
+
+	provider := &fakeProvider{
+		name: "crush",
+		execute: func(_ context.Context, _ agent.Request) (agent.Response, *agent.Error) {
+			return agent.Response{}, &agent.Error{Code: "agent_failed", Message: "crush crashed"}
+		},
+	}
+
+	result := agent.New(provider).Execute(context.Background(), executor.StepContext{
+		RunDir: runDir,
+		Spec: spec.Document{
+			Defaults: map[string]any{
+				"executors": map[string]any{
+					"crush": map[string]any{"model": "sonnet-5"},
+				},
+			},
+		},
+		Workspace: workspaceConfig,
+		StepIndex: 0,
+		Step:      step,
+		Runtime:   runtimeForWorkspace(workspaceConfig, nil),
+	})
+
+	if result.Status != state.StepStatusFailed {
+		t.Fatalf("result status = %q, want failed", result.Status)
+	}
+	if result.Error == nil || result.Error.Code != "provider_crashed" {
+		t.Fatalf("result error = %#v, want provider_crashed", result.Error)
+	}
+}
+
 type fakeProvider struct {
 	name    string
 	execute func(context.Context, agent.Request) (agent.Response, *agent.Error)
