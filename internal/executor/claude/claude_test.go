@@ -190,10 +190,16 @@ func TestProviderStreamsStdoutWhileRunning(t *testing.T) {
 			if _, err := spec.stdoutWriter.Write([]byte("chunk1\n")); err != nil {
 				t.Errorf("write chunk1: %v", err)
 			}
+			if _, err := spec.stderrWriter.Write([]byte("err1\n")); err != nil {
+				t.Errorf("write err1: %v", err)
+			}
 			close(firstChunkWritten)
 			<-continueWriting
 			if _, err := spec.stdoutWriter.Write([]byte("chunk2\n")); err != nil {
 				t.Errorf("write chunk2: %v", err)
+			}
+			if _, err := spec.stderrWriter.Write([]byte("err2\n")); err != nil {
+				t.Errorf("write err2: %v", err)
 			}
 			return commandResult{stdout: []byte("chunk1\nchunk2\n")}, nil
 		}),
@@ -224,6 +230,13 @@ func TestProviderStreamsStdoutWhileRunning(t *testing.T) {
 	if string(data) != "chunk1\n" {
 		t.Fatalf("mid-run stdout = %q, want chunk1 only", string(data))
 	}
+	data, err = os.ReadFile(stderrPath)
+	if err != nil {
+		t.Fatalf("read stderr mid-run: %v", err)
+	}
+	if string(data) != "err1\n" {
+		t.Fatalf("mid-run stderr = %q, want err1 only", string(data))
+	}
 
 	close(continueWriting)
 	res := <-resultCh
@@ -241,6 +254,8 @@ func TestProviderStreamsStdoutWhileRunning(t *testing.T) {
 	if string(res.response.Transcript) != "chunk1\nchunk2\n" {
 		t.Fatalf("transcript = %q, want chunk1+chunk2", string(res.response.Transcript))
 	}
+
+	assertFileContents(t, stderrPath, "err1\nerr2\n")
 }
 
 func TestProviderPreservesPartialOutputOnError(t *testing.T) {
