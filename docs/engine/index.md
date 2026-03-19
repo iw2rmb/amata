@@ -39,7 +39,7 @@ Current behavior:
 - `workspace.root` and `workspace.state_dir` are accepted and normalized before execution.
 - `params` are exposed to expressions and templates under `ctx.params`.
 - Repeated `--set key=value` flags override declared `spec.params` entries for the launched run and persist inside the stored normalized spec.
-- `defaults` are parsed and persisted. Agent executors currently interpret `defaults.cwd`, `defaults.env`, and `defaults.executors.codex|claude|crush`.
+- `defaults` are parsed and persisted. Agent executors currently interpret `defaults.cwd`, `defaults.env`, and `defaults.executors.codex|claude|crush`. Stall policy defaults are read from `defaults.executors.<step-type>.stall` when a step omits `stall`.
 - `schemas` provides workflow-local JSON Schema definitions for inline `response.schema` refs.
 - Built-in step definitions are validated at spec load time against embedded JSON Schema files shipped under `schemas/*.amata.schema.json`.
 - Shared step-schema fragments such as stall-policy and string-or-expression shapes are factored into separate embedded schema files under `schemas/`.
@@ -447,12 +447,13 @@ Current behavior:
 - `rerun` cancels the stalled executor attempt and starts the same step again with the same resolved inputs.
 - `error` cancels the stalled executor attempt and fails the run with code `step_stalled`.
 - `call` cancels the stalled executor attempt and runs the named flow instead; the fallback flow's terminal result becomes the stalled step's result.
+- When a step omits `stall`, the runner checks `defaults.executors.<step-type>.stall`.
+- Step-level `stall` overrides `defaults.executors.<step-type>.stall`.
 - Each execution attempt uses a distinct artifact directory, so repeated loop iterations and reruns do not overwrite prior stdout, stderr, prompt, transcript, or file artifacts.
 
 ## Current Limits
 
 Not implemented yet:
-- workflow-wide executor defaults beyond current agent-step support
 - provider-session continuation
 - pause and continue
 - parallel execution

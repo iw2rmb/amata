@@ -333,7 +333,7 @@ func (r *Runner) executeStep(
 		return stepAction{}, result
 	}
 
-	policy, failure := resolveStallPolicy(runtime, stepIndex, step)
+	policy, failure := resolveStallPolicy(runtime, config.Spec.Defaults, stepIndex, step)
 	if failure != nil {
 		result.Status = state.StepStatusFailed
 		result.Error = failure
@@ -513,8 +513,11 @@ func executeStepAttempt(ctx context.Context, stepExecutor executorapi.Executor, 
 	return result
 }
 
-func resolveStallPolicy(runtime exprruntime.Runtime, stepIndex int, step spec.Step) (*stallPolicy, *state.Failure) {
-	raw, ok := step.Fields["stall"]
+func resolveStallPolicy(runtime exprruntime.Runtime, defaults map[string]any, stepIndex int, step spec.Step) (*stallPolicy, *state.Failure) {
+	raw, ok, err := resolveRawStallPolicy(defaults, step)
+	if err != nil {
+		return nil, invalidStallFailure(stepIndex, err.Error())
+	}
 	if !ok {
 		return nil, nil
 	}
@@ -571,6 +574,40 @@ func resolveStallPolicy(runtime exprruntime.Runtime, stepIndex int, step spec.St
 	}
 
 	return policy, nil
+}
+
+func resolveRawStallPolicy(defaults map[string]any, step spec.Step) (any, bool, error) {
+	if raw, ok := step.Fields["stall"]; ok {
+		return raw, true, nil
+	}
+
+	rawExecutors, ok := defaults["executors"]
+	if !ok {
+		return nil, false, nil
+	}
+	executors, ok := rawExecutors.(map[string]any)
+	if !ok {
+		return nil, false, fmt.Errorf("defaults.executors must be a map")
+	}
+
+	executorType := step.ExecutorType()
+	if executorType == "" {
+		return nil, false, nil
+	}
+	rawExecutorDefaults, ok := executors[executorType]
+	if !ok {
+		return nil, false, nil
+	}
+	executorDefaults, ok := rawExecutorDefaults.(map[string]any)
+	if !ok {
+		return nil, false, fmt.Errorf("defaults.executors.%s must be a map", executorType)
+	}
+
+	rawStall, ok := executorDefaults["stall"]
+	if !ok {
+		return nil, false, nil
+	}
+	return rawStall, true, nil
 }
 
 func resolveStallAfter(runtime exprruntime.Runtime, raw any) (time.Duration, error) {

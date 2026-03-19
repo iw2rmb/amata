@@ -1414,6 +1414,146 @@ func TestRunnerStallRerunRetriesStepWithSameInputs(t *testing.T) {
 	}
 }
 
+func TestRunnerStallUsesExecutorDefaultsWhenStepStallMissing(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Defaults: map[string]any{
+			"executors": map[string]any{
+				"fake": map[string]any{
+					"stall": map[string]any{
+						"after": "10ms",
+						"type":  "error",
+					},
+				},
+			},
+		},
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID:   "blocked",
+						Type: "fake",
+					},
+				},
+			},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	registry := builtinRegistry()
+	if err := registry.Register("fake", func() executorapi.Executor {
+		return &fakeExecutor{
+			calls: new([]string),
+			executeWithContext: func(execCtx context.Context, ctx executorapi.StepContext) state.StepResult {
+				<-execCtx.Done()
+				return state.StepResult{
+					Status: state.StepStatusFailed,
+					Error: &state.Failure{
+						Code:    "canceled",
+						Message: "canceled",
+					},
+				}
+			},
+		}
+	}); err != nil {
+		t.Fatalf("register fake executor: %v", err)
+	}
+
+	_, err := NewRunner(registry).Run(context.Background(), config)
+	var failed RunFailedError
+	if !errors.As(err, &failed) {
+		t.Fatalf("run error = %#v, want RunFailedError", err)
+	}
+	if failed.Failure.Code != "step_stalled" {
+		t.Fatalf("failure code = %q, want step_stalled", failed.Failure.Code)
+	}
+}
+
+func TestRunnerStepStallOverridesExecutorDefaultStall(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Defaults: map[string]any{
+			"executors": map[string]any{
+				"fake": map[string]any{
+					"stall": map[string]any{
+						"after": "10ms",
+						"type":  "error",
+					},
+				},
+			},
+		},
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID:   "blocked",
+						Type: "fake",
+						Fields: map[string]any{
+							"stall": map[string]any{
+								"after": "10ms",
+								"type":  "rerun",
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	attempts := 0
+	registry := builtinRegistry()
+	if err := registry.Register("fake", func() executorapi.Executor {
+		return &fakeExecutor{
+			calls: new([]string),
+			executeWithContext: func(execCtx context.Context, ctx executorapi.StepContext) state.StepResult {
+				attempts++
+				if attempts == 1 {
+					<-execCtx.Done()
+					return state.StepResult{
+						Status: state.StepStatusFailed,
+						Error: &state.Failure{
+							Code:    "canceled",
+							Message: "canceled",
+						},
+					}
+				}
+				return state.StepResult{
+					Status: state.StepStatusSucceeded,
+					Value:  "ok",
+				}
+			},
+		}
+	}); err != nil {
+		t.Fatalf("register fake executor: %v", err)
+	}
+
+	snapshot, err := NewRunner(registry).Run(context.Background(), config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("attempts = %d, want 2", attempts)
+	}
+	if got := snapshot.Steps[0].Value; got != "ok" {
+		t.Fatalf("step value = %#v, want ok", got)
+	}
+}
+
 func TestRunnerStallErrorFailsStep(t *testing.T) {
 	t.Parallel()
 
