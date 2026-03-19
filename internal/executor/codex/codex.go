@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,16 +18,15 @@ type runner interface {
 }
 
 type command struct {
-	args  []string
-	dir   string
-	env   []string
-	stdin []byte
+	args         []string
+	dir          string
+	env          []string
+	stdin        []byte
+	stdoutWriter io.Writer
+	stderrWriter io.Writer
 }
 
-type commandResult struct {
-	stdout []byte
-	stderr []byte
-}
+type commandResult struct{}
 
 type provider struct {
 	runner runner
@@ -61,21 +61,21 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 	args = append(args, "-o", outputPath, "-")
 
 	spec := command{
-		args:  args,
-		dir:   request.CWD,
-		env:   agent.CommandEnv(request.Env),
-		stdin: []byte(request.Prompt),
+		args:         args,
+		dir:          request.CWD,
+		env:          agent.CommandEnv(request.Env),
+		stdin:        []byte(request.Prompt),
+		stdoutWriter: request.StdoutWriter,
+		stderrWriter: request.StderrWriter,
 	}
 
-	result, runErr := p.runner.Run(ctx, spec)
+	_, runErr := p.runner.Run(ctx, spec)
 
 	transcript, readErr := os.ReadFile(outputPath)
 
 	response := agent.Response{
 		Prompt:     request.Prompt,
 		Transcript: transcript,
-		Stdout:     result.stdout,
-		Stderr:     result.stderr,
 		Metadata: map[string]any{
 			"command": executor.CommandWithBinary("codex", args),
 		},
@@ -117,17 +117,11 @@ func (execRunner) Run(ctx context.Context, spec command) (commandResult, error) 
 	cmd.Dir = spec.dir
 	cmd.Env = spec.env
 	cmd.Stdin = bytes.NewReader(spec.stdin)
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	cmd.Stdout = spec.stdoutWriter
+	cmd.Stderr = spec.stderrWriter
 
 	err := cmd.Run()
-	return commandResult{
-		stdout: stdout.Bytes(),
-		stderr: stderr.Bytes(),
-	}, err
+	return commandResult{}, err
 }
 
 func invalidProviderOutput(response agent.Response, message string) (agent.Response, *agent.Error) {

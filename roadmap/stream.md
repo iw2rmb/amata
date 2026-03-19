@@ -16,7 +16,7 @@ Documentation: `docs/engine/index.md`
     3. Validate failed steps still persist partial `stdout.txt`/`stderr.txt` content produced before failure.
   - Reasoning: high
 
-- [ ] 1.2 Implement Codex stdout/stderr live streaming
+- [x] 1.2 Implement Codex stdout/stderr live streaming
   - Repository: `amata`
     1. Update `internal/executor/codex/codex.go` runner to stream process pipes to artifact-backed writers instead of buffering only in `bytes.Buffer`.
     2. Preserve transcript extraction from `last-message.txt` and structured output parsing flow used by `codex` response handling.
