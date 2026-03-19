@@ -617,6 +617,62 @@ func TestExecutorFailsWithArtifactCaptureFailedWhenStreamOpenFails(t *testing.T)
 	}
 }
 
+func TestExecutorFailsWithArtifactCaptureFailedWhenStreamWriteFails(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	runDir := filepath.Join(rootDir, ".amata", "runs", "run-capture-write-fail")
+	workspaceConfig := workspace.Config{
+		Root:     rootDir,
+		StateDir: filepath.Join(rootDir, ".amata"),
+	}
+	step := spec.Step{
+		ID:   "capture-write-fail",
+		Type: "claude",
+		Fields: map[string]any{
+			"prompt": "do something",
+		},
+	}
+
+	provider := &fakeProvider{
+		name: "claude",
+		execute: func(_ context.Context, request agent.Request) (agent.Response, *agent.Error) {
+			// Close the underlying file descriptor to force a write failure when
+			// the executor calls capture.Write(response.Stdout, ...) after Execute returns.
+			f, ok := request.StdoutWriter.(*os.File)
+			if !ok {
+				t.Fatalf("StdoutWriter is not *os.File")
+			}
+			f.Close()
+			return agent.Response{
+				Stdout: []byte("will fail to write"),
+			}, nil
+		},
+	}
+
+	result := agent.New(provider).Execute(context.Background(), executor.StepContext{
+		RunDir: runDir,
+		Spec: spec.Document{
+			Defaults: map[string]any{
+				"executors": map[string]any{
+					"claude": map[string]any{"model": "sonnet"},
+				},
+			},
+		},
+		Workspace: workspaceConfig,
+		StepIndex: 0,
+		Step:      step,
+		Runtime:   runtimeForWorkspace(workspaceConfig, nil),
+	})
+
+	if result.Status != state.StepStatusFailed {
+		t.Fatalf("result status = %q, want failed", result.Status)
+	}
+	if result.Error == nil || result.Error.Code != "artifact_capture_failed" {
+		t.Fatalf("result error = %#v, want artifact_capture_failed", result.Error)
+	}
+}
+
 func TestExecutorPreservesStreamWriterContentOnProviderError(t *testing.T) {
 	t.Parallel()
 
@@ -637,14 +693,17 @@ func TestExecutorPreservesStreamWriterContentOnProviderError(t *testing.T) {
 	provider := &fakeProvider{
 		name: "claude",
 		execute: func(_ context.Context, request agent.Request) (agent.Response, *agent.Error) {
-			// Simulate a streaming provider: write directly to the artifact writer
+			// Simulate a streaming provider: write directly to artifact writers
 			// before returning an error (e.g. provider crash mid-execution).
 			if _, err := request.StdoutWriter.Write([]byte("partial output\n")); err != nil {
 				t.Fatalf("write to StdoutWriter: %v", err)
 			}
+			if _, err := request.StderrWriter.Write([]byte("partial error\n")); err != nil {
+				t.Fatalf("write to StderrWriter: %v", err)
+			}
 			return agent.Response{
 				Transcript: []byte("partial"),
-				// Stdout/Stderr are empty: content was streamed via StdoutWriter.
+				// Stdout/Stderr are empty: content was streamed via writers.
 			}, &agent.Error{
 				Code:    "provider_crashed",
 				Message: "provider crashed mid-execution",
@@ -674,9 +733,9 @@ func TestExecutorPreservesStreamWriterContentOnProviderError(t *testing.T) {
 		t.Fatalf("result error = %#v, want provider_crashed", result.Error)
 	}
 
-	// Content written to StdoutWriter before the crash must be persisted.
+	// Content written to both writers before the crash must be persisted.
 	assertArtifactContents(t, result.Artifacts.Stdout, "partial output\n")
-	assertArtifactContents(t, result.Artifacts.Stderr, "")
+	assertArtifactContents(t, result.Artifacts.Stderr, "partial error\n")
 }
 
 type fakeProvider struct {
