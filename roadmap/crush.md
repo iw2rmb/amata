@@ -35,7 +35,7 @@ Documentation: docs/engine/index.md
     2. `go test ./internal/progress -run TestBlockForEventFormatsPlainText` confirms `crush` step output formatting.
   - Reasoning: medium
 
-- [ ] 1.4 Add focused tests for `crush` provider and integration surfaces
+- [x] 1.4 Add focused tests for `crush` provider and integration surfaces
   - Repository: amata
     1. Add table-driven tests in `internal/executor/crush/crush_test.go` for args, env, cwd, streaming capture, structured parse, and failure paths.
     2. Extend `internal/executor/agent/agent_test.go` with a `crush`-named fake provider case for defaults resolution and metadata artifacts.
