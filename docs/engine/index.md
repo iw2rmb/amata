@@ -301,6 +301,7 @@ Behavior:
 - Inline Codex schemas are expanded into a provider-safe object schema artifact before `codex exec --output-schema`.
 - File-backed Codex schemas are passed through to `codex exec --output-schema` by absolute path instead of being copied into the prompt.
 - Raw provider stdout, stderr, the rendered prompt, the final transcript, and provider metadata persist as step artifacts.
+- `stdout.txt` and `stderr.txt` are streamed to disk during execution so they are readable before the step completes.
 - Without `response.schema`, the step `value` is the raw final transcript text.
 
 ### `claude`
@@ -319,6 +320,7 @@ Behavior:
 - `cwd` falls back to `defaults.cwd`, then `workspace.root`.
 - When `response.schema` targets `value`, the executor uses Claude structured output support when available by passing `--output-format json` and `--json-schema`, and otherwise appends engine-owned JSON instructions before normalizing the returned JSON into `value`.
 - Raw provider stdout, stderr, the rendered prompt, the final transcript, and provider metadata persist as step artifacts.
+- `stdout.txt` and `stderr.txt` are streamed to disk during execution so they are readable before the step completes.
 - Without `response.schema`, the step `value` is the raw final transcript text.
 
 ### `git.inspect`

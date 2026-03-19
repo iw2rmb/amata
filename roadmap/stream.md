@@ -40,7 +40,7 @@ Documentation: `docs/engine/index.md`
     3. Run `go test ./internal/executor/claude ./internal/executor/agent`.
   - Reasoning: high
 
-- [ ] 1.4 Validate runtime behavior and document shipped contract
+- [x] 1.4 Validate runtime behavior and document shipped contract
   - Repository: `amata`
     1. Add integration-style runtime coverage in `internal/runtime/runner_test.go` to confirm agent step artifacts become readable during execution and remain stable after step completion.
     2. Keep live progress event ordering unchanged in `internal/progress` and `internal/runtime` while adding artifact streaming behavior.

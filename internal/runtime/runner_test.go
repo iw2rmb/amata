@@ -3576,6 +3576,141 @@ func testConfig(t *testing.T, document spec.Document) Config {
 	}
 }
 
+func TestRunnerAgentArtifactsAreReadableDuringAndAfterExecution(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{ID: "stream-step", Type: "fake"},
+				},
+			},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	// firstChunkReady carries the stdout path once the first chunk is on disk,
+	// allowing the test to read the file while the executor is still running.
+	firstChunkReady := make(chan string, 1)
+	continueExecution := make(chan struct{})
+
+	registry := NewRegistry()
+	if err := registry.Register("fake", func() executorapi.Executor {
+		return &fakeExecutor{
+			calls: new([]string),
+			executeWithContext: func(_ context.Context, ctx executorapi.StepContext) state.StepResult {
+				stepDir := executorapi.StepArtifactDir(ctx.RunDir, ctx.StepIndex, ctx.Step.ID, ctx.ExecutionLabel)
+				if err := os.MkdirAll(stepDir, 0o755); err != nil {
+					return state.StepResult{
+						Status: state.StepStatusFailed,
+						Error:  &state.Failure{Code: "mkdir_failed", Message: err.Error()},
+					}
+				}
+
+				stdoutPath := filepath.Join(stepDir, "stdout.txt")
+				stderrPath := filepath.Join(stepDir, "stderr.txt")
+
+				// Pre-create artifact files and write first chunk, as StreamCapture does
+				// before the provider process starts.
+				if err := os.WriteFile(stdoutPath, []byte("chunk1\n"), 0o644); err != nil {
+					return state.StepResult{
+						Status: state.StepStatusFailed,
+						Error:  &state.Failure{Code: "write_failed", Message: err.Error()},
+					}
+				}
+				if err := os.WriteFile(stderrPath, []byte{}, 0o644); err != nil {
+					return state.StepResult{
+						Status: state.StepStatusFailed,
+						Error:  &state.Failure{Code: "write_failed", Message: err.Error()},
+					}
+				}
+
+				firstChunkReady <- stdoutPath
+				<-continueExecution
+
+				f, err := os.OpenFile(stdoutPath, os.O_APPEND|os.O_WRONLY, 0o644)
+				if err != nil {
+					return state.StepResult{
+						Status: state.StepStatusFailed,
+						Error:  &state.Failure{Code: "open_failed", Message: err.Error()},
+					}
+				}
+				_, writeErr := f.WriteString("chunk2\n")
+				_ = f.Close()
+				if writeErr != nil {
+					return state.StepResult{
+						Status: state.StepStatusFailed,
+						Error:  &state.Failure{Code: "write_failed", Message: writeErr.Error()},
+					}
+				}
+
+				return state.StepResult{
+					Status: state.StepStatusSucceeded,
+					Artifacts: state.Artifacts{
+						Stdout: stdoutPath,
+						Stderr: stderrPath,
+						Files:  map[string]string{},
+					},
+				}
+			},
+		}
+	}); err != nil {
+		t.Fatalf("register executor: %v", err)
+	}
+
+	type runResult struct {
+		snapshot state.Snapshot
+		err      error
+	}
+	resultCh := make(chan runResult, 1)
+	go func() {
+		snapshot, err := NewRunner(registry).Run(context.Background(), config)
+		resultCh <- runResult{snapshot, err}
+	}()
+
+	// Confirm artifact file is readable while the executor is still running.
+	stdoutPath := <-firstChunkReady
+	midRunData, err := os.ReadFile(stdoutPath)
+	if err != nil {
+		t.Fatalf("read stdout during execution: %v", err)
+	}
+	if string(midRunData) != "chunk1\n" {
+		t.Fatalf("mid-run stdout = %q, want %q", string(midRunData), "chunk1\n")
+	}
+
+	close(continueExecution)
+	res := <-resultCh
+	if res.err != nil {
+		t.Fatalf("run: %v", res.err)
+	}
+
+	// Confirm artifact paths in snapshot are stable and contain complete output.
+	if len(res.snapshot.Steps) != 1 {
+		t.Fatalf("step count = %d, want 1", len(res.snapshot.Steps))
+	}
+	step := res.snapshot.Steps[0]
+	if step.Status != state.StepStatusSucceeded {
+		t.Fatalf("step status = %q, want succeeded", step.Status)
+	}
+	if step.Artifacts.Stdout == "" {
+		t.Fatal("stdout artifact path empty after step completion")
+	}
+	finalData, err := os.ReadFile(step.Artifacts.Stdout)
+	if err != nil {
+		t.Fatalf("read stdout after completion: %v", err)
+	}
+	if string(finalData) != "chunk1\nchunk2\n" {
+		t.Fatalf("final stdout = %q, want %q", string(finalData), "chunk1\nchunk2\n")
+	}
+}
+
 func TestResumeCLIUsesPersistedRunSpecFromRunDirectory(t *testing.T) {
 	originalWD, err := os.Getwd()
 	if err != nil {
