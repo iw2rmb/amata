@@ -46,7 +46,7 @@ Documentation: docs/engine/index.md
     2. `go test ./internal/runtime -run TestReferenceWorkflow` (or the new targeted runtime test) passes with fake agent binaries.
   - Reasoning: high
 
-- [ ] 1.5 Update durable docs for shipped `crush` behavior
+- [x] 1.5 Update durable docs for shipped `crush` behavior
   - Repository: amata
     1. Update `docs/engine/index.md` summary and built-in executor list to include `crush`.
     2. Update `docs/engine/index.md` defaults and shorthand sections to include `defaults.executors.crush` and `crush: <prompt>`.

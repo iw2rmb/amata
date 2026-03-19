@@ -11,7 +11,7 @@ amata run <spec.yaml> [--workspace <dir>] [--set key=value ...] [--run-id <id>]
 amata resume <run-id>
 ```
 
-The current implementation includes durable on-disk run state, one shared expression/template runtime, response value and schema handling, seven built-in executors (`shell`, `expr`, `assert`, `codex`, `claude`, `git.inspect`, and `git.commit`), and first-version control blocks (`switch`, `call`, and `for_each`) over a deterministically planned resumable flow stack.
+The current implementation includes durable on-disk run state, one shared expression/template runtime, response value and schema handling, eight built-in executors (`shell`, `expr`, `assert`, `codex`, `claude`, `crush`, `git.inspect`, and `git.commit`), and first-version control blocks (`switch`, `call`, and `for_each`) over a deterministically planned resumable flow stack.
 
 ## Workflow Spec
 
@@ -39,7 +39,7 @@ Current behavior:
 - `workspace.root` and `workspace.state_dir` are accepted and normalized before execution.
 - `params` are exposed to expressions and templates under `ctx.params`.
 - Repeated `--set key=value` flags override declared `spec.params` entries for the launched run and persist inside the stored normalized spec.
-- `defaults` are parsed and persisted. Agent executors currently interpret `defaults.cwd`, `defaults.env`, and `defaults.executors.codex|claude`.
+- `defaults` are parsed and persisted. Agent executors currently interpret `defaults.cwd`, `defaults.env`, and `defaults.executors.codex|claude|crush`.
 - `schemas` provides workflow-local JSON Schema definitions for inline `response.schema` refs.
 - Built-in step definitions are validated at spec load time against embedded JSON Schema files shipped under `schemas/*.amata.schema.json`.
 - Shared step-schema fragments such as stall-policy and string-or-expression shapes are factored into separate embedded schema files under `schemas/`.
@@ -54,6 +54,7 @@ Current behavior:
   - `switch: <cases>` -> `type: switch` plus `cases: <cases>`
   - `codex: <prompt>` -> `type: codex` plus `prompt: <prompt>`
   - `claude: <prompt>` -> `type: claude` plus `prompt: <prompt>`
+  - `crush: <prompt>` -> `type: crush` plus `prompt: <prompt>`
 - `when` resolves through the shared expression runtime and must evaluate to a boolean. `false` skips the step before executor dispatch.
 - `switch` and `for_each` still require an explicit `type`.
 
@@ -182,7 +183,7 @@ CLI stream split:
 - The default CLI renderer uses Bubble Tea only when `stderr` is a TTY. Non-TTY `stderr` falls back to a plain line renderer with the same event order and descriptor data.
 - Both renderers suppress nested control-step scaffolding in the user-facing output. Recursive `call`/`switch`/`for_each` frames nested under another control step are omitted from rendered history, and nested descriptor-less `expr` steps are omitted alongside them.
 - For completed `git.commit` steps, the default renderer places `<shortCommit> <message>` on the headline and renders `+<ins> -<del> files: <n>` as the first detail line before per-file stats.
-- For `codex` and `claude` prompt details, the default renderer uses `glamour/v2` markdown rendering, adds one blank line of top padding plus one character of left padding inside the prompt block, caps prompt wrapping at 80 columns, uses dim white body text, and keeps code blocks white.
+- For `codex`, `claude`, and `crush` prompt details, the default renderer uses `glamour/v2` markdown rendering, adds one blank line of top padding plus one character of left padding inside the prompt block, caps prompt wrapping at 80 columns, uses dim white body text, and keeps code blocks white.
 
 Renderer metadata guarantees:
 - Every `step_started` and `step_finished` event includes `flow`, `index`, `type`, `status`, and step artifacts/value/error fields that match the live transition being reported.
@@ -192,7 +193,7 @@ Renderer metadata guarantees:
 - `for_each` guarantees the resolved item count in `primary_text` and in the completed-line summary.
 - `shell` guarantees the resolved command in `primary_text` and `exit <code>` in the completed-line summary.
 - `assert` guarantees the resolved assertion text in `primary_text`, optional resolved message lines in `detail_text`, and `passed` or `failed` in the completed-line summary.
-- `codex` and `claude` guarantee the resolved model in `primary_text`, optional resolved reasoning alongside it when configured, and resolved prompt text in `detail_text`.
+- `codex`, `claude`, and `crush` guarantee the resolved model in `primary_text`, optional resolved reasoning alongside it when configured, and resolved prompt text in `detail_text`.
 - `git.inspect` guarantees the resolved `cwd` while running, then a completed-line summary of `clean`, `not repo`, or `<n> files`, with changed file paths in `detail_text` when applicable.
 - `git.commit` guarantees the resolved commit message in `detail_text` while running. After a commit it guarantees `shortCommit` plus `files <n> +<ins> -<del>` in the completed-line summary, with per-file `+<ins> -<del> path` lines in `detail_text`. When no commit is created it guarantees `no changes`.
 
@@ -323,6 +324,26 @@ Behavior:
 - `stdout.txt` and `stderr.txt` are streamed to disk during execution so they are readable before the step completes.
 - Without `response.schema`, the step `value` is the raw final transcript text.
 
+### `crush`
+
+Supported fields:
+- `type: crush`
+- `crush`: shorthand for `prompt`
+- `prompt`: required expression-bearing string
+- `model`: required string after applying `defaults.executors.crush`
+- `cwd`: optional string
+- `env`: optional map of environment variable names to string values
+
+Behavior:
+- `prompt`, `model`, `cwd`, and `env` resolve through the shared expression/template runtime before execution.
+- `cwd` falls back to `defaults.cwd`, then `workspace.root`.
+- `reasoning` is not supported; a step that sets `reasoning` fails immediately with code `unsupported_option`.
+- `crush run --yolo --quiet --model <model>` is invoked with the rendered prompt on stdin.
+- When `response.schema` targets `value`, the executor appends engine-owned JSON instructions to the prompt (`prompt_fallback` structured-output mode) and parses the JSON object from the final transcript.
+- Raw provider stdout, stderr, the rendered prompt, the final transcript, and provider metadata persist as step artifacts.
+- `stdout.txt` and `stderr.txt` are streamed to disk during execution so they are readable before the step completes.
+- Without `response.schema`, the step `value` is the raw final transcript text.
+
 ### `git.inspect`
 
 Supported fields:
@@ -419,7 +440,7 @@ stall:
 ```
 
 Current behavior:
-- `stall` is optional and applies to normal executor steps such as `shell`, `codex`, `claude`, `git.inspect`, and `git.commit`.
+- `stall` is optional and applies to normal executor steps such as `shell`, `codex`, `claude`, `crush`, `git.inspect`, and `git.commit`.
 - String form defaults to `after: 15` minutes.
 - Object form defaults to `type: rerun` and `after: 15` minutes when omitted.
 - `after` accepts either a numeric minute value such as `15` or a duration string such as `30s` or `5m`.
