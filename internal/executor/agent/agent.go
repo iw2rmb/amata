@@ -99,6 +99,14 @@ func (e *Executor) Execute(ctx context.Context, stepCtx executor.StepContext) st
 		execErr = &Error{Code: "canceled", Message: msg}
 	}
 
+	// Normalize provider process crash to a stable code at the executor
+	// boundary. Providers (codex, claude) surface agent_failed for abrupt
+	// process termination; callers must not depend on that provider-internal
+	// code leaking through.
+	if execErr != nil && execErr.Code == "agent_failed" {
+		execErr = &Error{Code: "provider_crashed", Message: execErr.Message}
+	}
+
 	writeErr := capture.Write(response.Stdout, response.Stderr)
 	closeErr := capture.Close()
 

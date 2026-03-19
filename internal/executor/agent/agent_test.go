@@ -701,11 +701,14 @@ func TestExecutorPreservesStreamWriterContentOnProviderError(t *testing.T) {
 			if _, err := request.StderrWriter.Write([]byte("partial error\n")); err != nil {
 				t.Fatalf("write to StderrWriter: %v", err)
 			}
+			// Return agent_failed, which is what real providers (codex, claude)
+			// surface for process-level crashes. The executor boundary must
+			// normalize this to provider_crashed so callers see a stable code.
 			return agent.Response{
 				Transcript: []byte("partial"),
 				// Stdout/Stderr are empty: content was streamed via writers.
 			}, &agent.Error{
-				Code:    "provider_crashed",
+				Code:    "agent_failed",
 				Message: "provider crashed mid-execution",
 			}
 		},
