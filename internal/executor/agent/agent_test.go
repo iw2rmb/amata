@@ -854,6 +854,132 @@ func TestExecutorPreservesPartialArtifactsOnCancellation(t *testing.T) {
 	assertArtifactContents(t, result.Artifacts.Stderr, "partial stderr\n")
 }
 
+func TestExecutorResolvesDefaultsAndPersistsArtifactsForCrush(t *testing.T) {
+	t.Parallel()
+
+	rootDir := t.TempDir()
+	runDir := filepath.Join(rootDir, ".amata", "runs", "run-crush-defaults")
+	workspaceConfig := workspace.Config{
+		Root:     rootDir,
+		StateDir: filepath.Join(rootDir, ".amata"),
+	}
+	document := spec.Document{
+		Defaults: map[string]any{
+			"cwd": "$.workspace.root",
+			"executors": map[string]any{
+				"crush": map[string]any{
+					"model": "$.params.model",
+				},
+			},
+		},
+	}
+	step := spec.Step{
+		ID:   "crush-step",
+		Type: "crush",
+		Fields: map[string]any{
+			"prompt": "Implement {{ ctx.params.task }}.",
+			"response": map[string]any{
+				"schema": map[string]any{
+					"type":                 "object",
+					"required":             []any{"done"},
+					"additionalProperties": false,
+					"properties": map[string]any{
+						"done": "boolean",
+					},
+				},
+			},
+		},
+	}
+
+	provider := &fakeProvider{
+		name: "crush",
+		execute: func(_ context.Context, request agent.Request) (agent.Response, *agent.Error) {
+			if request.Prompt == "" {
+				t.Fatalf("prompt must not be empty")
+			}
+			if !strings.Contains(request.Prompt, "Implement crush-task.") {
+				t.Fatalf("prompt = %q, want rendered template", request.Prompt)
+			}
+			if request.Model != "claude-sonnet-5" {
+				t.Fatalf("model = %q, want claude-sonnet-5", request.Model)
+			}
+			if request.CWD != rootDir {
+				t.Fatalf("cwd = %q, want %q", request.CWD, rootDir)
+			}
+			// crush does not support reasoning — callers must omit it.
+			if request.Reasoning != "" {
+				t.Fatalf("reasoning = %q, want empty", request.Reasoning)
+			}
+			// Structured output is requested (crush uses prompt_fallback mode).
+			if request.Structured == nil {
+				t.Fatalf("structured output request missing")
+			}
+			return agent.Response{
+				Value:      map[string]any{"done": true},
+				HasValue:   true,
+				Transcript: []byte("{\"done\":true}\n"),
+				Stdout:     []byte("crush stdout\n"),
+				Stderr:     []byte("crush stderr\n"),
+				Metadata: map[string]any{
+					"structuredOutputMode": "prompt_fallback",
+					"command":              []string{"crush", "run"},
+				},
+			}, nil
+		},
+	}
+
+	result := agent.New(provider).Execute(context.Background(), executor.StepContext{
+		RunDir:    runDir,
+		Spec:      document,
+		Workspace: workspaceConfig,
+		StepIndex: 0,
+		Step:      step,
+		Runtime:   runtimeForWorkspace(workspaceConfig, map[string]any{"task": "crush-task", "model": "claude-sonnet-5"}),
+	})
+	if result.Status != state.StepStatusSucceeded {
+		t.Fatalf("result status = %q, error = %#v", result.Status, result.Error)
+	}
+	if !reflect.DeepEqual(result.Value, map[string]any{"done": true}) {
+		t.Fatalf("raw result value = %#v", result.Value)
+	}
+
+	stepDir := filepath.Join(runDir, "artifacts", "step-00-crush-step")
+	assertArtifactPathPrefix(t, result.Artifacts.Stdout, stepDir)
+	assertArtifactPathPrefix(t, result.Artifacts.Stderr, stepDir)
+	assertArtifactPathPrefix(t, result.Artifacts.Files["prompt"], stepDir)
+	assertArtifactPathPrefix(t, result.Artifacts.Files["transcript"], stepDir)
+	assertArtifactPathPrefix(t, result.Artifacts.Files["metadata"], stepDir)
+
+	assertArtifactContents(t, result.Artifacts.Stdout, "crush stdout\n")
+	assertArtifactContents(t, result.Artifacts.Stderr, "crush stderr\n")
+	assertArtifactContents(t, result.Artifacts.Files["transcript"], "{\"done\":true}\n")
+
+	metadataFile, err := os.ReadFile(result.Artifacts.Files["metadata"])
+	if err != nil {
+		t.Fatalf("read metadata artifact: %v", err)
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(metadataFile, &metadata); err != nil {
+		t.Fatalf("decode metadata artifact: %v", err)
+	}
+	if metadata["provider"] != "crush" {
+		t.Fatalf("metadata provider = %#v, want crush", metadata["provider"])
+	}
+	if metadata["model"] != "claude-sonnet-5" {
+		t.Fatalf("metadata model = %#v, want claude-sonnet-5", metadata["model"])
+	}
+	if metadata["structuredOutputRequested"] != true {
+		t.Fatalf("metadata structuredOutputRequested = %#v, want true", metadata["structuredOutputRequested"])
+	}
+	if metadata["structuredOutputMode"] != "prompt_fallback" {
+		t.Fatalf("metadata structuredOutputMode = %#v, want prompt_fallback", metadata["structuredOutputMode"])
+	}
+	// reasoning must be absent (crush does not support it).
+	if r, ok := metadata["reasoning"]; ok && r != "" && r != nil {
+		t.Fatalf("metadata reasoning = %#v, want absent or empty", r)
+	}
+}
+
 func TestExecutorNormalizesProviderCrashForCrush(t *testing.T) {
 	t.Parallel()
 

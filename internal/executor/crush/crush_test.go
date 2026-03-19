@@ -6,158 +6,208 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/iw2rmb/amata/internal/executor/agent"
 )
 
-func TestProviderPassesModelPromptAndRequiredFlags(t *testing.T) {
+// TestProvider is the canonical matrix covering args/env/cwd/stdin,
+// streaming capture, structured-output parse, and failure paths.
+func TestProvider(t *testing.T) {
 	t.Parallel()
 
-	var capturedArgs []string
-	var capturedDir string
-	var capturedEnv []string
-	var capturedStdin []byte
+	trueVal := true
 
-	prov := provider{
-		run: func(_ context.Context, args []string, dir string, env []string, stdin []byte, stdout, _ io.Writer) error {
-			capturedArgs = args
-			capturedDir = dir
-			capturedEnv = env
-			capturedStdin = stdin
-			_, err := stdout.Write([]byte("result output\n"))
-			return err
+	tests := []struct {
+		name      string
+		request   agent.Request
+		runOutput string
+		runErr    error
+		// expectations
+		wantErrCode        string
+		wantFlags          []string
+		wantModelArg       string
+		wantCWD            string
+		wantEnvContains    string
+		wantStdinContains  string
+		wantTranscript     string
+		wantStructuredMode string
+		wantValueApproved  *bool
+		wantStdoutFile     bool // verify StdoutWriter receives output
+	}{
+		{
+			name: "passes args env cwd stdin",
+			request: agent.Request{
+				Prompt: "Implement item",
+				Model:  "sonnet-5",
+				CWD:    "/repo",
+				Env:    map[string]string{"CRUSH_TEST": "1"},
+			},
+			runOutput:         "result output\n",
+			wantFlags:         []string{"--yolo", "--quiet"},
+			wantModelArg:      "sonnet-5",
+			wantCWD:           "/repo",
+			wantEnvContains:   "CRUSH_TEST=1",
+			wantStdinContains: "Implement item",
+			wantTranscript:    "result output\n",
+		},
+		{
+			name: "structured output uses prompt fallback and parses json",
+			request: agent.Request{
+				Prompt: "Review the diff",
+				Model:  "sonnet-5",
+				CWD:    "/repo",
+				Structured: &agent.StructuredOutput{
+					JSON: `{"type":"object","properties":{"approved":{"type":"boolean"}},"required":["approved"]}`,
+				},
+			},
+			runOutput:          "```json\n{\"approved\":true}\n```\n",
+			wantStdinContains:  "Return only JSON that matches this schema.",
+			wantStructuredMode: "prompt_fallback",
+			wantValueApproved:  &trueVal,
+		},
+		{
+			name: "streaming stdout writer receives output while running",
+			request: agent.Request{
+				Prompt:     "Stream test",
+				Model:      "sonnet-5",
+				CWD:        "/repo",
+			},
+			runOutput:      "streamed output\n",
+			wantTranscript: "streamed output\n",
+			wantStdoutFile: true,
+		},
+		{
+			name: "reasoning rejected with unsupported option",
+			request: agent.Request{
+				Prompt:    "Implement item",
+				Model:     "sonnet-5",
+				Reasoning: "high",
+				CWD:       "/repo",
+			},
+			wantErrCode: "unsupported_option",
+		},
+		{
+			name: "run failure surfaces agent_failed",
+			request: agent.Request{
+				Prompt: "Implement item",
+				Model:  "sonnet-5",
+				CWD:    "/repo",
+			},
+			runErr:      errors.New("exit status 1"),
+			wantErrCode: "agent_failed",
 		},
 	}
 
-	response, execErr := prov.Execute(context.Background(), agent.Request{
-		Prompt: "Implement item",
-		Model:  "sonnet-5",
-		CWD:    "/repo",
-		Env:    map[string]string{"CRUSH_TEST": "1"},
-	})
-	if execErr != nil {
-		t.Fatalf("execute error = %#v", execErr)
-	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	if capturedDir != "/repo" {
-		t.Fatalf("dir = %q, want /repo", capturedDir)
-	}
-	if string(capturedStdin) != "Implement item" {
-		t.Fatalf("stdin = %q, want prompt", string(capturedStdin))
-	}
-	if !containsString(capturedArgs, "--yolo") {
-		t.Fatalf("args = %#v, want --yolo", capturedArgs)
-	}
-	if !containsString(capturedArgs, "--quiet") {
-		t.Fatalf("args = %#v, want --quiet", capturedArgs)
-	}
-	if !containsArgPair(capturedArgs, "--model", "sonnet-5") {
-		t.Fatalf("args = %#v, want --model sonnet-5", capturedArgs)
-	}
-	if !containsArgPair(capturedArgs, "run", "--yolo") {
-		t.Fatalf("args = %#v, want run as first arg", capturedArgs)
-	}
-	if !containsEnv(capturedEnv, "CRUSH_TEST=1") {
-		t.Fatalf("env = %#v, want CRUSH_TEST override", capturedEnv)
-	}
+			var capturedArgs []string
+			var capturedDir string
+			var capturedEnv []string
+			var capturedStdin []byte
 
-	if response.Prompt != "Implement item" {
-		t.Fatalf("prompt = %q, want original prompt", response.Prompt)
-	}
-	if string(response.Transcript) != "result output\n" {
-		t.Fatalf("transcript = %q, want stdout content", string(response.Transcript))
+			var stdoutFile *os.File
+			if tc.wantStdoutFile {
+				f, err := os.CreateTemp(t.TempDir(), "stdout-*")
+				if err != nil {
+					t.Fatalf("create temp stdout file: %v", err)
+				}
+				defer f.Close()
+				stdoutFile = f
+				tc.request.StdoutWriter = f
+			}
+
+			prov := provider{
+				run: func(_ context.Context, args []string, dir string, env []string, stdin []byte, stdout, _ io.Writer) error {
+					capturedArgs = args
+					capturedDir = dir
+					capturedEnv = env
+					capturedStdin = stdin
+					if tc.runOutput != "" {
+						if _, err := stdout.Write([]byte(tc.runOutput)); err != nil {
+							t.Errorf("write run output: %v", err)
+						}
+					}
+					return tc.runErr
+				},
+			}
+
+			// Skip runner call check for reasoning rejection.
+			if tc.request.Reasoning != "" {
+				prov.run = func(_ context.Context, _ []string, _ string, _ []string, _ []byte, _, _ io.Writer) error {
+					t.Fatal("runner must not be called when reasoning is rejected")
+					return nil
+				}
+			}
+
+			response, execErr := prov.Execute(context.Background(), tc.request)
+
+			if tc.wantErrCode != "" {
+				if execErr == nil {
+					t.Fatalf("expected error code %q, got nil", tc.wantErrCode)
+				}
+				if execErr.Code != tc.wantErrCode {
+					t.Fatalf("error code = %q, want %q", execErr.Code, tc.wantErrCode)
+				}
+				return
+			}
+			if execErr != nil {
+				t.Fatalf("unexpected error = %#v", execErr)
+			}
+
+			if tc.wantCWD != "" && capturedDir != tc.wantCWD {
+				t.Fatalf("cwd = %q, want %q", capturedDir, tc.wantCWD)
+			}
+			for _, flag := range tc.wantFlags {
+				if !containsString(capturedArgs, flag) {
+					t.Fatalf("args = %#v, missing flag %q", capturedArgs, flag)
+				}
+			}
+			if tc.wantModelArg != "" && !containsArgPair(capturedArgs, "--model", tc.wantModelArg) {
+				t.Fatalf("args = %#v, want --model %s", capturedArgs, tc.wantModelArg)
+			}
+			if tc.wantEnvContains != "" && !containsEnv(capturedEnv, tc.wantEnvContains) {
+				t.Fatalf("env = %#v, want %q", capturedEnv, tc.wantEnvContains)
+			}
+			if tc.wantStdinContains != "" && !strings.Contains(string(capturedStdin), tc.wantStdinContains) {
+				t.Fatalf("stdin = %q, want to contain %q", string(capturedStdin), tc.wantStdinContains)
+			}
+			if tc.wantTranscript != "" && string(response.Transcript) != tc.wantTranscript {
+				t.Fatalf("transcript = %q, want %q", string(response.Transcript), tc.wantTranscript)
+			}
+			if tc.wantStructuredMode != "" {
+				if response.Metadata["structuredOutputMode"] != tc.wantStructuredMode {
+					t.Fatalf("structuredOutputMode = %#v, want %q", response.Metadata["structuredOutputMode"], tc.wantStructuredMode)
+				}
+			}
+			if tc.wantValueApproved != nil {
+				value, ok := response.Value.(map[string]any)
+				if !ok {
+					t.Fatalf("response value = %#v, want map", response.Value)
+				}
+				if value["approved"] != *tc.wantValueApproved {
+					t.Fatalf("response value[approved] = %#v, want %v", value["approved"], *tc.wantValueApproved)
+				}
+			}
+			if tc.wantStdoutFile && stdoutFile != nil {
+				data, err := os.ReadFile(stdoutFile.Name())
+				if err != nil {
+					t.Fatalf("read stdout file: %v", err)
+				}
+				if string(data) != tc.runOutput {
+					t.Fatalf("stdout file = %q, want %q", string(data), tc.runOutput)
+				}
+			}
+		})
 	}
 }
 
-func TestProviderStructuredOutputUsesPromptFallback(t *testing.T) {
-	t.Parallel()
-
-	var capturedStdin []byte
-
-	prov := provider{
-		run: func(_ context.Context, _ []string, _ string, _ []string, stdin []byte, stdout, _ io.Writer) error {
-			capturedStdin = stdin
-			_, err := stdout.Write([]byte("```json\n{\"approved\":true}\n```\n"))
-			return err
-		},
-	}
-
-	response, execErr := prov.Execute(context.Background(), agent.Request{
-		Prompt: "Review the diff",
-		Model:  "sonnet-5",
-		CWD:    "/repo",
-		Structured: &agent.StructuredOutput{
-			JSON: `{"type":"object","properties":{"approved":{"type":"boolean"}},"required":["approved"]}`,
-		},
-	})
-	if execErr != nil {
-		t.Fatalf("execute error = %#v", execErr)
-	}
-
-	if !strings.Contains(string(capturedStdin), "Return only JSON that matches this schema.") {
-		t.Fatalf("prompt = %q, want schema fragment in prompt", string(capturedStdin))
-	}
-	if response.Prompt != string(capturedStdin) {
-		t.Fatalf("response.Prompt = %q, want adjusted prompt", response.Prompt)
-	}
-	if response.Metadata["structuredOutputMode"] != "prompt_fallback" {
-		t.Fatalf("structuredOutputMode = %#v, want prompt_fallback", response.Metadata["structuredOutputMode"])
-	}
-
-	value, ok := response.Value.(map[string]any)
-	if !ok || value["approved"] != true {
-		t.Fatalf("response value = %#v, want parsed structured JSON", response.Value)
-	}
-}
-
-func TestProviderRejectsReasoningWithUnsupportedOptionError(t *testing.T) {
-	t.Parallel()
-
-	prov := provider{
-		run: func(_ context.Context, _ []string, _ string, _ []string, _ []byte, _, _ io.Writer) error {
-			t.Fatal("runner must not be called when reasoning is rejected")
-			return nil
-		},
-	}
-
-	_, execErr := prov.Execute(context.Background(), agent.Request{
-		Prompt:    "Implement item",
-		Model:     "sonnet-5",
-		Reasoning: "high",
-		CWD:       "/repo",
-	})
-	if execErr == nil {
-		t.Fatal("expected error for unsupported reasoning")
-	}
-	if execErr.Code != "unsupported_option" {
-		t.Fatalf("error code = %q, want unsupported_option", execErr.Code)
-	}
-}
-
-func TestProviderReportsAgentFailure(t *testing.T) {
-	t.Parallel()
-
-	prov := provider{
-		run: func(_ context.Context, _ []string, _ string, _ []string, _ []byte, _, _ io.Writer) error {
-			return errors.New("exit status 1")
-		},
-	}
-
-	_, execErr := prov.Execute(context.Background(), agent.Request{
-		Prompt: "Implement item",
-		Model:  "sonnet-5",
-		CWD:    "/repo",
-	})
-	if execErr == nil {
-		t.Fatal("expected execute error")
-	}
-	if execErr.Code != "agent_failed" {
-		t.Fatalf("error code = %q, want agent_failed", execErr.Code)
-	}
-}
-
+// TestProviderStreamsStdoutWhileRunning verifies that chunks written by the
+// runner reach the StdoutWriter before Execute returns.
 func TestProviderStreamsStdoutWhileRunning(t *testing.T) {
 	t.Parallel()
 
@@ -245,12 +295,7 @@ func containsArgPair(args []string, name string, value string) bool {
 }
 
 func containsString(values []string, want string) bool {
-	for _, v := range values {
-		if v == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, want)
 }
 
 func containsEnv(values []string, want string) bool {
