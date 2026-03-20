@@ -78,3 +78,26 @@ func ContainsEnv(values []string, want string) bool {
 	}
 	return false
 }
+
+// AssertFileContents reads the file at path and asserts its contents equal want.
+func AssertFileContents(t *testing.T, path string, want string) {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	if string(data) != want {
+		t.Fatalf("%s = %q, want %q", path, string(data), want)
+	}
+}
+
+// AssertPathPrefix asserts that path starts with wantPrefix followed by a
+// path separator (or equals wantPrefix exactly).
+func AssertPathPrefix(t *testing.T, path string, wantPrefix string) {
+	t.Helper()
+
+	if !strings.HasPrefix(path, wantPrefix+string(os.PathSeparator)) && path != wantPrefix {
+		t.Fatalf("path %q does not start with %q", path, wantPrefix)
+	}
+}

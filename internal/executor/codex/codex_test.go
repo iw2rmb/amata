@@ -237,8 +237,8 @@ func TestProviderPreservesPartialOutputOnCancellation(t *testing.T) {
 		t.Fatalf("error code = %q, want agent_failed", execErr.Code)
 	}
 
-	assertFileContents(t, stdoutPath, "partial stdout\n")
-	assertFileContents(t, stderrPath, "partial stderr\n")
+	testutil.AssertFileContents(t, stdoutPath, "partial stdout\n")
+	testutil.AssertFileContents(t, stderrPath, "partial stderr\n")
 }
 
 func TestProviderPreservesPartialOutputOnNonZeroExit(t *testing.T) {
@@ -285,20 +285,8 @@ func TestProviderPreservesPartialOutputOnNonZeroExit(t *testing.T) {
 		t.Fatalf("error code = %q, want agent_failed", execErr.Code)
 	}
 
-	assertFileContents(t, stdoutPath, "partial output\n")
-	assertFileContents(t, stderrPath, "error detail\n")
-}
-
-func assertFileContents(t *testing.T, path string, want string) {
-	t.Helper()
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
-	if string(data) != want {
-		t.Fatalf("%s = %q, want %q", path, string(data), want)
-	}
+	testutil.AssertFileContents(t, stdoutPath, "partial output\n")
+	testutil.AssertFileContents(t, stderrPath, "error detail\n")
 }
 
 var containsArgPair = testutil.ContainsArgPair

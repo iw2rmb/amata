@@ -256,7 +256,7 @@ func TestProviderStreamsStdoutWhileRunning(t *testing.T) {
 		t.Fatalf("transcript = %q, want chunk1+chunk2", string(res.response.Transcript))
 	}
 
-	assertFileContents(t, stderrPath, "err1\nerr2\n")
+	testutil.AssertFileContents(t, stderrPath, "err1\nerr2\n")
 }
 
 func TestProviderPreservesPartialOutputOnError(t *testing.T) {
@@ -303,20 +303,8 @@ func TestProviderPreservesPartialOutputOnError(t *testing.T) {
 		t.Fatalf("error code = %q, want agent_failed", execErr.Code)
 	}
 
-	assertFileContents(t, stdoutPath, "partial output\n")
-	assertFileContents(t, stderrPath, "error detail\n")
-}
-
-func assertFileContents(t *testing.T, path string, want string) {
-	t.Helper()
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
-	if string(data) != want {
-		t.Fatalf("%s = %q, want %q", path, string(data), want)
-	}
+	testutil.AssertFileContents(t, stdoutPath, "partial output\n")
+	testutil.AssertFileContents(t, stderrPath, "error detail\n")
 }
 
 type fakeRunner func(context.Context, command) (commandResult, error)

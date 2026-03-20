@@ -14,6 +14,7 @@ import (
 	exprruntime "github.com/iw2rmb/amata/internal/expr"
 	"github.com/iw2rmb/amata/internal/spec"
 	"github.com/iw2rmb/amata/internal/state"
+	"github.com/iw2rmb/amata/internal/testutil"
 	"github.com/iw2rmb/amata/internal/workspace"
 )
 
@@ -145,45 +146,25 @@ func TestExecutorResolvesDefaultsTemplatesAndPersistsArtifacts(t *testing.T) {
 	if result.Status != state.StepStatusSucceeded {
 		t.Fatalf("result status = %q, error = %#v", result.Status, result.Error)
 	}
-	if !reflect.DeepEqual(result.Value, map[string]any{"approved": true, "summary": "done"}) {
-		t.Fatalf("raw result value = %#v", result.Value)
-	}
-
 	wantValue := map[string]any{"approved": true, "summary": "done"}
 	if !reflect.DeepEqual(result.Value, wantValue) {
 		t.Fatalf("value = %#v, want %#v", result.Value, wantValue)
 	}
-	assertArtifactPathPrefix(t, result.Artifacts.Stdout, filepath.Join(runDir, "artifacts", "step-00-shared-agent"))
-	assertArtifactPathPrefix(t, result.Artifacts.Stderr, filepath.Join(runDir, "artifacts", "step-00-shared-agent"))
-	assertArtifactPathPrefix(t, result.Artifacts.Files["prompt"], filepath.Join(runDir, "artifacts", "step-00-shared-agent"))
-	assertArtifactPathPrefix(t, result.Artifacts.Files["transcript"], filepath.Join(runDir, "artifacts", "step-00-shared-agent"))
-	assertArtifactPathPrefix(t, result.Artifacts.Files["metadata"], filepath.Join(runDir, "artifacts", "step-00-shared-agent"))
 
-	assertArtifactContents(t, result.Artifacts.Stdout, "codex stdout\n")
-	assertArtifactContents(t, result.Artifacts.Stderr, "codex stderr\n")
-	assertArtifactContents(t, result.Artifacts.Files["prompt"], "Implement fixture-repo.")
-	assertArtifactContents(t, result.Artifacts.Files["transcript"], "{\"approved\":true,\"summary\":\"done\"}\n")
+	stepDir := filepath.Join(runDir, "artifacts", "step-00-shared-agent")
+	assertArtifactPaths(t, result.Artifacts, stepDir)
 
-	metadataFile, err := os.ReadFile(result.Artifacts.Files["metadata"])
-	if err != nil {
-		t.Fatalf("read metadata artifact: %v", err)
-	}
-	var metadata map[string]any
-	if err := json.Unmarshal(metadataFile, &metadata); err != nil {
-		t.Fatalf("decode metadata artifact: %v", err)
-	}
-	if metadata["provider"] != "codex" {
-		t.Fatalf("metadata provider = %#v, want codex", metadata["provider"])
-	}
-	if metadata["model"] != "gpt-5.4" {
-		t.Fatalf("metadata model = %#v, want gpt-5.4", metadata["model"])
-	}
-	if metadata["reasoning"] != "high" {
-		t.Fatalf("metadata reasoning = %#v, want high", metadata["reasoning"])
-	}
-	if metadata["structuredOutputRequested"] != true {
-		t.Fatalf("metadata structuredOutputRequested = %#v, want true", metadata["structuredOutputRequested"])
-	}
+	testutil.AssertFileContents(t, result.Artifacts.Stdout, "codex stdout\n")
+	testutil.AssertFileContents(t, result.Artifacts.Stderr, "codex stderr\n")
+	testutil.AssertFileContents(t, result.Artifacts.Files["prompt"], "Implement fixture-repo.")
+	testutil.AssertFileContents(t, result.Artifacts.Files["transcript"], "{\"approved\":true,\"summary\":\"done\"}\n")
+
+	assertMetadata(t, result.Artifacts.Files["metadata"], map[string]any{
+		"provider":                 "codex",
+		"model":                    "gpt-5.4",
+		"reasoning":                "high",
+		"structuredOutputRequested": true,
+	})
 }
 
 func TestExecutorOnlyRequestsStructuredOutputForResponseValue(t *testing.T) {
@@ -252,7 +233,7 @@ func TestExecutorOnlyRequestsStructuredOutputForResponseValue(t *testing.T) {
 	if got := result.Value; got != "free-form transcript" {
 		t.Fatalf("value = %#v, want transcript fallback", got)
 	}
-	assertArtifactContents(t, result.Artifacts.Stdout, "{\"approved\":true}")
+	testutil.AssertFileContents(t, result.Artifacts.Stdout, "{\"approved\":true}")
 }
 
 func TestExecutorUsesSchemaFilePathForCodexStructuredOutput(t *testing.T) {
@@ -437,7 +418,7 @@ func TestExecutorPersistsProviderAdjustedPrompt(t *testing.T) {
 	if result.Status != state.StepStatusSucceeded {
 		t.Fatalf("result status = %q, error = %#v", result.Status, result.Error)
 	}
-	assertArtifactContents(t, result.Artifacts.Files["prompt"], "Original prompt\n\nReturn only JSON.")
+	testutil.AssertFileContents(t, result.Artifacts.Files["prompt"], "Original prompt\n\nReturn only JSON.")
 }
 
 func TestExecutorReturnsInvalidProviderPayloadFailureAndPersistsArtifacts(t *testing.T) {
@@ -516,33 +497,17 @@ func TestExecutorReturnsInvalidProviderPayloadFailureAndPersistsArtifacts(t *tes
 	}
 
 	stepDir := filepath.Join(runDir, "artifacts", "step-03-invalid-provider-output")
-	assertArtifactPathPrefix(t, result.Artifacts.Stdout, stepDir)
-	assertArtifactPathPrefix(t, result.Artifacts.Stderr, stepDir)
-	assertArtifactPathPrefix(t, result.Artifacts.Files["prompt"], stepDir)
-	assertArtifactPathPrefix(t, result.Artifacts.Files["transcript"], stepDir)
-	assertArtifactPathPrefix(t, result.Artifacts.Files["metadata"], stepDir)
-	assertArtifactContents(t, result.Artifacts.Stdout, "provider stdout\n")
-	assertArtifactContents(t, result.Artifacts.Stderr, "provider stderr\n")
-	assertArtifactContents(t, result.Artifacts.Files["prompt"], "Return JSON\n\nProvider attempted JSON output.")
-	assertArtifactContents(t, result.Artifacts.Files["transcript"], "not-json")
+	assertArtifactPaths(t, result.Artifacts, stepDir)
+	testutil.AssertFileContents(t, result.Artifacts.Stdout, "provider stdout\n")
+	testutil.AssertFileContents(t, result.Artifacts.Stderr, "provider stderr\n")
+	testutil.AssertFileContents(t, result.Artifacts.Files["prompt"], "Return JSON\n\nProvider attempted JSON output.")
+	testutil.AssertFileContents(t, result.Artifacts.Files["transcript"], "not-json")
 
-	metadataFile, err := os.ReadFile(result.Artifacts.Files["metadata"])
-	if err != nil {
-		t.Fatalf("read metadata artifact: %v", err)
-	}
-	var metadata map[string]any
-	if err := json.Unmarshal(metadataFile, &metadata); err != nil {
-		t.Fatalf("decode metadata artifact: %v", err)
-	}
-	if metadata["provider"] != "codex" {
-		t.Fatalf("metadata provider = %#v, want codex", metadata["provider"])
-	}
-	if metadata["structuredOutputRequested"] != true {
-		t.Fatalf("metadata structuredOutputRequested = %#v, want true", metadata["structuredOutputRequested"])
-	}
-	if metadata["structuredOutputMode"] != "provider_schema" {
-		t.Fatalf("metadata structuredOutputMode = %#v, want provider_schema", metadata["structuredOutputMode"])
-	}
+	assertMetadata(t, result.Artifacts.Files["metadata"], map[string]any{
+		"provider":                 "codex",
+		"structuredOutputRequested": true,
+		"structuredOutputMode":     "provider_schema",
+	})
 }
 
 func TestExecutorFailsWithArtifactCaptureFailedWhenStreamOpenFails(t *testing.T) {
@@ -724,8 +689,8 @@ func TestExecutorPreservesStreamWriterContentOnProviderError(t *testing.T) {
 	}
 
 	// Content written to both writers before the crash must be persisted.
-	assertArtifactContents(t, result.Artifacts.Stdout, "partial output\n")
-	assertArtifactContents(t, result.Artifacts.Stderr, "partial error\n")
+	testutil.AssertFileContents(t, result.Artifacts.Stdout, "partial output\n")
+	testutil.AssertFileContents(t, result.Artifacts.Stderr, "partial error\n")
 }
 
 func TestExecutorMapsCancellationToStableCode(t *testing.T) {
@@ -837,8 +802,8 @@ func TestExecutorPreservesPartialArtifactsOnCancellation(t *testing.T) {
 	}
 
 	// Partial content written to both stream writers must survive cancellation.
-	assertArtifactContents(t, result.Artifacts.Stdout, "partial stdout\n")
-	assertArtifactContents(t, result.Artifacts.Stderr, "partial stderr\n")
+	testutil.AssertFileContents(t, result.Artifacts.Stdout, "partial stdout\n")
+	testutil.AssertFileContents(t, result.Artifacts.Stderr, "partial stderr\n")
 }
 
 func TestExecutorResolvesDefaultsAndPersistsArtifactsForCrush(t *testing.T) {
@@ -931,36 +896,18 @@ func TestExecutorResolvesDefaultsAndPersistsArtifactsForCrush(t *testing.T) {
 	}
 
 	stepDir := filepath.Join(runDir, "artifacts", "step-00-crush-step")
-	assertArtifactPathPrefix(t, result.Artifacts.Stdout, stepDir)
-	assertArtifactPathPrefix(t, result.Artifacts.Stderr, stepDir)
-	assertArtifactPathPrefix(t, result.Artifacts.Files["prompt"], stepDir)
-	assertArtifactPathPrefix(t, result.Artifacts.Files["transcript"], stepDir)
-	assertArtifactPathPrefix(t, result.Artifacts.Files["metadata"], stepDir)
+	assertArtifactPaths(t, result.Artifacts, stepDir)
 
-	assertArtifactContents(t, result.Artifacts.Stdout, "crush stdout\n")
-	assertArtifactContents(t, result.Artifacts.Stderr, "crush stderr\n")
-	assertArtifactContents(t, result.Artifacts.Files["transcript"], "{\"done\":true}\n")
+	testutil.AssertFileContents(t, result.Artifacts.Stdout, "crush stdout\n")
+	testutil.AssertFileContents(t, result.Artifacts.Stderr, "crush stderr\n")
+	testutil.AssertFileContents(t, result.Artifacts.Files["transcript"], "{\"done\":true}\n")
 
-	metadataFile, err := os.ReadFile(result.Artifacts.Files["metadata"])
-	if err != nil {
-		t.Fatalf("read metadata artifact: %v", err)
-	}
-	var metadata map[string]any
-	if err := json.Unmarshal(metadataFile, &metadata); err != nil {
-		t.Fatalf("decode metadata artifact: %v", err)
-	}
-	if metadata["provider"] != "crush" {
-		t.Fatalf("metadata provider = %#v, want crush", metadata["provider"])
-	}
-	if metadata["model"] != "claude-sonnet-5" {
-		t.Fatalf("metadata model = %#v, want claude-sonnet-5", metadata["model"])
-	}
-	if metadata["structuredOutputRequested"] != true {
-		t.Fatalf("metadata structuredOutputRequested = %#v, want true", metadata["structuredOutputRequested"])
-	}
-	if metadata["structuredOutputMode"] != "prompt_fallback" {
-		t.Fatalf("metadata structuredOutputMode = %#v, want prompt_fallback", metadata["structuredOutputMode"])
-	}
+	metadata := assertMetadata(t, result.Artifacts.Files["metadata"], map[string]any{
+		"provider":                 "crush",
+		"model":                    "claude-sonnet-5",
+		"structuredOutputRequested": true,
+		"structuredOutputMode":     "prompt_fallback",
+	})
 	// reasoning must be absent (crush does not support it).
 	if r, ok := metadata["reasoning"]; ok && r != "" && r != nil {
 		t.Fatalf("metadata reasoning = %#v, want absent or empty", r)
@@ -1040,22 +987,31 @@ func runtimeForWorkspace(workspaceConfig workspace.Config, params map[string]any
 	})
 }
 
-func assertArtifactContents(t *testing.T, path string, want string) {
+func assertArtifactPaths(t *testing.T, artifacts state.Artifacts, stepDir string) {
+	t.Helper()
+
+	testutil.AssertPathPrefix(t, artifacts.Stdout, stepDir)
+	testutil.AssertPathPrefix(t, artifacts.Stderr, stepDir)
+	for _, key := range []string{"prompt", "transcript", "metadata"} {
+		testutil.AssertPathPrefix(t, artifacts.Files[key], stepDir)
+	}
+}
+
+func assertMetadata(t *testing.T, path string, want map[string]any) map[string]any {
 	t.Helper()
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("read artifact %s: %v", path, err)
+		t.Fatalf("read metadata: %v", err)
 	}
-	if string(data) != want {
-		t.Fatalf("artifact %s = %q, want %q", path, string(data), want)
+	var got map[string]any
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("decode metadata: %v", err)
 	}
-}
-
-func assertArtifactPathPrefix(t *testing.T, path string, wantPrefix string) {
-	t.Helper()
-
-	if !strings.HasPrefix(path, wantPrefix+string(os.PathSeparator)) && path != wantPrefix {
-		t.Fatalf("artifact path %q, want prefix %q", path, wantPrefix)
+	for key, wantVal := range want {
+		if got[key] != wantVal {
+			t.Fatalf("metadata[%q] = %#v, want %#v", key, got[key], wantVal)
+		}
 	}
+	return got
 }
