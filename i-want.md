@@ -13,3 +13,4 @@
 - A tiny committed PTY startup-query probe harness in terminal repos would make escape-sequence roadmap work faster and more repeatable; right now verifying which real apps emit DA/DSR/DECREQTPARM still requires ad hoc inline PTY scripts.
 - [2026-03-19] Please add a single script/command that starts asterd from the current checkout and runs the full 1.12 SSRF verification matrix (tests + grep + REST checks), so verification does not depend on whatever daemon is already running on :9090.
 - [2026-03-19] Please add a debug command (for example `amata inspect-step`) that prints each step’s resolved executor defaults and effective stall policy, so it is immediately obvious whether `defaults.executors.<type>.stall` is being applied.
+- [2026-03-20] Please add a tiny built-in test fixture/command that intentionally simulates a non-cooperative hung executor process, so cancellation and stall recovery paths can be regression-tested without relying on live provider hangs.

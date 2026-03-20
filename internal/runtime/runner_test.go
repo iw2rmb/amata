@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	executorapi "github.com/iw2rmb/amata/internal/executor"
 	codexexec "github.com/iw2rmb/amata/internal/executor/codex"
@@ -1609,6 +1610,125 @@ func TestRunnerStallErrorFailsStep(t *testing.T) {
 	}
 	if failed.Failure.Code != "step_stalled" {
 		t.Fatalf("failure code = %q, want step_stalled", failed.Failure.Code)
+	}
+}
+
+func TestRunnerStallErrorFailsFastWhenExecutorIgnoresCancellation(t *testing.T) {
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID:   "blocked",
+						Type: "fake",
+						Fields: map[string]any{
+							"stall": map[string]any{
+								"after": "10ms",
+								"type":  "error",
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	registry := builtinRegistry()
+	if err := registry.Register("fake", func() executorapi.Executor {
+		return &fakeExecutor{
+			calls: new([]string),
+			executeWithContext: func(context.Context, executorapi.StepContext) state.StepResult {
+				time.Sleep(3 * time.Second)
+				return state.StepResult{Status: state.StepStatusSucceeded}
+			},
+		}
+	}); err != nil {
+		t.Fatalf("register fake executor: %v", err)
+	}
+
+	started := time.Now()
+	_, err := NewRunner(registry).Run(context.Background(), config)
+	elapsed := time.Since(started)
+
+	var failed RunFailedError
+	if !errors.As(err, &failed) {
+		t.Fatalf("run error = %#v, want RunFailedError", err)
+	}
+	if failed.Failure.Code != "step_stalled" {
+		t.Fatalf("failure code = %q, want step_stalled", failed.Failure.Code)
+	}
+	if elapsed >= 2500*time.Millisecond {
+		t.Fatalf("run elapsed = %s, want fast stall failure before 2.5s", elapsed)
+	}
+}
+
+func TestRunnerContextDeadlineFailsFastWhenExecutorIgnoresCancellation(t *testing.T) {
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Defaults: map[string]any{
+			"executors": map[string]any{
+				"fake": map[string]any{
+					"stall": map[string]any{
+						"after": "1m",
+						"type":  "error",
+					},
+				},
+			},
+		},
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID:   "blocked",
+						Type: "fake",
+					},
+				},
+			},
+		},
+	})
+
+	if err := PersistRunSpec(config); err != nil {
+		t.Fatalf("persist run spec: %v", err)
+	}
+
+	registry := builtinRegistry()
+	if err := registry.Register("fake", func() executorapi.Executor {
+		return &fakeExecutor{
+			calls: new([]string),
+			executeWithContext: func(context.Context, executorapi.StepContext) state.StepResult {
+				time.Sleep(3 * time.Second)
+				return state.StepResult{Status: state.StepStatusSucceeded}
+			},
+		}
+	}); err != nil {
+		t.Fatalf("register fake executor: %v", err)
+	}
+
+	runCtx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+
+	started := time.Now()
+	_, err := NewRunner(registry).Run(runCtx, config)
+	elapsed := time.Since(started)
+
+	var failed RunFailedError
+	if !errors.As(err, &failed) {
+		t.Fatalf("run error = %#v, want RunFailedError", err)
+	}
+	if failed.Failure.Code != "deadline_exceeded" {
+		t.Fatalf("failure code = %q, want deadline_exceeded", failed.Failure.Code)
+	}
+	if elapsed >= 2500*time.Millisecond {
+		t.Fatalf("run elapsed = %s, want deadline failure before 2.5s", elapsed)
 	}
 }
 

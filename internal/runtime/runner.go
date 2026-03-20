@@ -31,8 +31,9 @@ type RunFailedError struct {
 }
 
 const (
-	defaultStallAfter   = 15 * time.Minute
-	stallCallReturnType = "stall.call"
+	defaultStallAfter          = 15 * time.Minute
+	stallCancellationGraceWait = 1 * time.Second
+	stallCallReturnType        = "stall.call"
 )
 
 type stallPolicy struct {
@@ -374,7 +375,18 @@ func (r *Runner) executeStep(
 			return stepAction{}, r.finalizeStepResult(config, responses, snapshot.StepByRef, previous, bindings, step, result)
 		case <-timer.C:
 			cancel()
-			<-done
+			if _, ok := waitForAttemptResult(done, stallCancellationGraceWait); !ok {
+				return stepAction{}, finalizeStatus(state.StepResult{
+					Index:  stepIndex,
+					ID:     step.ID,
+					Type:   step.ExecutorType(),
+					Status: state.StepStatusFailed,
+					Error: &state.Failure{
+						Code:    "step_stalled",
+						Message: fmt.Sprintf("step %d stalled after %s and did not stop within %s after cancellation", stepIndex, policy.After, stallCancellationGraceWait),
+					},
+				})
+			}
 			switch policy.Action {
 			case "rerun":
 				continue
@@ -410,7 +422,25 @@ func (r *Runner) executeStep(
 		case <-ctx.Done():
 			timer.Stop()
 			cancel()
-			result = <-done
+			result, ok := waitForAttemptResult(done, stallCancellationGraceWait)
+			if !ok {
+				errCode := "canceled"
+				errMessage := fmt.Sprintf("step %d canceled but did not stop within %s", stepIndex, stallCancellationGraceWait)
+				if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+					errCode = "deadline_exceeded"
+					errMessage = fmt.Sprintf("step %d deadline exceeded and executor did not stop within %s", stepIndex, stallCancellationGraceWait)
+				}
+				return stepAction{}, finalizeStatus(state.StepResult{
+					Index:  stepIndex,
+					ID:     step.ID,
+					Type:   step.ExecutorType(),
+					Status: state.StepStatusFailed,
+					Error: &state.Failure{
+						Code:    errCode,
+						Message: errMessage,
+					},
+				})
+			}
 			return stepAction{}, r.finalizeStepResult(config, responses, snapshot.StepByRef, previous, bindings, step, result)
 		}
 	}
@@ -511,6 +541,27 @@ func executeStepAttempt(ctx context.Context, stepExecutor executorapi.Executor, 
 		result.Type = step.ExecutorType()
 	}
 	return result
+}
+
+func waitForAttemptResult(done <-chan state.StepResult, timeout time.Duration) (state.StepResult, bool) {
+	if timeout <= 0 {
+		select {
+		case result := <-done:
+			return result, true
+		default:
+			return state.StepResult{}, false
+		}
+	}
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case result := <-done:
+		return result, true
+	case <-timer.C:
+		return state.StepResult{}, false
+	}
 }
 
 func resolveStallPolicy(runtime exprruntime.Runtime, defaults map[string]any, stepIndex int, step spec.Step) (*stallPolicy, *state.Failure) {

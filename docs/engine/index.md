@@ -447,6 +447,7 @@ Current behavior:
 - `rerun` cancels the stalled executor attempt and starts the same step again with the same resolved inputs.
 - `error` cancels the stalled executor attempt and fails the run with code `step_stalled`.
 - `call` cancels the stalled executor attempt and runs the named flow instead; the fallback flow's terminal result becomes the stalled step's result.
+- After cancellation, the runner waits up to one second for the in-flight executor attempt to stop. If it does not stop in time, the runner fails the step immediately (`step_stalled` for stall-triggered cancellation; `deadline_exceeded` or `canceled` for run-context cancellation) to avoid indefinite hangs.
 - When a step omits `stall`, the runner checks `defaults.executors.<step-type>.stall`.
 - Step-level `stall` overrides `defaults.executors.<step-type>.stall`.
 - Each execution attempt uses a distinct artifact directory, so repeated loop iterations and reruns do not overwrite prior stdout, stderr, prompt, transcript, or file artifacts.
