@@ -1,6 +1,6 @@
 # Composing Design Documents (DD) Policy
 
-You **MUST** follow these instructions.
+Follow **Deciding On Architecture** policy: `~/.codex/policies/deciding-on-architecture.md`
 
 ## When a DD is required
 

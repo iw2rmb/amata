@@ -1,10 +1,21 @@
-# General Mandatory Instructions (GMI)
+# General Mandatory Instructions
 
 When in **interactive mode**, read and follow policies from `~/.codex/policies/interactive-mode.md`.
 
-Additional policies **MUST** be loaded when naming is literally corresponds the task:
-- When **composing desing docs**: `~/.codex/policies/composing-design-docs.md`
-- When **composing or implementing roadmaps**: `~/.codex/policies/composing-and-implementing-roadmaps.md`
+Read these policies when their naming corresponds the task:
+- **Composing Desing Docs**: `~/.codex/policies/composing-design-docs.md`
+- **Composing Roadmaps**: `~/.codex/policies/composing-roadmaps.md`
+- **Updating Documentation**: `~/.codex/policies/updating-documentation.md`
+- **Developing or Fixing**: `~/.codex/policies/developing.md`
+
+
+## Documentation Folders Structure
+
+In every project, follow this convetion:
+- `design/` — design docs (how to implement).
+- `research/` — research docs (what are options and how cool feature can possibly be).
+- `roadmap/` — decomposed plans/implementation notes (in what order what to implement).
+- `docs/` — actual state docs (how it works right now).
 
 
 ## Aster Usage
@@ -12,79 +23,3 @@ Additional policies **MUST** be loaded when naming is literally corresponds the 
 - **Aster** is a framework for the effective codebase navigation and manipulation.
 - Follow instructions at `http://localhost:9090/v1/coding-agents-instructions`. 
 - Fallback to known instruments when Aster fails to respond or satisfy.
-
-
-## Development Policy
-
-- **NO** backward compatibility is required.
-- **ALWAYS** prefer architecture-wide solutions over time-saving band-aids.
-- Compose commit message from the current diff.
-
-Reduce boilerplate growth by:
-- Before edits, search for existing helpers in the same domain.
-- If a new helper overlaps an existing one, consider unify before commit.
-- If test setup is copied across packages, extract shared test helper before commit.
-- In the final answer, report what duplication was removed.
-
-Avoid mixing domains and overcomplexity by:
-- Keeping files' and modules' domains distinctive.
-- Preventing domain extension of the file or module without clear benefit.
-- Considering 500+ LOC files and 100+ LOC functions to split or simplify.
-
-Avoid race conditions by:
-  - execution order determinism,
-  - execution independence.
-
-
-## Fixing Policy
-
-- **ALWAYS** prefer find and solve the root cause over local fix.
-- For **EVERY** case, the algorithm is:
-  - repeat it programmatically in the environment and conditions that are as close to actual ones as possible;
-  - if there are no tools to do that: write them, if they buggy - fix them before continue;
-  - find the root cause;
-  - validate solution with that tool.
-
-
-## Database Schema Development Policy
-
-- Modifying schema:
-  - update initial migration instead of creating migration.
-  - update `CREATE` statements instead of `ALTER`/`DROP` statements.
-- Do **NOT** plan data migrations.
-
-
-## Documentation Policy
-
-### Folders Structure
-
-- `design/` — design docs (how to implement).
-- `research/` — research docs (what are options and how cool feature can possibly be).
-- `roadmap/` — decomposed plans/implementation notes (in what order what to implement).
-- `docs/` — actual state docs (how it works right now).
-
-
-### Update Policy
-
-1. When committing, you **MUST** ensure that corresponding docs updated accordingly with diff taken into account.
-2. When updating `design/**` and `roadmap/**`,
-  - `design/**` and `roadmap/**` are short-lived working documents. Once the corresponding work is implemented and no unfinished design or roadmap depends on them as prerequisites, remove both the design doc and its roadmap.
-  - In `design/**` and `roadmap/**`, references to other design docs or roadmaps are allowed only for not-yet-implemented prerequisites. Do not use completed transient docs as long-lived explanations of current behavior.
-3. These rules are applied to `docs/**` updates:
-  - Explanations of shipped behavior, schemas, standards, instructions, difficult algorithms, decisions, and principles belong in `docs/**`. When design or roadmap text needs to explain current implementation, point to `docs/**`, not to completed design or roadmap history.
-  - `docs/**` is the long-lived, self-sufficient documentation surface. It must not refer to `design/**`, `research/**`, or `roadmap/**`.
-  - `docs/**` should not repeat design history. It should capture structured current-state snapshots of features, subjects, schemas, instructions, standards, and important implementation principles, relying on the codebase and code comments for low-level detail.
-4. In general, when updating docs, 
-  - Keep them short, simple, focused, and within their domains. If document is drifting into mixed state, split it for consistency.
-  - Keep documents cross-referenced. For cross-reference integrity checks, run `~/@iw2rmb/amata/scripts/check_docs_links.sh` from the target project root.
-
-
-## Writing Tests Policy
-
-- Prefer table-driven tests when setup and assertions are the same and only inputs or expected outcomes differ.
-- Keep one canonical test per behavior path; represent input variants as table rows, not separate top-level tests.
-- Group tests by behavior domain (validation, orchestration, state transitions) once a file grows beyond a few tests.
-- In negative tests, assert both the response and the absence of side effects (for example, store writes were not called).
-- Merge or remove tests that do not add a unique assertion beyond existing coverage.
-- Use test names that encode both behavior and expected outcome.
-- For test refactors, run focused targets first, then package-level tests.
