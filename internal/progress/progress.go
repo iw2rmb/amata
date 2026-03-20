@@ -273,22 +273,19 @@ func cloneSnapshot(snapshot Snapshot) Snapshot {
 		Command: snapshot.Command,
 		Status:  snapshot.Status,
 		Failure: state.CloneFailure(snapshot.Failure),
+		Active:  cloneSteps(snapshot.Active),
+		Steps:   cloneSteps(snapshot.Steps),
 	}
-	if len(snapshot.Active) > 0 {
-		cloned.Active = make([]Step, len(snapshot.Active))
-		for index, step := range snapshot.Active {
-			cloned.Active[index] = cloneStep(step)
-		}
-	} else {
-		cloned.Active = []Step{}
+	return cloned
+}
+
+func cloneSteps(steps []Step) []Step {
+	if len(steps) == 0 {
+		return []Step{}
 	}
-	if len(snapshot.Steps) > 0 {
-		cloned.Steps = make([]Step, len(snapshot.Steps))
-		for index, step := range snapshot.Steps {
-			cloned.Steps[index] = cloneStep(step)
-		}
-	} else {
-		cloned.Steps = []Step{}
+	cloned := make([]Step, len(steps))
+	for index, step := range steps {
+		cloned[index] = cloneStep(step)
 	}
 	return cloned
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/iw2rmb/amata/internal/executor"
 	"github.com/iw2rmb/amata/internal/executor/agent"
+	"github.com/iw2rmb/amata/internal/jsonutil"
 	"github.com/iw2rmb/amata/internal/state"
 )
 
@@ -197,13 +198,13 @@ func descriptorDataFromResult(stepCtx executor.StepContext, result state.StepRes
 
 	switch stepCtx.Step.ExecutorType() {
 	case "call":
-		if flow, ok := stringField(result.Value, "flow"); ok && flow != "" {
+		if flow, ok := jsonutil.StringField(result.Value, "flow"); ok && flow != "" {
 			data.PrimaryText = flow
 			data.FinalSummaryDetails = []string{flow}
 		}
 	case "switch":
-		matched, _ := boolField(result.Value, "matched")
-		caseIndex, hasCaseIndex := intField(result.Value, "case")
+		matched, _ := jsonutil.BoolField(result.Value, "matched")
+		caseIndex, hasCaseIndex := jsonutil.IntField(result.Value, "case")
 		switch {
 		case matched && hasCaseIndex:
 			summary := fmt.Sprintf("case %d", caseIndex)
@@ -214,13 +215,13 @@ func descriptorDataFromResult(stepCtx executor.StepContext, result state.StepRes
 			data.FinalSummaryDetails = []string{"no match"}
 		}
 	case "for_each":
-		if count, ok := intField(result.Value, "count"); ok {
+		if count, ok := jsonutil.IntField(result.Value, "count"); ok {
 			summary := fmt.Sprintf("%d items", count)
 			data.PrimaryText = summary
 			data.FinalSummaryDetails = []string{summary}
 		}
 	case "shell":
-		if exitCode, ok := intField(result.Value, "exitCode"); ok {
+		if exitCode, ok := jsonutil.IntField(result.Value, "exitCode"); ok {
 			data.FinalSummaryDetails = []string{fmt.Sprintf("exit %d", exitCode)}
 		}
 	case "assert":
@@ -410,9 +411,9 @@ func gitInspectDescriptorFromResult(data *DescriptorData, value any) *Descriptor
 		data.DetailText = append([]string{data.PrimaryText}, data.DetailText...)
 	}
 
-	isRepo, _ := boolField(value, "isRepo")
-	hasDiff, _ := boolField(value, "hasDiff")
-	files := stringSliceField(value, "files")
+	isRepo, _ := jsonutil.BoolField(value, "isRepo")
+	hasDiff, _ := jsonutil.BoolField(value, "hasDiff")
+	files := jsonutil.StringSliceField(value, "files")
 
 	switch {
 	case !isRepo:
@@ -434,18 +435,18 @@ func gitInspectDescriptorFromResult(data *DescriptorData, value any) *Descriptor
 }
 
 func gitCommitDescriptorFromResult(data *DescriptorData, value any) *DescriptorData {
-	committed, _ := boolField(value, "committed")
-	metadataValue, ok := mapField(value, "metadata")
+	committed, _ := jsonutil.BoolField(value, "committed")
+	metadataValue, ok := jsonutil.MapField(value, "metadata")
 	if !committed || !ok {
 		data.PrimaryText = "no changes"
 		data.FinalSummaryDetails = []string{"no changes"}
 		return data
 	}
 
-	shortCommit, _ := stringField(metadataValue, "shortCommit")
-	changedFiles, _ := intField(metadataValue, "changedFileCount")
-	insertions, _ := intField(metadataValue, "insertions")
-	deletions, _ := intField(metadataValue, "deletions")
+	shortCommit, _ := jsonutil.StringField(metadataValue, "shortCommit")
+	changedFiles, _ := jsonutil.IntField(metadataValue, "changedFileCount")
+	insertions, _ := jsonutil.IntField(metadataValue, "insertions")
+	deletions, _ := jsonutil.IntField(metadataValue, "deletions")
 
 	data.PrimaryText = fmt.Sprintf("%s files %d +%d -%d", shortCommit, changedFiles, insertions, deletions)
 	data.FinalSummaryDetails = []string{
@@ -467,19 +468,19 @@ type commitFileDescriptor struct {
 }
 
 func fileStats(value any) []commitFileDescriptor {
-	rawFiles, ok := sliceField(value, "files")
+	rawFiles, ok := jsonutil.SliceField(value, "files")
 	if !ok {
 		return nil
 	}
 
 	files := make([]commitFileDescriptor, 0, len(rawFiles))
 	for _, rawFile := range rawFiles {
-		path, ok := stringField(rawFile, "path")
+		path, ok := jsonutil.StringField(rawFile, "path")
 		if !ok || path == "" {
 			continue
 		}
-		insertions, _ := intField(rawFile, "insertions")
-		deletions, _ := intField(rawFile, "deletions")
+		insertions, _ := jsonutil.IntField(rawFile, "insertions")
+		deletions, _ := jsonutil.IntField(rawFile, "deletions")
 		files = append(files, commitFileDescriptor{
 			Path:       path,
 			Insertions: insertions,
@@ -552,106 +553,3 @@ func nonEmptyStrings(values ...string) []string {
 	return filtered
 }
 
-func mapField(value any, key string) (map[string]any, bool) {
-	fields, ok := value.(map[string]any)
-	if !ok {
-		return nil, false
-	}
-	raw, ok := fields[key]
-	if !ok {
-		return nil, false
-	}
-	current, ok := raw.(map[string]any)
-	return current, ok
-}
-
-func sliceField(value any, key string) ([]any, bool) {
-	fields, ok := value.(map[string]any)
-	if !ok {
-		return nil, false
-	}
-	raw, ok := fields[key]
-	if !ok {
-		return nil, false
-	}
-	current, ok := raw.([]any)
-	return current, ok
-}
-
-func stringField(value any, key string) (string, bool) {
-	fields, ok := value.(map[string]any)
-	if !ok {
-		return "", false
-	}
-	raw, ok := fields[key]
-	if !ok {
-		return "", false
-	}
-	text, ok := raw.(string)
-	return text, ok
-}
-
-func boolField(value any, key string) (bool, bool) {
-	fields, ok := value.(map[string]any)
-	if !ok {
-		return false, false
-	}
-	raw, ok := fields[key]
-	if !ok {
-		return false, false
-	}
-	current, ok := raw.(bool)
-	return current, ok
-}
-
-func intField(value any, key string) (int, bool) {
-	fields, ok := value.(map[string]any)
-	if !ok {
-		return 0, false
-	}
-	raw, ok := fields[key]
-	if !ok {
-		return 0, false
-	}
-
-	switch current := raw.(type) {
-	case int:
-		return current, true
-	case int32:
-		return int(current), true
-	case int64:
-		return int(current), true
-	case float64:
-		return int(current), true
-	default:
-		return 0, false
-	}
-}
-
-func stringSliceField(value any, key string) []string {
-	fields, ok := value.(map[string]any)
-	if !ok {
-		return nil
-	}
-	raw, ok := fields[key]
-	if !ok {
-		return nil
-	}
-
-	switch current := raw.(type) {
-	case []string:
-		return append([]string(nil), current...)
-	case []any:
-		values := make([]string, 0, len(current))
-		for _, item := range current {
-			text, ok := item.(string)
-			if !ok {
-				continue
-			}
-			values = append(values, text)
-		}
-		return values
-	default:
-		return nil
-	}
-}

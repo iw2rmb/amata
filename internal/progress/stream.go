@@ -3,14 +3,10 @@ package progress
 import (
 	"fmt"
 	"io"
-	"net/url"
-	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
 	lipgloss "charm.land/lipgloss/v2"
-	liptable "charm.land/lipgloss/v2/table"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"golang.org/x/term"
@@ -177,7 +173,7 @@ func (r *teaStreamRenderer) Close() error {
 }
 
 func (r *plainStreamRenderer) WriteProgress(event Event) {
-	block := blockForEvent(event, r.settings)
+	block := blockForEvent(event, r.settings, newStreamStyles(false))
 	if block == "" {
 		return
 	}
@@ -238,7 +234,7 @@ func (m streamModel) View() string {
 func (m streamModel) applyEvent(event Event) (streamModel, tea.Cmd) {
 	switch event.Kind {
 	case EventRunResumed:
-		m.active = cloneActiveSteps(event.Snapshot.Active)
+		m.active = cloneSteps(event.Snapshot.Active)
 		if len(m.active) == 0 {
 			return m, nil
 		}
@@ -270,7 +266,7 @@ func (m streamModel) applyEvent(event Event) (streamModel, tea.Cmd) {
 		}
 		return m, nil
 	case EventRunFinished:
-		block := blockForEvent(event, m.settings.withWidth(resolvedWidth(m.width)))
+		block := blockForEvent(event, m.settings.withWidth(resolvedWidth(m.width)), m.styles)
 		if block == "" {
 			return m, nil
 		}
@@ -284,10 +280,6 @@ func (m streamModel) applyEvent(event Event) (streamModel, tea.Cmd) {
 func (s streamRenderSettings) withWidth(width int) streamRenderSettings {
 	s.width = width
 	return s
-}
-
-func defaultStreamStyles() streamStyles {
-	return newStreamStyles(false)
 }
 
 func newStreamStyles(colorize bool) streamStyles {
@@ -311,7 +303,7 @@ type renderStepOptions struct {
 	styles      streamStyles
 }
 
-func blockForEvent(event Event, settings streamRenderSettings) string {
+func blockForEvent(event Event, settings streamRenderSettings, styles streamStyles) string {
 	switch event.Kind {
 	case EventRunResumed:
 		if len(event.Snapshot.Active) == 0 {
@@ -320,7 +312,6 @@ func blockForEvent(event Event, settings streamRenderSettings) string {
 
 		visibleActive := visibleActiveSteps(event.Snapshot.Active)
 		blocks := make([]string, 0, len(visibleActive))
-		styles := defaultStreamStyles()
 		for _, step := range visibleActive {
 			blocks = append(blocks, renderStepBlock(step, renderStepOptions{
 				statusToken: "⏺",
@@ -341,7 +332,7 @@ func blockForEvent(event Event, settings streamRenderSettings) string {
 			statusToken: "⏺",
 			now:         settings.now(),
 			width:       resolvedWidth(settings.width),
-			styles:      defaultStreamStyles(),
+			styles:      styles,
 		})
 	case EventStepFinished:
 		if event.Step == nil {
@@ -354,24 +345,23 @@ func blockForEvent(event Event, settings streamRenderSettings) string {
 			statusToken: statusTokenForStep(*event.Step),
 			now:         event.Step.FinishedAt,
 			width:       resolvedWidth(settings.width),
-			styles:      defaultStreamStyles(),
+			styles:      styles,
 		})
 	case EventRunFinished:
 		if event.Failure == nil {
 			return ""
 		}
-		return renderFailureBlock(event.Failure, settings)
+		return renderFailureBlock(event.Failure, settings, styles)
 	default:
 		return ""
 	}
 }
 
-func renderFailureBlock(failure *Failure, settings streamRenderSettings) string {
+func renderFailureBlock(failure *Failure, settings streamRenderSettings, styles streamStyles) string {
 	if failure == nil {
 		return ""
 	}
 
-	styles := defaultStreamStyles()
 	prefix := "⏺"
 	if styles.colorize {
 		prefix = styles.statusFail.Render(prefix)
@@ -435,9 +425,6 @@ func renderStepHeadline(step Step, descriptor StepDescriptor, prefix string, opt
 	message := gitCommitMessage(step)
 	if message == "" {
 		return renderHeadlineWithStepType(prefix, descriptor.StepType, shortCommit, options)
-	}
-	if !options.styles.colorize {
-		return renderHeadlineWithStepType(prefix, descriptor.StepType, shortCommit+" "+message, options)
 	}
 
 	words := []styledWord{renderStepTypeWord(descriptor.StepType, options.styles), {text: shortCommit}}
@@ -528,7 +515,6 @@ func wrapStyledWordsWithPrefix(prefix string, words []styledWord, width int, con
 		return []string{prefix}
 	}
 
-	width = resolvedWidth(width)
 	available := width - lipgloss.Width(prefix) - 1
 	switch {
 	case available > 0:
@@ -588,167 +574,11 @@ func renderStyledWords(words []styledWord) string {
 	return strings.Join(parts, " ")
 }
 
-func gitCommitRenderData(step Step) (string, int, int, int, []commitFileDescriptor, bool) {
-	metadataValue, ok := mapField(step.Value, "metadata")
-	if !ok {
-		return "", 0, 0, 0, nil, false
-	}
-
-	shortCommit, _ := stringField(metadataValue, "shortCommit")
-	changedFiles, _ := intField(metadataValue, "changedFileCount")
-	insertions, _ := intField(metadataValue, "insertions")
-	deletions, _ := intField(metadataValue, "deletions")
-	return shortCommit, changedFiles, insertions, deletions, fileStats(metadataValue), shortCommit != ""
-}
-
-func gitCommitMessage(step Step) string {
-	data := cloneDescriptorData(step.Descriptor)
-	if data == nil || len(data.DetailText) == 0 {
-		return ""
-	}
-	return strings.TrimSpace(data.DetailText[0])
-}
-
-func gitCommitDiffColumnWidths(insertions int, deletions int, files []commitFileDescriptor) (int, int) {
-	plusWidth := lipgloss.Width(fmt.Sprintf("+%d", insertions))
-	minusWidth := lipgloss.Width(fmt.Sprintf("-%d", deletions))
-	for _, file := range files {
-		plusWidth = max(plusWidth, lipgloss.Width(fmt.Sprintf("+%d", file.Insertions)))
-		minusWidth = max(minusWidth, lipgloss.Width(fmt.Sprintf("-%d", file.Deletions)))
-	}
-	return plusWidth, minusWidth
-}
-
-func renderGitCommitTotalsLine(
-	insertions int,
-	deletions int,
-	changedFiles int,
-	plusWidth int,
-	minusWidth int,
-	width int,
-	styles streamStyles,
-) []string {
-	plusText := fmt.Sprintf("%*s", plusWidth, fmt.Sprintf("+%d", insertions))
-	minusText := fmt.Sprintf("%*s", minusWidth, fmt.Sprintf("-%d", deletions))
-	words := []styledWord{
-		{text: plusText},
-		{text: minusText},
-		{text: "files:"},
-		{text: strconv.Itoa(changedFiles)},
-	}
-	if styles.colorize {
-		words[0].render = func(text string) string { return styles.diffPlus.Render(text) }
-		words[1].render = func(text string) string { return styles.diffMinus.Render(text) }
-	}
-	return wrapStyledWords(words, width)
-}
-
-func renderGitCommitFileTable(step Step, files []commitFileDescriptor, plusWidth int, minusWidth int, width int, styles streamStyles) []string {
-	if len(files) == 0 {
-		return nil
-	}
-
-	pathWidth := 0
-	type gitCommitTableRow struct {
-		plus  string
-		minus string
-		path  string
-	}
-	tableRows := make([]gitCommitTableRow, 0, len(files))
-	for _, file := range files {
-		plusText := fmt.Sprintf("+%d", file.Insertions)
-		minusText := fmt.Sprintf("-%d", file.Deletions)
-		pathWidth = max(pathWidth, lipgloss.Width(file.Path))
-		tableRows = append(tableRows, gitCommitTableRow{
-			plus:  plusText,
-			minus: minusText,
-			path:  file.Path,
-		})
-	}
-
-	rows := make([][]string, 0, len(tableRows))
-	for _, row := range tableRows {
-		rows = append(rows, []string{
-			fmt.Sprintf("%*s", plusWidth, row.plus),
-			fmt.Sprintf("%*s", minusWidth, row.minus),
-			row.path,
-		})
-	}
-
-	availablePathWidth := pathWidth
-	if width > 0 {
-		availablePathWidth = max(1, width-plusWidth-minusWidth-2)
-		if pathWidth < availablePathWidth {
-			availablePathWidth = pathWidth
-		}
-	}
-
-	table := liptable.New().
-		Rows(rows...).
-		BorderTop(false).
-		BorderBottom(false).
-		BorderLeft(false).
-		BorderRight(false).
-		BorderColumn(false).
-		BorderHeader(false).
-		BorderRow(false).
-		StyleFunc(func(row, col int) lipgloss.Style {
-			style := lipgloss.NewStyle()
-			switch col {
-			case 0:
-				style = style.PaddingRight(1)
-				if styles.colorize {
-					style = style.Inherit(styles.diffPlus)
-				}
-			case 1:
-				style = style.PaddingRight(1)
-				if styles.colorize {
-					style = style.Inherit(styles.diffMinus)
-				}
-			case 2:
-				style = style.Width(availablePathWidth)
-				if styles.colorize {
-					if link := gitCommitFileLink(step, files[row].Path); link != "" {
-						style = style.Hyperlink(link)
-					}
-					switch {
-					case files[row].Deletions == 0 && files[row].Insertions > 0:
-						style = style.Inherit(styles.pathAdded)
-					case files[row].Insertions == 0 && files[row].Deletions > 0:
-						style = style.Inherit(styles.pathDeleted)
-					}
-				}
-			}
-			return style
-		})
-
-	rendered := strings.Split(table.String(), "\n")
-	lines := make([]string, 0, len(rendered))
-	for _, line := range rendered {
-		lines = append(lines, strings.TrimRight(line, " "))
-	}
-	return lines
-}
-
-func gitCommitFileLink(step Step, path string) string {
-	repoRoot, ok := stringField(step.Value, "repoRoot")
-	if !ok || repoRoot == "" || path == "" {
-		return ""
-	}
-
-	target := filepath.Join(repoRoot, filepath.FromSlash(path))
-	return (&url.URL{
-		Scheme: "file",
-		Path:   filepath.Clean(target),
-	}).String()
-}
-
 func wrapWithPrefix(prefix string, suffix string, width int, continuation lipgloss.Style) []string {
 	if suffix == "" {
 		return []string{prefix}
 	}
 
-	width = resolvedWidth(width)
 	available := width - lipgloss.Width(prefix) - 1
 	switch {
 	case available > 0:
@@ -771,7 +601,6 @@ func wrapWithPrefix(prefix string, suffix string, width int, continuation lipglo
 }
 
 func detailWidth(width int, styles streamStyles) int {
-	width = resolvedWidth(width)
 	indentWidth := lipgloss.Width(styles.detail.Render("x")) - lipgloss.Width("x")
 	if width <= indentWidth {
 		return width
@@ -858,16 +687,10 @@ func stepHasVisibleDescriptor(step Step) bool {
 }
 
 func statusTokenForStep(step Step) string {
-	switch step.Status {
-	case StepStatusSucceeded:
-		return "⏺"
-	case StepStatusSkipped:
+	if step.Status == StepStatusSkipped {
 		return "-"
-	case StepStatusFailed:
-		return "⏺"
-	default:
-		return "⏺"
 	}
+	return "⏺"
 }
 
 func renderStatusToken(step Step, token string, styles streamStyles) string {
@@ -909,18 +732,6 @@ func writerFD(writer io.Writer) (int, bool) {
 		return 0, false
 	}
 	return int(file.Fd()), true
-}
-
-func cloneActiveSteps(steps []Step) []Step {
-	if len(steps) == 0 {
-		return []Step{}
-	}
-
-	cloned := make([]Step, len(steps))
-	for index, step := range steps {
-		cloned[index] = cloneStep(step)
-	}
-	return cloned
 }
 
 func currentUTC() time.Time {
