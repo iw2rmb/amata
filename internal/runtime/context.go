@@ -3,6 +3,7 @@ package runtime
 import (
 	"path/filepath"
 
+	exprruntime "github.com/iw2rmb/amata/internal/expr"
 	"github.com/iw2rmb/amata/internal/jsonutil"
 	"github.com/iw2rmb/amata/internal/state"
 	"github.com/iw2rmb/amata/internal/workspace"
@@ -20,6 +21,10 @@ func workspaceContext(config workspace.Config) map[string]any {
 		"root":      config.Root,
 		"state_dir": config.StateDir,
 	}
+}
+
+func newStepRuntime(config Config, previous *state.StepResult, lookup func(*state.StepRef) *state.StepResult, bindings map[string]any) exprruntime.Runtime {
+	return exprruntime.NewRuntime(buildRuntimeContext(config, previous, lookup, bindings))
 }
 
 func buildRuntimeContext(config Config, previous *state.StepResult, lookup func(*state.StepRef) *state.StepResult, bindings map[string]any) map[string]any {
