@@ -60,10 +60,10 @@ func TestRunnerSwitchUsesFirstMatchingCaseAndReturnsStructuredResult(t *testing.
 					ID: "after",
 					Fields: map[string]any{
 						"expr": map[string]any{
-							"matched": `$.prev.value["matched"]`,
-							"case":    `$.prev.value["case"]`,
-							"picked":  `$.prev.value["value"]["picked"]`,
-							"seed":    `$.prev.value["value"]["seed"]`,
+							"matched": `$.prev.meta["matched"]`,
+							"case":    `$.prev.meta["case"]`,
+							"picked":  `$.prev.value["picked"]`,
+							"seed":    `$.prev.value["seed"]`,
 						},
 					},
 				},
@@ -162,8 +162,8 @@ func TestRunnerSwitchWithoutMatchDoesNotReuseIncomingPrevAsBranchOutput(t *testi
 					ID: "after",
 					Fields: map[string]any{
 						"expr": map[string]any{
-							"matched": `$.prev.value["matched"]`,
-							"value":   `$.prev.value["value"]`,
+							"matched": `$.prev.meta["matched"]`,
+							"value":   `$.prev.value`,
 						},
 					},
 				},
@@ -231,11 +231,11 @@ func TestRunnerForEachIteratesItemsWithBindingsAndReturnsStructuredResult(t *tes
 					ID: "after",
 					Fields: map[string]any{
 						"expr": map[string]any{
-							"count":     `$.prev.value["count"]`,
-							"index":     `$.prev.value["index"]`,
-							"item":      `$.prev.value["item"]`,
-							"bodyItem":  `$.prev.value["value"]["item"]`,
-							"bodyAlias": `$.prev.value["value"]["folder"]`,
+							"count":     `$.prev.meta["count"]`,
+							"index":     `$.prev.meta["index"]`,
+							"item":      `$.prev.meta["item"]`,
+							"bodyItem":  `$.prev.value["item"]`,
+							"bodyAlias": `$.prev.value["folder"]`,
 						},
 					},
 				},
@@ -368,7 +368,7 @@ func TestRunnerRecursiveCallCarriesFrameLocalPrevAndReturnsOneStack(t *testing.T
 				{
 					ID: "after",
 					Fields: map[string]any{
-						"expr": `$.prev.value["value"]`,
+						"expr": `$.prev.value`,
 					},
 				},
 			},
@@ -413,7 +413,7 @@ func TestRunnerRecursiveCallCarriesFrameLocalPrevAndReturnsOneStack(t *testing.T
 									{
 										ID: "unwrap",
 										Fields: map[string]any{
-											"expr": `$.prev.value["value"]`,
+											"expr": `$.prev.value`,
 										},
 									},
 								},
@@ -424,7 +424,7 @@ func TestRunnerRecursiveCallCarriesFrameLocalPrevAndReturnsOneStack(t *testing.T
 				{
 					ID: "return",
 					Fields: map[string]any{
-						"expr": `$.prev.value["value"]`,
+						"expr": `$.prev.value`,
 					},
 				},
 			},
@@ -509,5 +509,81 @@ func TestRunnerCallEmptyFlowReturnsNoNestedOutput(t *testing.T) {
 	}
 	if got := value["value"]; got != nil {
 		t.Fatalf("call value = %#v, want nil", got)
+	}
+}
+
+func TestRunnerCallUnwrapsNestedControlPayloadInContext(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, sampleDoc(map[string]spec.Flow{
+		"main": {
+			Steps: []spec.Step{
+				{
+					ID:   "run-child",
+					Type: "call",
+					Fields: map[string]any{
+						"flow": "child",
+					},
+				},
+				{
+					ID: "inspect",
+					Fields: map[string]any{
+						"expr": map[string]any{
+							"hasItem": `$.prev.value["hasItem"]`,
+							"flow":    `$.prev.meta["flow"]`,
+						},
+					},
+				},
+			},
+		},
+		"child": {
+			Steps: []spec.Step{
+				{
+					ID: "seed",
+					Fields: map[string]any{
+						"expr": map[string]any{
+							"hasItem": false,
+						},
+					},
+				},
+				{
+					ID:   "branch",
+					Type: "switch",
+					Fields: map[string]any{
+						"cases": []any{
+							map[string]any{
+								"when": true,
+								"steps": []spec.Step{
+									{
+										ID: "return-seed",
+										Fields: map[string]any{
+											"expr": `$.prev.value`,
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}))
+
+	mustPersist(t, config)
+
+	snapshot, err := NewRunner(nil).Run(context.Background(), config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if snapshot.Status != state.RunStatusSucceeded {
+		t.Fatalf("snapshot status = %q, want succeeded", snapshot.Status)
+	}
+
+	final := snapshot.Steps[len(snapshot.Steps)-1].Value.(map[string]any)
+	if got := final["hasItem"]; got != false {
+		t.Fatalf("hasItem = %#v, want false", got)
+	}
+	if got := final["flow"]; got != "child" {
+		t.Fatalf("flow = %#v, want child", got)
 	}
 }

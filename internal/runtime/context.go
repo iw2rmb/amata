@@ -49,18 +49,85 @@ func previousContext(previous *state.StepResult, lookup func(*state.StepRef) *st
 }
 
 func stepResultContext(result state.StepResult, lookup func(*state.StepRef) *state.StepResult) map[string]any {
+	value, meta := stepResultValueAndMeta(result)
 	ctx := map[string]any{
 		"index":     result.Index,
 		"type":      result.Type,
 		"status":    string(result.Status),
-		"value":     jsonutil.CloneValue(result.Value),
+		"value":     value,
 		"error":     failureContext(result.Error),
 		"artifacts": artifactsContext(result.Artifacts),
+	}
+	if meta != nil {
+		ctx["meta"] = meta
 	}
 	if lookup != nil {
 		ctx["prev"] = previousContext(lookup(result.Previous), lookup)
 	}
 	return ctx
+}
+
+func stepResultValueAndMeta(result state.StepResult) (any, any) {
+	value := jsonutil.CloneValue(result.Value)
+	switch result.Type {
+	case "call", "switch", "for_each":
+		fields, ok := value.(map[string]any)
+		if !ok {
+			return value, nil
+		}
+
+		payload, hasPayload := fields["value"]
+		if !hasPayload {
+			return value, nil
+		}
+		payload = unwrapNestedControlPayload(payload)
+
+		meta := make(map[string]any, len(fields)-1)
+		for key, raw := range fields {
+			if key == "value" {
+				continue
+			}
+			meta[key] = jsonutil.CloneValue(raw)
+		}
+		if len(meta) == 0 {
+			return payload, nil
+		}
+		return payload, meta
+	default:
+		return value, nil
+	}
+}
+
+func unwrapNestedControlPayload(payload any) any {
+	current := payload
+	for {
+		fields, ok := current.(map[string]any)
+		if !ok || !isControlResultShape(fields) {
+			return current
+		}
+
+		next, hasNext := fields["value"]
+		if !hasNext {
+			return current
+		}
+		current = next
+	}
+}
+
+func isControlResultShape(fields map[string]any) bool {
+	_, hasStatus := fields["status"]
+	_, hasError := fields["error"]
+	_, hasArtifacts := fields["artifacts"]
+	if !hasStatus || !hasError || !hasArtifacts {
+		return false
+	}
+
+	for _, key := range []string{"flow", "matched", "case", "count", "index", "item", "as"} {
+		if _, ok := fields[key]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func failureContext(failure *state.Failure) any {

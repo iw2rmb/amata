@@ -75,11 +75,14 @@ The shared runtime context is exposed at `ctx`:
 - `type`
 - `status`
 - `value`
+- `meta` (control-step metadata for `call`, `switch`, and `for_each`)
 - `error`
 - `artifacts.stdout`
 - `artifacts.stderr`
 - `artifacts.files`
 - `prev`
+
+For control steps, `ctx.prev.value` is normalized to the child payload (including recursive unwrapping across nested control-step returns) and control metadata is exposed separately at `ctx.prev.meta`.
 
 `ctx.prev.prev...` walks prior succeeded steps visible in the current frame. Child frames inherit the caller's full current chain and extend it locally. Skipped and failed steps are not linked into the chain.
 
@@ -215,6 +218,7 @@ Behavior:
 - The step succeeds with a structured `value` containing `matched`, `case`, `status`, `value`, `error`, and `artifacts` from the nested branch result.
 - `case` is the zero-based index of the matched branch.
 - When no case matches, the step still succeeds with `matched: false` and `case: null`.
+- In expression context for downstream steps, the nested branch payload is available at `ctx.prev.value` and control metadata is available at `ctx.prev.meta`.
 
 ### `call`
 
@@ -226,7 +230,7 @@ Supported fields:
 Behavior:
 - The target flow runs in a child frame that starts with the caller's current `ctx.prev`.
 - The child frame returns one structured `value` containing `flow`, `status`, `value`, `error`, and `artifacts` from the nested flow result.
-- The returned value becomes the caller frame's new `ctx.prev.value` for downstream steps.
+- In expression context for downstream steps, the returned child payload is available at `ctx.prev.value` and control metadata is available at `ctx.prev.meta`.
 
 ### `for_each`
 
@@ -242,6 +246,7 @@ Behavior:
 - Inside the loop body, the current item is exposed as `ctx.item`, the zero-based position as `ctx.index`, and when `as` is provided the same item is also exposed as `ctx.<as>`.
 - The step succeeds with a structured `value` containing `count`, `index`, `item`, `as`, `status`, `value`, `error`, and `artifacts` from the final iteration body result.
 - When `items` resolves to an empty array, the step still succeeds with `count: 0`, `index: null`, and `item: null`.
+- In expression context for downstream steps, the final iteration payload is available at `ctx.prev.value` and loop metadata is available at `ctx.prev.meta`.
 
 ## Built-in Executors
 
