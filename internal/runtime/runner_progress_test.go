@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/iw2rmb/amata/internal/jsonutil"
 	"github.com/iw2rmb/amata/internal/progress"
 	"github.com/iw2rmb/amata/internal/spec"
 	"github.com/iw2rmb/amata/internal/state"
@@ -16,11 +17,7 @@ import (
 func TestRunnerEmitsLiveProgressForNestedSwitchAndCall(t *testing.T) {
 	t.Parallel()
 
-	config := testConfig(t, spec.Document{
-		Version: spec.Version,
-		Name:    "sample",
-		Entry:   "main",
-		Flows: map[string]spec.Flow{
+	config := testConfig(t, sampleDoc(map[string]spec.Flow{
 			"main": {
 				Steps: []spec.Step{
 					{
@@ -54,8 +51,7 @@ func TestRunnerEmitsLiveProgressForNestedSwitchAndCall(t *testing.T) {
 					{ID: "child-step", Type: "fake"},
 				},
 			},
-		},
-	})
+		}))
 
 	mustPersist(t, config)
 
@@ -152,24 +148,19 @@ func TestRunnerEmitsLiveProgressForNestedSwitchAndCall(t *testing.T) {
 func TestRunnerLiveProgressIncludesStepDescriptors(t *testing.T) {
 	t.Parallel()
 
-	config := testConfig(t, spec.Document{
-		Version: spec.Version,
-		Name:    "sample",
-		Entry:   "main",
-		Flows: map[string]spec.Flow{
-			"main": {
-				Steps: []spec.Step{
-					{
-						ID:   "shell-step",
-						Type: "shell",
-						Fields: map[string]any{
-							"command": []any{"echo", "descriptor"},
-						},
+	config := testConfig(t, sampleDoc(map[string]spec.Flow{
+		"main": {
+			Steps: []spec.Step{
+				{
+					ID:   "shell-step",
+					Type: "shell",
+					Fields: map[string]any{
+						"command": []any{"echo", "descriptor"},
 					},
 				},
 			},
 		},
-	})
+	}))
 
 	mustPersist(t, config)
 
@@ -194,24 +185,19 @@ func TestRunnerLiveProgressIncludesStepDescriptors(t *testing.T) {
 func TestRunnerLiveProgressIncludesGitCommitCompletedLineSummary(t *testing.T) {
 	t.Parallel()
 
-	config := testConfig(t, spec.Document{
-		Version: spec.Version,
-		Name:    "sample",
-		Entry:   "main",
-		Flows: map[string]spec.Flow{
-			"main": {
-				Steps: []spec.Step{
-					{
-						ID:   "commit-step",
-						Type: "git.commit",
-						Fields: map[string]any{
-							"message": "test commit",
-						},
+	config := testConfig(t, sampleDoc(map[string]spec.Flow{
+		"main": {
+			Steps: []spec.Step{
+				{
+					ID:   "commit-step",
+					Type: "git.commit",
+					Fields: map[string]any{
+						"message": "test commit",
 					},
 				},
 			},
 		},
-	})
+	}))
 
 	initGitRepository(t, config.Workspace.Root)
 	writeFile(t, filepath.Join(config.Workspace.Root, "note.txt"), "before\n")
@@ -254,11 +240,11 @@ func TestRunnerLiveProgressIncludesGitCommitCompletedLineSummary(t *testing.T) {
 	if finished == nil || finished.Descriptor == nil {
 		t.Fatalf("finished git.commit descriptor missing: %#v", finished)
 	}
-	metadata, ok := mapValueField(finished.Value, "metadata")
+	metadata, ok := jsonutil.MapField(finished.Value, "metadata")
 	if !ok {
 		t.Fatalf("git.commit value metadata missing: %#v", finished.Value)
 	}
-	shortCommit, ok := stringValueField(metadata, "shortCommit")
+	shortCommit, ok := jsonutil.StringField(metadata, "shortCommit")
 	if !ok || shortCommit == "" {
 		t.Fatalf("git.commit shortCommit missing: %#v", metadata)
 	}

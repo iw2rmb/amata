@@ -17,19 +17,14 @@ import (
 func TestRunnerPersistsSkippedStepBeforeAdvancing(t *testing.T) {
 	t.Parallel()
 
-	config := testConfig(t, spec.Document{
-		Version: spec.Version,
-		Name:    "sample",
-		Entry:   "main",
-		Flows: map[string]spec.Flow{
-			"main": {
-				Steps: []spec.Step{
-					{ID: "step-1", Type: "fake"},
-					{ID: "step-2", Type: "fake"},
-				},
+	config := testConfig(t, sampleDoc(map[string]spec.Flow{
+		"main": {
+			Steps: []spec.Step{
+				{ID: "step-1", Type: "fake"},
+				{ID: "step-2", Type: "fake"},
 			},
 		},
-	})
+	}))
 
 	mustPersist(t, config)
 
@@ -145,36 +140,75 @@ func TestBuiltinRegistration(t *testing.T) {
 	}
 }
 
-func TestRunnerRepeatedStepExecutionsUseDistinctArtifactDirectories(t *testing.T) {
+func TestRunnerPersistsRunMetadataAndArtifactsUnderRunDirectory(t *testing.T) {
 	t.Parallel()
 
-	config := testConfig(t, spec.Document{
-		Version: spec.Version,
-		Name:    "sample",
-		Entry:   "main",
-		Flows: map[string]spec.Flow{
-			"main": {
-				Steps: []spec.Step{
-					{
-						ID: "seed",
-						Fields: map[string]any{
-							"expr": []any{"alpha", "beta"},
-						},
-					},
-					{
-						ID:   "loop",
-						Type: "for_each",
-						Fields: map[string]any{
-							"items": `$.prev.value`,
-							"steps": []spec.Step{
-								{ID: "capture", Type: "fake"},
-							},
+	config := testConfig(t, sampleDoc(map[string]spec.Flow{
+		"main": {
+			Steps: []spec.Step{
+				{
+					ID: "shell-step",
+					Fields: map[string]any{
+						"command": "printf 'hello'; printf 'warn' >&2; printf 'report' > report.txt",
+						"files": map[string]any{
+							"report": "report.txt",
 						},
 					},
 				},
 			},
 		},
-	})
+	}))
+
+	mustPersist(t, config)
+
+	snapshot, err := NewRunner(nil).Run(context.Background(), config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	expectedPaths := []string{
+		filepath.Join(config.RunDir, "spec.yaml"),
+		filepath.Join(config.RunDir, "events.ndjson"),
+		filepath.Join(config.RunDir, "snapshot.json"),
+		snapshot.Steps[0].Artifacts.Stdout,
+		snapshot.Steps[0].Artifacts.Stderr,
+		snapshot.Steps[0].Artifacts.Files["report"],
+	}
+	for _, path := range expectedPaths {
+		if !strings.HasPrefix(path, config.RunDir+string(os.PathSeparator)) {
+			t.Fatalf("path %q does not live under run dir %q", path, config.RunDir)
+		}
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("stat %s: %v", path, err)
+		}
+	}
+}
+
+func TestRunnerRepeatedStepExecutionsUseDistinctArtifactDirectories(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, sampleDoc(map[string]spec.Flow{
+		"main": {
+			Steps: []spec.Step{
+				{
+					ID: "seed",
+					Fields: map[string]any{
+						"expr": []any{"alpha", "beta"},
+					},
+				},
+				{
+					ID:   "loop",
+					Type: "for_each",
+					Fields: map[string]any{
+						"items": `$.prev.value`,
+						"steps": []spec.Step{
+							{ID: "capture", Type: "fake"},
+						},
+					},
+				},
+			},
+		},
+	}))
 
 	mustPersist(t, config)
 

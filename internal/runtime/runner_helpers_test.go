@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	executorapi "github.com/iw2rmb/amata/internal/executor"
+	"github.com/iw2rmb/amata/internal/jsonutil"
 	"github.com/iw2rmb/amata/internal/progress"
 	"github.com/iw2rmb/amata/internal/spec"
 	"github.com/iw2rmb/amata/internal/state"
@@ -191,35 +192,9 @@ func progressStepIDs(steps []progress.Step) []string {
 	return ids
 }
 
-func mapValueField(value any, key string) (map[string]any, bool) {
-	mapped, ok := value.(map[string]any)
-	if !ok {
-		return nil, false
-	}
-	field, ok := mapped[key]
-	if !ok {
-		return nil, false
-	}
-	child, ok := field.(map[string]any)
-	return child, ok
-}
-
-func stringValueField(value any, key string) (string, bool) {
-	mapped, ok := value.(map[string]any)
-	if !ok {
-		return "", false
-	}
-	field, ok := mapped[key]
-	if !ok {
-		return "", false
-	}
-	text, ok := field.(string)
-	return text, ok
-}
-
 func cloneStepResult(result state.StepResult) state.StepResult {
 	result.Artifacts = cloneArtifacts(result.Artifacts)
-	result.Value = cloneJSONValue(result.Value)
+	result.Value = jsonutil.CloneValue(result.Value)
 	result.Error = cloneFailure(result.Error)
 	return result
 }
@@ -246,25 +221,6 @@ func cloneFailure(failure *state.Failure) *state.Failure {
 	}
 	cloned := *failure
 	return &cloned
-}
-
-func cloneJSONValue(value any) any {
-	switch typed := value.(type) {
-	case map[string]any:
-		cloned := make(map[string]any, len(typed))
-		for key, child := range typed {
-			cloned[key] = cloneJSONValue(child)
-		}
-		return cloned
-	case []any:
-		cloned := make([]any, len(typed))
-		for index, child := range typed {
-			cloned[index] = cloneJSONValue(child)
-		}
-		return cloned
-	default:
-		return value
-	}
 }
 
 func writeArtifactFixture(t *testing.T, runDir string, name string, contents string) string {
@@ -296,6 +252,25 @@ func assertSnapshotStatuses(t *testing.T, snapshot state.Snapshot, wantStatuses 
 	}
 	if !slices.Equal(gotStatuses, wantStatuses) {
 		t.Fatalf("step statuses = %#v, want %#v", gotStatuses, wantStatuses)
+	}
+}
+
+func sampleDoc(flows map[string]spec.Flow) spec.Document {
+	return spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Flows:   flows,
+	}
+}
+
+func sampleDocWithParams(params map[string]any, flows map[string]spec.Flow) spec.Document {
+	return spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Params:  params,
+		Flows:   flows,
 	}
 }
 

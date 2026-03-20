@@ -19,18 +19,13 @@ import (
 func TestRunnerAgentArtifactsAreReadableDuringAndAfterExecution(t *testing.T) {
 	t.Parallel()
 
-	config := testConfig(t, spec.Document{
-		Version: spec.Version,
-		Name:    "sample",
-		Entry:   "main",
-		Flows: map[string]spec.Flow{
-			"main": {
-				Steps: []spec.Step{
-					{ID: "stream-step", Type: "fake"},
-				},
+	config := testConfig(t, sampleDoc(map[string]spec.Flow{
+		"main": {
+			Steps: []spec.Step{
+				{ID: "stream-step", Type: "fake"},
 			},
 		},
-	})
+	}))
 
 	mustPersist(t, config)
 

@@ -18,20 +18,15 @@ import (
 func TestRunnerResumeContinuesFromFirstIncompleteStep(t *testing.T) {
 	t.Parallel()
 
-	config := testConfig(t, spec.Document{
-		Version: spec.Version,
-		Name:    "sample",
-		Entry:   "main",
-		Flows: map[string]spec.Flow{
-			"main": {
-				Steps: []spec.Step{
-					{ID: "step-1", Type: "fake"},
-					{ID: "step-2", Type: "fake"},
-					{ID: "step-3", Type: "fake"},
-				},
+	config := testConfig(t, sampleDoc(map[string]spec.Flow{
+		"main": {
+			Steps: []spec.Step{
+				{ID: "step-1", Type: "fake"},
+				{ID: "step-2", Type: "fake"},
+				{ID: "step-3", Type: "fake"},
 			},
 		},
-	})
+	}))
 
 	mustPersist(t, config)
 
@@ -98,28 +93,23 @@ func TestRunnerResumeContinuesFromFirstIncompleteStep(t *testing.T) {
 func TestRunnerResumeRestoresCtxPrevChain(t *testing.T) {
 	t.Parallel()
 
-	config := testConfig(t, spec.Document{
-		Version: spec.Version,
-		Name:    "sample",
-		Entry:   "main",
-		Flows: map[string]spec.Flow{
-			"main": {
-				Steps: []spec.Step{
-					{ID: "step-1", Fields: map[string]any{"expr": "one"}},
-					{ID: "step-2", Fields: map[string]any{"expr": "two"}},
-					{
-						ID: "step-3",
-						Fields: map[string]any{
-							"expr": map[string]any{
-								"current": `$.prev.value`,
-								"prior":   `$.prev.prev.value`,
-							},
+	config := testConfig(t, sampleDoc(map[string]spec.Flow{
+		"main": {
+			Steps: []spec.Step{
+				{ID: "step-1", Fields: map[string]any{"expr": "one"}},
+				{ID: "step-2", Fields: map[string]any{"expr": "two"}},
+				{
+					ID: "step-3",
+					Fields: map[string]any{
+						"expr": map[string]any{
+							"current": `$.prev.value`,
+							"prior":   `$.prev.prev.value`,
 						},
 					},
 				},
 			},
 		},
-	})
+	}))
 
 	mustPersist(t, config)
 
@@ -181,30 +171,25 @@ func TestRunnerResumeRestoresCtxPrevChain(t *testing.T) {
 func TestRunnerResumeFinalizesCompletedChildFrameBeforeRunningParentNextStep(t *testing.T) {
 	t.Parallel()
 
-	config := testConfig(t, spec.Document{
-		Version: spec.Version,
-		Name:    "sample",
-		Entry:   "main",
-		Flows: map[string]spec.Flow{
-			"main": {
-				Steps: []spec.Step{
-					{
-						ID:   "loop",
-						Type: "call",
-						Fields: map[string]any{
-							"flow": "loop",
-						},
+	config := testConfig(t, sampleDoc(map[string]spec.Flow{
+		"main": {
+			Steps: []spec.Step{
+				{
+					ID:   "loop",
+					Type: "call",
+					Fields: map[string]any{
+						"flow": "loop",
 					},
-					{ID: "after", Type: "fake"},
 				},
-			},
-			"loop": {
-				Steps: []spec.Step{
-					{ID: "loop-step", Type: "fake"},
-				},
+				{ID: "after", Type: "fake"},
 			},
 		},
-	})
+		"loop": {
+			Steps: []spec.Step{
+				{ID: "loop-step", Type: "fake"},
+			},
+		},
+	}))
 
 	mustPersist(t, config)
 
@@ -294,30 +279,25 @@ func TestRunnerResumeFinalizesCompletedChildFrameBeforeRunningParentNextStep(t *
 func TestRunnerResumeEmitsLiveProgressForReturnedControl(t *testing.T) {
 	t.Parallel()
 
-	config := testConfig(t, spec.Document{
-		Version: spec.Version,
-		Name:    "sample",
-		Entry:   "main",
-		Flows: map[string]spec.Flow{
-			"main": {
-				Steps: []spec.Step{
-					{
-						ID:   "loop",
-						Type: "call",
-						Fields: map[string]any{
-							"flow": "loop",
-						},
+	config := testConfig(t, sampleDoc(map[string]spec.Flow{
+		"main": {
+			Steps: []spec.Step{
+				{
+					ID:   "loop",
+					Type: "call",
+					Fields: map[string]any{
+						"flow": "loop",
 					},
-					{ID: "after", Type: "fake"},
 				},
-			},
-			"loop": {
-				Steps: []spec.Step{
-					{ID: "loop-step", Type: "fake"},
-				},
+				{ID: "after", Type: "fake"},
 			},
 		},
-	})
+		"loop": {
+			Steps: []spec.Step{
+				{ID: "loop-step", Type: "fake"},
+			},
+		},
+	}))
 
 	mustPersist(t, config)
 
@@ -430,19 +410,14 @@ func TestRunnerResumeEmitsLiveProgressForReturnedControl(t *testing.T) {
 func TestRunnerResumeFinalizesDurableFailureWithoutRunningLaterSteps(t *testing.T) {
 	t.Parallel()
 
-	config := testConfig(t, spec.Document{
-		Version: spec.Version,
-		Name:    "sample",
-		Entry:   "main",
-		Flows: map[string]spec.Flow{
-			"main": {
-				Steps: []spec.Step{
-					{ID: "step-1", Type: "fake"},
-					{ID: "step-2", Type: "fake"},
-				},
+	config := testConfig(t, sampleDoc(map[string]spec.Flow{
+		"main": {
+			Steps: []spec.Step{
+				{ID: "step-1", Type: "fake"},
+				{ID: "step-2", Type: "fake"},
 			},
 		},
-	})
+	}))
 
 	mustPersist(t, config)
 
@@ -499,18 +474,13 @@ func TestRunnerResumeFinalizesDurableFailureWithoutRunningLaterSteps(t *testing.
 func TestRunnerResumeKeepsTerminalFailureState(t *testing.T) {
 	t.Parallel()
 
-	config := testConfig(t, spec.Document{
-		Version: spec.Version,
-		Name:    "sample",
-		Entry:   "main",
-		Flows: map[string]spec.Flow{
-			"main": {
-				Steps: []spec.Step{
-					{ID: "step-1", Type: "fake"},
-				},
+	config := testConfig(t, sampleDoc(map[string]spec.Flow{
+		"main": {
+			Steps: []spec.Step{
+				{ID: "step-1", Type: "fake"},
 			},
 		},
-	})
+	}))
 
 	mustPersist(t, config)
 
@@ -628,20 +598,15 @@ func TestRunnerResumeReloadsTerminalStateFromEvents(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			config := testConfig(t, spec.Document{
-				Version: spec.Version,
-				Name:    "sample",
-				Entry:   "main",
-				Flows: map[string]spec.Flow{
-					"main": {
-						Steps: []spec.Step{
-							{ID: "step-1", Type: "fake"},
-							{ID: "step-2", Type: "fake"},
-							{ID: "step-3", Type: "fake"},
-						},
+			config := testConfig(t, sampleDoc(map[string]spec.Flow{
+				"main": {
+					Steps: []spec.Step{
+						{ID: "step-1", Type: "fake"},
+						{ID: "step-2", Type: "fake"},
+						{ID: "step-3", Type: "fake"},
 					},
 				},
-			})
+			}))
 
 			if err := PersistRunSpec(config); err != nil {
 				t.Fatalf("persist run spec: %v", err)

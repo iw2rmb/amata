@@ -242,19 +242,14 @@ func TestRunnerResponseFromStdoutLinesPublishesList(t *testing.T) {
 func TestRunnerNormalizesPreviousTypedSlicesForExpressions(t *testing.T) {
 	t.Parallel()
 
-	config := testConfig(t, spec.Document{
-		Version: spec.Version,
-		Name:    "sample",
-		Entry:   "main",
-		Flows: map[string]spec.Flow{
-			"main": {
-				Steps: []spec.Step{
-					{ID: "typed-slice", Type: "fake"},
-					{ID: "read-path", Type: "fake"},
-				},
+	config := testConfig(t, sampleDoc(map[string]spec.Flow{
+		"main": {
+			Steps: []spec.Step{
+				{ID: "typed-slice", Type: "fake"},
+				{ID: "read-path", Type: "fake"},
 			},
 		},
-	})
+	}))
 
 	mustPersist(t, config)
 
@@ -388,26 +383,21 @@ func TestRunnerResponseSchemaErrors(t *testing.T) {
 func TestRunnerExpectDoesNotOverrideExecutionFailure(t *testing.T) {
 	t.Parallel()
 
-	config := testConfig(t, spec.Document{
-		Version: spec.Version,
-		Name:    "sample",
-		Entry:   "main",
-		Flows: map[string]spec.Flow{
-			"main": {
-				Steps: []spec.Step{
-					{
-						ID: "shell-failure",
-						Fields: map[string]any{
-							"command": "exit 2",
-							"expect": map[string]any{
-								"expr": "False",
-							},
+	config := testConfig(t, sampleDoc(map[string]spec.Flow{
+		"main": {
+			Steps: []spec.Step{
+				{
+					ID: "shell-failure",
+					Fields: map[string]any{
+						"command": "exit 2",
+						"expect": map[string]any{
+							"expr": "False",
 						},
 					},
 				},
 			},
 		},
-	})
+	}))
 
 	mustPersist(t, config)
 
@@ -418,76 +408,71 @@ func TestRunnerExpectDoesNotOverrideExecutionFailure(t *testing.T) {
 func TestRunnerExpectFailureStopsRecursiveLoopOnCurrentStep(t *testing.T) {
 	t.Parallel()
 
-	config := testConfig(t, spec.Document{
-		Version: spec.Version,
-		Name:    "sample",
-		Entry:   "main",
-		Flows: map[string]spec.Flow{
-			"main": {
-				Steps: []spec.Step{
-					{
-						ID: "seed",
-						Fields: map[string]any{
-							"expr": map[string]any{
-								"n":   2,
-								"sum": 0,
-							},
-						},
-					},
-					{
-						ID:   "loop",
-						Type: "call",
-						Fields: map[string]any{
-							"flow": "loop",
-						},
-					},
-					{
-						ID: "after",
-						Fields: map[string]any{
-							"expr": "unreachable",
+	config := testConfig(t, sampleDoc(map[string]spec.Flow{
+		"main": {
+			Steps: []spec.Step{
+				{
+					ID: "seed",
+					Fields: map[string]any{
+						"expr": map[string]any{
+							"n":   2,
+							"sum": 0,
 						},
 					},
 				},
+				{
+					ID:   "loop",
+					Type: "call",
+					Fields: map[string]any{
+						"flow": "loop",
+					},
+				},
+				{
+					ID: "after",
+					Fields: map[string]any{
+						"expr": "unreachable",
+					},
+				},
 			},
-			"loop": {
-				Steps: []spec.Step{
-					{
-						ID:   "branch",
-						Type: "switch",
-						Fields: map[string]any{
-							"cases": []any{
-								map[string]any{
-									"when": map[string]any{"expr": `ctx.prev.value["n"] <= 0`},
-									"steps": []spec.Step{
-										{
-											ID: "done",
-											Fields: map[string]any{
-												"expr": `$.prev.value`,
-											},
+		},
+		"loop": {
+			Steps: []spec.Step{
+				{
+					ID:   "branch",
+					Type: "switch",
+					Fields: map[string]any{
+						"cases": []any{
+							map[string]any{
+								"when": map[string]any{"expr": `ctx.prev.value["n"] <= 0`},
+								"steps": []spec.Step{
+									{
+										ID: "done",
+										Fields: map[string]any{
+											"expr": `$.prev.value`,
 										},
 									},
 								},
-								map[string]any{
-									"when": map[string]any{"expr": `ctx.prev.value["n"] > 0`},
-									"steps": []spec.Step{
-										{
-											ID: "decrement",
-											Fields: map[string]any{
-												"expr": map[string]any{
-													"n":   map[string]any{"expr": `ctx.prev.value["n"] - 1`},
-													"sum": map[string]any{"expr": `ctx.prev.value["sum"] + ctx.prev.value["n"]`},
-												},
-												"expect": map[string]any{
-													"expr": `ctx.value["n"] > 0`,
-												},
+							},
+							map[string]any{
+								"when": map[string]any{"expr": `ctx.prev.value["n"] > 0`},
+								"steps": []spec.Step{
+									{
+										ID: "decrement",
+										Fields: map[string]any{
+											"expr": map[string]any{
+												"n":   map[string]any{"expr": `ctx.prev.value["n"] - 1`},
+												"sum": map[string]any{"expr": `ctx.prev.value["sum"] + ctx.prev.value["n"]`},
+											},
+											"expect": map[string]any{
+												"expr": `ctx.value["n"] > 0`,
 											},
 										},
-										{
-											ID:   "recurse",
-											Type: "call",
-											Fields: map[string]any{
-												"flow": "loop",
-											},
+									},
+									{
+										ID:   "recurse",
+										Type: "call",
+										Fields: map[string]any{
+											"flow": "loop",
 										},
 									},
 								},
@@ -497,7 +482,7 @@ func TestRunnerExpectFailureStopsRecursiveLoopOnCurrentStep(t *testing.T) {
 				},
 			},
 		},
-	})
+	}))
 
 	mustPersist(t, config)
 

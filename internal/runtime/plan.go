@@ -12,11 +12,11 @@ const forEachFlowPrefix = "@for_each:"
 
 type flowPlan struct {
 	flows        map[string]spec.Flow
-	switchFlows  map[switchStepKey][]string
-	forEachFlows map[switchStepKey]string
+	switchFlows  map[flowStepKey][]string
+	forEachFlows map[flowStepKey]string
 }
 
-type switchStepKey struct {
+type flowStepKey struct {
 	flowName  string
 	stepIndex int
 }
@@ -29,8 +29,8 @@ type switchCase struct {
 func buildFlowPlan(document spec.Document) (*flowPlan, error) {
 	plan := &flowPlan{
 		flows:        make(map[string]spec.Flow, len(document.Flows)),
-		switchFlows:  map[switchStepKey][]string{},
-		forEachFlows: map[switchStepKey]string{},
+		switchFlows:  map[flowStepKey][]string{},
+		forEachFlows: map[flowStepKey]string{},
 	}
 
 	for name, flow := range document.Flows {
@@ -51,7 +51,7 @@ func (p *flowPlan) Lookup(name string) (spec.Flow, bool) {
 }
 
 func (p *flowPlan) SwitchBranchFlow(parentFlow string, stepIndex int, caseIndex int) (string, bool) {
-	flows, ok := p.switchFlows[switchStepKey{flowName: parentFlow, stepIndex: stepIndex}]
+	flows, ok := p.switchFlows[flowStepKey{flowName: parentFlow, stepIndex: stepIndex}]
 	if !ok || caseIndex < 0 || caseIndex >= len(flows) {
 		return "", false
 	}
@@ -59,7 +59,7 @@ func (p *flowPlan) SwitchBranchFlow(parentFlow string, stepIndex int, caseIndex 
 }
 
 func (p *flowPlan) ForEachBodyFlow(parentFlow string, stepIndex int) (string, bool) {
-	flow, ok := p.forEachFlows[switchStepKey{flowName: parentFlow, stepIndex: stepIndex}]
+	flow, ok := p.forEachFlows[flowStepKey{flowName: parentFlow, stepIndex: stepIndex}]
 	return flow, ok
 }
 
@@ -78,7 +78,7 @@ func (p *flowPlan) addSwitchFlows(flowName string, flow spec.Flow) error {
 
 				bodyFlow := spec.Flow{Steps: body.Steps}
 				p.flows[name] = bodyFlow
-				p.forEachFlows[switchStepKey{flowName: flowName, stepIndex: stepIndex}] = name
+				p.forEachFlows[flowStepKey{flowName: flowName, stepIndex: stepIndex}] = name
 				if err := p.addSwitchFlows(name, bodyFlow); err != nil {
 					return err
 				}
@@ -104,7 +104,7 @@ func (p *flowPlan) addSwitchFlows(flowName string, flow spec.Flow) error {
 				return err
 			}
 		}
-		p.switchFlows[switchStepKey{flowName: flowName, stepIndex: stepIndex}] = branchFlows
+		p.switchFlows[flowStepKey{flowName: flowName, stepIndex: stepIndex}] = branchFlows
 	}
 
 	return nil
