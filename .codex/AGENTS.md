@@ -5,7 +5,7 @@ When in **interactive mode**, read and follow policies from `~/.codex/policies/i
 Read these policies when their naming corresponds the task:
 - **Composing Desing Docs**: `~/.codex/policies/composing-design-docs.md`
 - **Composing Roadmaps**: `~/.codex/policies/composing-roadmaps.md`
-- **Updating Documentation**: `~/.codex/policies/updating-documentation.md`
+- **Committing or Updating Documentation**: `~/.codex/policies/updating-documentation.md`
 - **Developing or Fixing**: `~/.codex/policies/developing.md`
 
 
