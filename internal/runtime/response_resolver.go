@@ -1,4 +1,4 @@
-package response
+package runtime
 
 import (
 	"bytes"
@@ -14,33 +14,33 @@ import (
 )
 
 const (
-	codeInvalidResponse        = "invalid_response"
-	codeInvalidResponseSchema  = "invalid_response_schema"
-	codeResponseSchemaMismatch = "response_schema_mismatch"
+	responseCodeInvalid        = "invalid_response"
+	responseCodeInvalidSchema  = "invalid_response_schema"
+	responseCodeSchemaMismatch = "response_schema_mismatch"
 )
 
-type Resolver struct {
+type responseResolver struct {
 	schemas *schema.Registry
 }
 
-type config struct {
-	from   source
+type responseConfig struct {
+	from   responseSource
 	schema any
 }
 
-type source struct {
+type responseSource struct {
 	kind     string
 	artifact string
 }
 
-func NewResolver(schemas *schema.Registry) Resolver {
-	return Resolver{schemas: schemas}
+func newResponseResolver(schemas *schema.Registry) responseResolver {
+	return responseResolver{schemas: schemas}
 }
 
-func (r Resolver) Apply(stepIndex int, specPath string, step spec.Step, result state.StepResult) (state.StepResult, *state.Failure) {
-	cfg, ok, err := load(step)
+func (r responseResolver) apply(stepIndex int, specPath string, step spec.Step, result state.StepResult) (state.StepResult, *state.Failure) {
+	cfg, ok, err := loadResponseConfig(step)
 	if err != nil {
-		return result, failure(codeInvalidResponse, stepIndex, "response is invalid", err)
+		return result, responseFailure(responseCodeInvalid, stepIndex, "response is invalid", err)
 	}
 	if !ok {
 		return result, nil
@@ -48,7 +48,7 @@ func (r Resolver) Apply(stepIndex int, specPath string, step spec.Step, result s
 
 	value, err := cfg.from.resolve(result)
 	if err != nil {
-		return result, failure(codeInvalidResponse, stepIndex, "response.from is invalid", err)
+		return result, responseFailure(responseCodeInvalid, stepIndex, "response.from is invalid", err)
 	}
 	result.Value = jsonutil.CloneValue(value)
 
@@ -60,23 +60,23 @@ func (r Resolver) Apply(stepIndex int, specPath string, step spec.Step, result s
 		r.schemas = schema.NewRegistry(nil)
 	}
 
-	compiledSchema, err := resolveSchema(cfg.schema, specPath)
+	compiledSchema, err := resolveResponseSchema(cfg.schema, specPath)
 	if err != nil {
-		return result, failure(codeInvalidResponseSchema, stepIndex, "response.schema is invalid", err)
+		return result, responseFailure(responseCodeInvalidSchema, stepIndex, "response.schema is invalid", err)
 	}
 
 	compiled, err := r.schemas.Compile(compiledSchema)
 	if err != nil {
-		return result, failure(codeInvalidResponseSchema, stepIndex, "response.schema is invalid", err)
+		return result, responseFailure(responseCodeInvalidSchema, stepIndex, "response.schema is invalid", err)
 	}
 	if err := compiled.Validate(result.Value); err != nil {
-		return result, failure(codeResponseSchemaMismatch, stepIndex, "response.schema rejected value", err)
+		return result, responseFailure(responseCodeSchemaMismatch, stepIndex, "response.schema rejected value", err)
 	}
 
 	return result, nil
 }
 
-func resolveSchema(rawSchema any, specPath string) (any, error) {
+func resolveResponseSchema(rawSchema any, specPath string) (any, error) {
 	path, ok, err := schema.ResolveResponseSchemaPath(rawSchema, specPath)
 	if err != nil {
 		return nil, err
@@ -92,25 +92,25 @@ func resolveSchema(rawSchema any, specPath string) (any, error) {
 	return document, nil
 }
 
-func load(step spec.Step) (config, bool, error) {
+func loadResponseConfig(step spec.Step) (responseConfig, bool, error) {
 	value, ok := step.Fields["response"]
 	if !ok {
-		return config{}, false, nil
+		return responseConfig{}, false, nil
 	}
 
 	fields, ok := value.(map[string]any)
 	if !ok {
-		return config{}, false, fmt.Errorf("must be a map")
+		return responseConfig{}, false, fmt.Errorf("must be a map")
 	}
 
-	cfg := config{
-		from: source{kind: "value"},
+	cfg := responseConfig{
+		from: responseSource{kind: "value"},
 	}
 
 	if rawFrom, ok := fields["from"]; ok {
-		from, err := parseSource(rawFrom)
+		from, err := parseResponseSource(rawFrom)
 		if err != nil {
-			return config{}, false, err
+			return responseConfig{}, false, err
 		}
 		cfg.from = from
 	}
@@ -122,50 +122,50 @@ func load(step spec.Step) (config, bool, error) {
 	return cfg, true, nil
 }
 
-func parseSource(value any) (source, error) {
+func parseResponseSource(value any) (responseSource, error) {
 	text, ok := value.(string)
 	if !ok {
-		return source{}, fmt.Errorf("from must be a string")
+		return responseSource{}, fmt.Errorf("from must be a string")
 	}
 
 	switch {
 	case text == "value", text == "stdout", text == "stderr", text == "stdout_lines", text == "stderr_lines":
-		return source{kind: text}, nil
+		return responseSource{kind: text}, nil
 	case strings.HasPrefix(text, "artifact:"):
 		name := strings.TrimPrefix(text, "artifact:")
 		if name == "" {
-			return source{}, fmt.Errorf("artifact source must include a name")
+			return responseSource{}, fmt.Errorf("artifact source must include a name")
 		}
-		return source{kind: "artifact", artifact: name}, nil
+		return responseSource{kind: "artifact", artifact: name}, nil
 	default:
-		return source{}, fmt.Errorf("unsupported source %q", text)
+		return responseSource{}, fmt.Errorf("unsupported source %q", text)
 	}
 }
 
-func (s source) resolve(result state.StepResult) (any, error) {
+func (s responseSource) resolve(result state.StepResult) (any, error) {
 	switch s.kind {
 	case "value":
 		return jsonutil.CloneValue(result.Value), nil
 	case "stdout":
-		return readArtifactValue("stdout", result.Artifacts.Stdout)
+		return readResponseArtifactValue("stdout", result.Artifacts.Stdout)
 	case "stderr":
-		return readArtifactValue("stderr", result.Artifacts.Stderr)
+		return readResponseArtifactValue("stderr", result.Artifacts.Stderr)
 	case "stdout_lines":
-		return readArtifactLines("stdout", result.Artifacts.Stdout)
+		return readResponseArtifactLines("stdout", result.Artifacts.Stdout)
 	case "stderr_lines":
-		return readArtifactLines("stderr", result.Artifacts.Stderr)
+		return readResponseArtifactLines("stderr", result.Artifacts.Stderr)
 	case "artifact":
 		path, ok := result.Artifacts.Files[s.artifact]
 		if !ok || path == "" {
 			return nil, fmt.Errorf("artifact %q was not produced", s.artifact)
 		}
-		return readArtifactValue(fmt.Sprintf("artifact %q", s.artifact), path)
+		return readResponseArtifactValue(fmt.Sprintf("artifact %q", s.artifact), path)
 	default:
 		return nil, fmt.Errorf("unsupported source %q", s.kind)
 	}
 }
 
-func readArtifactValue(label string, path string) (any, error) {
+func readResponseArtifactValue(label string, path string) (any, error) {
 	if path == "" {
 		return nil, fmt.Errorf("%s is unavailable", label)
 	}
@@ -174,10 +174,10 @@ func readArtifactValue(label string, path string) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", label, err)
 	}
-	return decodeTextValue(data), nil
+	return decodeResponseTextValue(data), nil
 }
 
-func decodeTextValue(data []byte) any {
+func decodeResponseTextValue(data []byte) any {
 	trimmed := bytes.TrimSpace(data)
 	if len(trimmed) > 0 {
 		var decoded any
@@ -188,7 +188,7 @@ func decodeTextValue(data []byte) any {
 	return string(data)
 }
 
-func readArtifactLines(label string, path string) ([]any, error) {
+func readResponseArtifactLines(label string, path string) ([]any, error) {
 	if path == "" {
 		return nil, fmt.Errorf("%s is unavailable", label)
 	}
@@ -212,7 +212,7 @@ func readArtifactLines(label string, path string) ([]any, error) {
 	return lines, nil
 }
 
-func failure(code string, stepIndex int, summary string, err error) *state.Failure {
+func responseFailure(code string, stepIndex int, summary string, err error) *state.Failure {
 	return &state.Failure{
 		Code:    code,
 		Message: fmt.Sprintf("step %d %s: %v", stepIndex, summary, err),

@@ -5,14 +5,13 @@ import (
 
 	executorapi "github.com/iw2rmb/amata/internal/executor"
 	"github.com/iw2rmb/amata/internal/jsonutil"
-	"github.com/iw2rmb/amata/internal/runtime/response"
 	"github.com/iw2rmb/amata/internal/spec"
 	"github.com/iw2rmb/amata/internal/state"
 )
 
 func (r *Runner) finalizeStepResult(
 	config Config,
-	responses response.Resolver,
+	responses responseResolver,
 	lookup func(*state.StepRef) *state.StepResult,
 	previous *state.StepResult,
 	bindings map[string]any,
@@ -22,7 +21,7 @@ func (r *Runner) finalizeStepResult(
 	runtime := newStepRuntime(config, previous, lookup, bindings)
 
 	if result.Status == state.StepStatusSucceeded {
-		resolved, failure := responses.Apply(result.Index, config.SpecPath, step, result)
+		resolved, failure := responses.apply(result.Index, config.SpecPath, step, result)
 		result = resolved
 		if failure != nil {
 			result.Status = state.StepStatusFailed

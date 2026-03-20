@@ -6,7 +6,6 @@ import (
 	executorapi "github.com/iw2rmb/amata/internal/executor"
 	exprruntime "github.com/iw2rmb/amata/internal/expr"
 	"github.com/iw2rmb/amata/internal/jsonutil"
-	"github.com/iw2rmb/amata/internal/runtime/response"
 	"github.com/iw2rmb/amata/internal/spec"
 	"github.com/iw2rmb/amata/internal/state"
 )
@@ -95,7 +94,7 @@ func (r *Runner) prepareSwitch(
 	config Config,
 	runtime exprruntime.Runtime,
 	plan *flowPlan,
-	responses response.Resolver,
+	responses responseResolver,
 	lookup func(*state.StepRef) *state.StepResult,
 	flowName string,
 	previous *state.StepResult,
@@ -197,7 +196,7 @@ func (r *Runner) prepareForEach(
 	config Config,
 	runtime exprruntime.Runtime,
 	plan *flowPlan,
-	responses response.Resolver,
+	responses responseResolver,
 	lookup func(*state.StepRef) *state.StepResult,
 	flowName string,
 	previous *state.StepResult,
@@ -282,7 +281,7 @@ func (r *Runner) prepareForEach(
 func (r *Runner) prepareForEachContinuation(
 	config Config,
 	plan *flowPlan,
-	responses response.Resolver,
+	responses responseResolver,
 	lookup func(*state.StepRef) *state.StepResult,
 	parentFrame state.FlowFrame,
 	parentPrevious *state.StepResult,

@@ -9,7 +9,6 @@ import (
 
 	executorapi "github.com/iw2rmb/amata/internal/executor"
 	exprruntime "github.com/iw2rmb/amata/internal/expr"
-	"github.com/iw2rmb/amata/internal/runtime/response"
 	"github.com/iw2rmb/amata/internal/spec"
 	"github.com/iw2rmb/amata/internal/state"
 )
@@ -29,7 +28,7 @@ type stallPolicy struct {
 func (r *Runner) executeStep(
 	ctx context.Context,
 	config Config,
-	responses response.Resolver,
+	responses responseResolver,
 	snapshot state.Snapshot,
 	flowName string,
 	stepIndex int,

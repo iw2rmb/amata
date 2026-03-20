@@ -12,8 +12,6 @@ import (
 	"github.com/iw2rmb/amata/internal/executor"
 	"github.com/iw2rmb/amata/internal/executor/agent"
 	exprruntime "github.com/iw2rmb/amata/internal/expr"
-	"github.com/iw2rmb/amata/internal/runtime/response"
-	"github.com/iw2rmb/amata/internal/schema"
 	"github.com/iw2rmb/amata/internal/spec"
 	"github.com/iw2rmb/amata/internal/state"
 	"github.com/iw2rmb/amata/internal/workspace"
@@ -151,27 +149,22 @@ func TestExecutorResolvesDefaultsTemplatesAndPersistsArtifacts(t *testing.T) {
 		t.Fatalf("raw result value = %#v", result.Value)
 	}
 
-	resolved, failure := response.NewResolver(schema.NewRegistry(document.Schemas)).Apply(0, "", step, result)
-	if failure != nil {
-		t.Fatalf("response failure = %#v", failure)
-	}
-
 	wantValue := map[string]any{"approved": true, "summary": "done"}
-	if !reflect.DeepEqual(resolved.Value, wantValue) {
-		t.Fatalf("value = %#v, want %#v", resolved.Value, wantValue)
+	if !reflect.DeepEqual(result.Value, wantValue) {
+		t.Fatalf("value = %#v, want %#v", result.Value, wantValue)
 	}
-	assertArtifactPathPrefix(t, resolved.Artifacts.Stdout, filepath.Join(runDir, "artifacts", "step-00-shared-agent"))
-	assertArtifactPathPrefix(t, resolved.Artifacts.Stderr, filepath.Join(runDir, "artifacts", "step-00-shared-agent"))
-	assertArtifactPathPrefix(t, resolved.Artifacts.Files["prompt"], filepath.Join(runDir, "artifacts", "step-00-shared-agent"))
-	assertArtifactPathPrefix(t, resolved.Artifacts.Files["transcript"], filepath.Join(runDir, "artifacts", "step-00-shared-agent"))
-	assertArtifactPathPrefix(t, resolved.Artifacts.Files["metadata"], filepath.Join(runDir, "artifacts", "step-00-shared-agent"))
+	assertArtifactPathPrefix(t, result.Artifacts.Stdout, filepath.Join(runDir, "artifacts", "step-00-shared-agent"))
+	assertArtifactPathPrefix(t, result.Artifacts.Stderr, filepath.Join(runDir, "artifacts", "step-00-shared-agent"))
+	assertArtifactPathPrefix(t, result.Artifacts.Files["prompt"], filepath.Join(runDir, "artifacts", "step-00-shared-agent"))
+	assertArtifactPathPrefix(t, result.Artifacts.Files["transcript"], filepath.Join(runDir, "artifacts", "step-00-shared-agent"))
+	assertArtifactPathPrefix(t, result.Artifacts.Files["metadata"], filepath.Join(runDir, "artifacts", "step-00-shared-agent"))
 
-	assertArtifactContents(t, resolved.Artifacts.Stdout, "codex stdout\n")
-	assertArtifactContents(t, resolved.Artifacts.Stderr, "codex stderr\n")
-	assertArtifactContents(t, resolved.Artifacts.Files["prompt"], "Implement fixture-repo.")
-	assertArtifactContents(t, resolved.Artifacts.Files["transcript"], "{\"approved\":true,\"summary\":\"done\"}\n")
+	assertArtifactContents(t, result.Artifacts.Stdout, "codex stdout\n")
+	assertArtifactContents(t, result.Artifacts.Stderr, "codex stderr\n")
+	assertArtifactContents(t, result.Artifacts.Files["prompt"], "Implement fixture-repo.")
+	assertArtifactContents(t, result.Artifacts.Files["transcript"], "{\"approved\":true,\"summary\":\"done\"}\n")
 
-	metadataFile, err := os.ReadFile(resolved.Artifacts.Files["metadata"])
+	metadataFile, err := os.ReadFile(result.Artifacts.Files["metadata"])
 	if err != nil {
 		t.Fatalf("read metadata artifact: %v", err)
 	}
@@ -253,15 +246,13 @@ func TestExecutorOnlyRequestsStructuredOutputForResponseValue(t *testing.T) {
 		}, nil),
 	})
 
-	resolved, failure := response.NewResolver(nil).Apply(1, "", step, result)
-	if failure != nil {
-		t.Fatalf("response failure = %#v", failure)
+	if result.Status != state.StepStatusSucceeded {
+		t.Fatalf("result status = %q, error = %#v", result.Status, result.Error)
 	}
-
-	wantValue := map[string]any{"approved": true}
-	if !reflect.DeepEqual(resolved.Value, wantValue) {
-		t.Fatalf("value = %#v, want %#v", resolved.Value, wantValue)
+	if got := result.Value; got != "free-form transcript" {
+		t.Fatalf("value = %#v, want transcript fallback", got)
 	}
+	assertArtifactContents(t, result.Artifacts.Stdout, "{\"approved\":true}")
 }
 
 func TestExecutorUsesSchemaFilePathForCodexStructuredOutput(t *testing.T) {
@@ -330,12 +321,8 @@ func TestExecutorUsesSchemaFilePathForCodexStructuredOutput(t *testing.T) {
 		t.Fatalf("result status = %q, error = %#v", result.Status, result.Error)
 	}
 
-	resolved, failure := response.NewResolver(nil).Apply(0, specPath, step, result)
-	if failure != nil {
-		t.Fatalf("response failure = %#v", failure)
-	}
-	if !reflect.DeepEqual(resolved.Value, map[string]any{"approved": true}) {
-		t.Fatalf("value = %#v", resolved.Value)
+	if !reflect.DeepEqual(result.Value, map[string]any{"approved": true}) {
+		t.Fatalf("value = %#v", result.Value)
 	}
 }
 
@@ -705,12 +692,12 @@ func TestExecutorPreservesStreamWriterContentOnProviderError(t *testing.T) {
 			// surface for process-level crashes. The executor boundary must
 			// normalize this to provider_crashed so callers see a stable code.
 			return agent.Response{
-				Transcript: []byte("partial"),
-				// Stdout/Stderr are empty: content was streamed via writers.
-			}, &agent.Error{
-				Code:    "agent_failed",
-				Message: "provider crashed mid-execution",
-			}
+					Transcript: []byte("partial"),
+					// Stdout/Stderr are empty: content was streamed via writers.
+				}, &agent.Error{
+					Code:    "agent_failed",
+					Message: "provider crashed mid-execution",
+				}
 		},
 	}
 
