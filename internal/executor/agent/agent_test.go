@@ -21,12 +21,6 @@ import (
 func TestExecutorResolvesDefaultsTemplatesAndPersistsArtifacts(t *testing.T) {
 	t.Parallel()
 
-	rootDir := t.TempDir()
-	runDir := filepath.Join(rootDir, ".amata", "runs", "run-01")
-	workspaceConfig := workspace.Config{
-		Root:     rootDir,
-		StateDir: filepath.Join(rootDir, ".amata"),
-	}
 	document := spec.Document{
 		Defaults: map[string]any{
 			"cwd": "$.workspace.root",
@@ -70,6 +64,12 @@ func TestExecutorResolvesDefaultsTemplatesAndPersistsArtifacts(t *testing.T) {
 			},
 		},
 	}
+
+	sc := newStepContext(t, step,
+		withDocument(document),
+		withParams(map[string]any{"repo": "fixture-repo", "model": "gpt-5.4", "reasoning": "high"}),
+	)
+	rootDir := sc.Workspace.Root
 
 	provider := &fakeProvider{
 		name: "codex",
@@ -135,14 +135,7 @@ func TestExecutorResolvesDefaultsTemplatesAndPersistsArtifacts(t *testing.T) {
 		},
 	}
 
-	result := agent.New(provider).Execute(context.Background(), executor.StepContext{
-		RunDir:    runDir,
-		Spec:      document,
-		Workspace: workspaceConfig,
-		StepIndex: 0,
-		Step:      step,
-		Runtime:   runtimeForWorkspace(workspaceConfig, map[string]any{"repo": "fixture-repo", "model": "gpt-5.4", "reasoning": "high"}),
-	})
+	result := agent.New(provider).Execute(context.Background(), sc)
 	if result.Status != state.StepStatusSucceeded {
 		t.Fatalf("result status = %q, error = %#v", result.Status, result.Error)
 	}
@@ -151,7 +144,7 @@ func TestExecutorResolvesDefaultsTemplatesAndPersistsArtifacts(t *testing.T) {
 		t.Fatalf("value = %#v, want %#v", result.Value, wantValue)
 	}
 
-	stepDir := filepath.Join(runDir, "artifacts", "step-00-shared-agent")
+	stepDir := filepath.Join(sc.RunDir, "artifacts", "step-00-shared-agent")
 	assertArtifactPaths(t, result.Artifacts, stepDir)
 
 	testutil.AssertFileContents(t, result.Artifacts.Stdout, "codex stdout\n")
@@ -160,9 +153,9 @@ func TestExecutorResolvesDefaultsTemplatesAndPersistsArtifacts(t *testing.T) {
 	testutil.AssertFileContents(t, result.Artifacts.Files["transcript"], "{\"approved\":true,\"summary\":\"done\"}\n")
 
 	assertMetadata(t, result.Artifacts.Files["metadata"], map[string]any{
-		"provider":                 "codex",
-		"model":                    "gpt-5.4",
-		"reasoning":                "high",
+		"provider":                  "codex",
+		"model":                     "gpt-5.4",
+		"reasoning":                 "high",
 		"structuredOutputRequested": true,
 	})
 }
@@ -170,16 +163,6 @@ func TestExecutorResolvesDefaultsTemplatesAndPersistsArtifacts(t *testing.T) {
 func TestExecutorOnlyRequestsStructuredOutputForResponseValue(t *testing.T) {
 	t.Parallel()
 
-	rootDir := t.TempDir()
-	document := spec.Document{
-		Defaults: map[string]any{
-			"executors": map[string]any{
-				"claude": map[string]any{
-					"model": "sonnet",
-				},
-			},
-		},
-	}
 	step := spec.Step{
 		ID:   "stdout-json",
 		Type: "claude",
@@ -212,20 +195,11 @@ func TestExecutorOnlyRequestsStructuredOutputForResponseValue(t *testing.T) {
 		},
 	}
 
-	result := agent.New(provider).Execute(context.Background(), executor.StepContext{
-		RunDir: filepath.Join(rootDir, ".amata", "runs", "run-02"),
-		Spec:   document,
-		Workspace: workspace.Config{
-			Root:     rootDir,
-			StateDir: filepath.Join(rootDir, ".amata"),
-		},
-		StepIndex: 1,
-		Step:      step,
-		Runtime: runtimeForWorkspace(workspace.Config{
-			Root:     rootDir,
-			StateDir: filepath.Join(rootDir, ".amata"),
-		}, nil),
-	})
+	sc := newStepContext(t, step,
+		withDocument(documentWithProviderDefaults("claude", "sonnet")),
+		withStepIndex(1),
+	)
+	result := agent.New(provider).Execute(context.Background(), sc)
 
 	if result.Status != state.StepStatusSucceeded {
 		t.Fatalf("result status = %q, error = %#v", result.Status, result.Error)
@@ -239,17 +213,6 @@ func TestExecutorOnlyRequestsStructuredOutputForResponseValue(t *testing.T) {
 func TestExecutorUsesSchemaFilePathForCodexStructuredOutput(t *testing.T) {
 	t.Parallel()
 
-	rootDir := t.TempDir()
-	specPath := filepath.Join(rootDir, "workflow.yaml")
-	schemaPath := filepath.Join(rootDir, "review_result.schema.json")
-	if err := os.WriteFile(schemaPath, []byte(`{"type":"object","required":["approved"],"additionalProperties":false,"properties":{"approved":{"type":"boolean"}}}`), 0o644); err != nil {
-		t.Fatalf("write schema file: %v", err)
-	}
-
-	workspaceConfig := workspace.Config{
-		Root:     rootDir,
-		StateDir: filepath.Join(rootDir, ".amata"),
-	}
 	step := spec.Step{
 		ID:   "schema-path",
 		Type: "codex",
@@ -259,6 +222,14 @@ func TestExecutorUsesSchemaFilePathForCodexStructuredOutput(t *testing.T) {
 				"schema": "./review_result.schema.json",
 			},
 		},
+	}
+
+	sc := newStepContext(t, step, withDocument(documentWithProviderDefaults("codex", "gpt-5.4")))
+	sc.SpecPath = filepath.Join(sc.Workspace.Root, "workflow.yaml")
+
+	schemaPath := filepath.Join(sc.Workspace.Root, "review_result.schema.json")
+	if err := os.WriteFile(schemaPath, []byte(`{"type":"object","required":["approved"],"additionalProperties":false,"properties":{"approved":{"type":"boolean"}}}`), 0o644); err != nil {
+		t.Fatalf("write schema file: %v", err)
 	}
 
 	provider := &fakeProvider{
@@ -281,27 +252,10 @@ func TestExecutorUsesSchemaFilePathForCodexStructuredOutput(t *testing.T) {
 		},
 	}
 
-	result := agent.New(provider).Execute(context.Background(), executor.StepContext{
-		RunDir:   filepath.Join(rootDir, ".amata", "runs", "run-path"),
-		SpecPath: specPath,
-		Spec: spec.Document{
-			Defaults: map[string]any{
-				"executors": map[string]any{
-					"codex": map[string]any{
-						"model": "gpt-5.4",
-					},
-				},
-			},
-		},
-		Workspace: workspaceConfig,
-		StepIndex: 0,
-		Step:      step,
-		Runtime:   runtimeForWorkspace(workspaceConfig, nil),
-	})
+	result := agent.New(provider).Execute(context.Background(), sc)
 	if result.Status != state.StepStatusSucceeded {
 		t.Fatalf("result status = %q, error = %#v", result.Status, result.Error)
 	}
-
 	if !reflect.DeepEqual(result.Value, map[string]any{"approved": true}) {
 		t.Fatalf("value = %#v", result.Value)
 	}
@@ -310,11 +264,6 @@ func TestExecutorUsesSchemaFilePathForCodexStructuredOutput(t *testing.T) {
 func TestExecutorRejectsUnsupportedCodexStructuredSchemaKeyword(t *testing.T) {
 	t.Parallel()
 
-	rootDir := t.TempDir()
-	workspaceConfig := workspace.Config{
-		Root:     rootDir,
-		StateDir: filepath.Join(rootDir, ".amata"),
-	}
 	step := spec.Step{
 		ID:   "invalid-schema",
 		Type: "codex",
@@ -341,31 +290,10 @@ func TestExecutorRejectsUnsupportedCodexStructuredSchemaKeyword(t *testing.T) {
 		},
 	}
 
-	result := agent.New(provider).Execute(context.Background(), executor.StepContext{
-		RunDir: filepath.Join(rootDir, ".amata", "runs", "run-invalid"),
-		Spec: spec.Document{
-			Defaults: map[string]any{
-				"executors": map[string]any{
-					"codex": map[string]any{
-						"model": "gpt-5.4",
-					},
-				},
-			},
-		},
-		Workspace: workspaceConfig,
-		StepIndex: 0,
-		Step:      step,
-		Runtime:   runtimeForWorkspace(workspaceConfig, nil),
-	})
-	if result.Status != state.StepStatusFailed {
-		t.Fatalf("result status = %q, want failed", result.Status)
-	}
-	if result.Error == nil {
-		t.Fatalf("expected result error")
-	}
-	if result.Error.Code != "invalid_response_schema" {
-		t.Fatalf("error code = %q, want invalid_response_schema", result.Error.Code)
-	}
+	sc := newStepContext(t, step, withDocument(documentWithProviderDefaults("codex", "gpt-5.4")))
+	result := agent.New(provider).Execute(context.Background(), sc)
+
+	assertFailedWithCode(t, result, "invalid_response_schema")
 	if got := result.Error.Message; !strings.Contains(got, `does not support "allOf"`) {
 		t.Fatalf("error message = %q", got)
 	}
@@ -374,11 +302,6 @@ func TestExecutorRejectsUnsupportedCodexStructuredSchemaKeyword(t *testing.T) {
 func TestExecutorPersistsProviderAdjustedPrompt(t *testing.T) {
 	t.Parallel()
 
-	rootDir := t.TempDir()
-	workspaceConfig := workspace.Config{
-		Root:     rootDir,
-		StateDir: filepath.Join(rootDir, ".amata"),
-	}
 	step := spec.Step{
 		ID:   "prompt-adjusted",
 		Type: "claude",
@@ -398,22 +321,11 @@ func TestExecutorPersistsProviderAdjustedPrompt(t *testing.T) {
 		},
 	}
 
-	result := agent.New(provider).Execute(context.Background(), executor.StepContext{
-		RunDir: filepath.Join(rootDir, ".amata", "runs", "run-03"),
-		Spec: spec.Document{
-			Defaults: map[string]any{
-				"executors": map[string]any{
-					"claude": map[string]any{
-						"model": "sonnet",
-					},
-				},
-			},
-		},
-		Workspace: workspaceConfig,
-		StepIndex: 2,
-		Step:      step,
-		Runtime:   runtimeForWorkspace(workspaceConfig, nil),
-	})
+	sc := newStepContext(t, step,
+		withDocument(documentWithProviderDefaults("claude", "sonnet")),
+		withStepIndex(2),
+	)
+	result := agent.New(provider).Execute(context.Background(), sc)
 
 	if result.Status != state.StepStatusSucceeded {
 		t.Fatalf("result status = %q, error = %#v", result.Status, result.Error)
@@ -424,12 +336,6 @@ func TestExecutorPersistsProviderAdjustedPrompt(t *testing.T) {
 func TestExecutorReturnsInvalidProviderPayloadFailureAndPersistsArtifacts(t *testing.T) {
 	t.Parallel()
 
-	rootDir := t.TempDir()
-	runDir := filepath.Join(rootDir, ".amata", "runs", "run-04")
-	workspaceConfig := workspace.Config{
-		Root:     rootDir,
-		StateDir: filepath.Join(rootDir, ".amata"),
-	}
 	step := spec.Step{
 		ID:   "invalid-provider-output",
 		Type: "codex",
@@ -455,48 +361,32 @@ func TestExecutorReturnsInvalidProviderPayloadFailureAndPersistsArtifacts(t *tes
 				t.Fatalf("structured output request missing")
 			}
 			return agent.Response{
-					Prompt:     request.Prompt + "\n\nProvider attempted JSON output.",
-					Transcript: []byte("not-json"),
-					Stdout:     []byte("provider stdout\n"),
-					Stderr:     []byte("provider stderr\n"),
-					Metadata: map[string]any{
-						"structuredOutputMode": "provider_schema",
-					},
-				}, &agent.Error{
-					Code:    "invalid_provider_output",
-					Message: "structured output does not contain valid JSON",
-				}
-		},
-	}
-
-	result := agent.New(provider).Execute(context.Background(), executor.StepContext{
-		RunDir: runDir,
-		Spec: spec.Document{
-			Defaults: map[string]any{
-				"executors": map[string]any{
-					"codex": map[string]any{
-						"model": "gpt-5.4",
-					},
+				Prompt:     request.Prompt + "\n\nProvider attempted JSON output.",
+				Transcript: []byte("not-json"),
+				Stdout:     []byte("provider stdout\n"),
+				Stderr:     []byte("provider stderr\n"),
+				Metadata: map[string]any{
+					"structuredOutputMode": "provider_schema",
 				},
-			},
+			}, &agent.Error{
+				Code:    "invalid_provider_output",
+				Message: "structured output does not contain valid JSON",
+			}
 		},
-		Workspace: workspaceConfig,
-		StepIndex: 3,
-		Step:      step,
-		Runtime:   runtimeForWorkspace(workspaceConfig, nil),
-	})
+	}
 
-	if result.Status != state.StepStatusFailed {
-		t.Fatalf("result status = %q, want failed", result.Status)
-	}
-	if result.Error == nil || result.Error.Code != "invalid_provider_output" {
-		t.Fatalf("result error = %#v, want invalid_provider_output", result.Error)
-	}
+	sc := newStepContext(t, step,
+		withDocument(documentWithProviderDefaults("codex", "gpt-5.4")),
+		withStepIndex(3),
+	)
+	result := agent.New(provider).Execute(context.Background(), sc)
+
+	assertFailedWithCode(t, result, "invalid_provider_output")
 	if got := result.Error.Message; !strings.Contains(got, "structured output does not contain valid JSON") {
 		t.Fatalf("result error message = %q, want provider error detail", got)
 	}
 
-	stepDir := filepath.Join(runDir, "artifacts", "step-03-invalid-provider-output")
+	stepDir := filepath.Join(sc.RunDir, "artifacts", "step-03-invalid-provider-output")
 	assertArtifactPaths(t, result.Artifacts, stepDir)
 	testutil.AssertFileContents(t, result.Artifacts.Stdout, "provider stdout\n")
 	testutil.AssertFileContents(t, result.Artifacts.Stderr, "provider stderr\n")
@@ -504,317 +394,174 @@ func TestExecutorReturnsInvalidProviderPayloadFailureAndPersistsArtifacts(t *tes
 	testutil.AssertFileContents(t, result.Artifacts.Files["transcript"], "not-json")
 
 	assertMetadata(t, result.Artifacts.Files["metadata"], map[string]any{
-		"provider":                 "codex",
+		"provider":                  "codex",
 		"structuredOutputRequested": true,
-		"structuredOutputMode":     "provider_schema",
+		"structuredOutputMode":      "provider_schema",
 	})
 }
 
-func TestExecutorFailsWithArtifactCaptureFailedWhenStreamOpenFails(t *testing.T) {
+func TestExecutorFailsWithArtifactCaptureFailed(t *testing.T) {
 	t.Parallel()
 
-	rootDir := t.TempDir()
-	runDir := filepath.Join(rootDir, ".amata", "runs", "run-capture-open-fail")
-	workspaceConfig := workspace.Config{
-		Root:     rootDir,
-		StateDir: filepath.Join(rootDir, ".amata"),
-	}
-	step := spec.Step{
-		ID:   "capture-open-fail",
-		Type: "claude",
-		Fields: map[string]any{
-			"prompt": "do something",
-		},
-	}
-
-	// Pre-create the stepDir as read-only so MkdirAll succeeds (dir already
-	// exists) but OpenStreamCapture cannot create files inside it.
-	stepDir := filepath.Join(runDir, "artifacts", "step-00-capture-open-fail")
-	if err := os.MkdirAll(stepDir, 0o755); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
-	if err := os.Chmod(stepDir, 0o444); err != nil {
-		t.Fatalf("setup chmod: %v", err)
-	}
-	t.Cleanup(func() { os.Chmod(stepDir, 0o755) })
-
-	provider := &fakeProvider{
-		name: "claude",
-		execute: func(_ context.Context, _ agent.Request) (agent.Response, *agent.Error) {
-			t.Fatalf("provider must not be called when stream open fails")
-			return agent.Response{}, nil
-		},
-	}
-
-	result := agent.New(provider).Execute(context.Background(), executor.StepContext{
-		RunDir: runDir,
-		Spec: spec.Document{
-			Defaults: map[string]any{
-				"executors": map[string]any{
-					"claude": map[string]any{"model": "sonnet"},
-				},
-			},
-		},
-		Workspace: workspaceConfig,
-		StepIndex: 0,
-		Step:      step,
-		Runtime:   runtimeForWorkspace(workspaceConfig, nil),
-	})
-
-	if result.Status != state.StepStatusFailed {
-		t.Fatalf("result status = %q, want failed", result.Status)
-	}
-	if result.Error == nil || result.Error.Code != "artifact_capture_failed" {
-		t.Fatalf("result error = %#v, want artifact_capture_failed", result.Error)
-	}
-}
-
-func TestExecutorFailsWithArtifactCaptureFailedWhenStreamWriteFails(t *testing.T) {
-	t.Parallel()
-
-	rootDir := t.TempDir()
-	runDir := filepath.Join(rootDir, ".amata", "runs", "run-capture-write-fail")
-	workspaceConfig := workspace.Config{
-		Root:     rootDir,
-		StateDir: filepath.Join(rootDir, ".amata"),
-	}
-	step := spec.Step{
-		ID:   "capture-write-fail",
-		Type: "claude",
-		Fields: map[string]any{
-			"prompt": "do something",
-		},
-	}
-
-	provider := &fakeProvider{
-		name: "claude",
-		execute: func(_ context.Context, request agent.Request) (agent.Response, *agent.Error) {
-			// Close the underlying file descriptor to force a write failure when
-			// the executor calls capture.Write(response.Stdout, ...) after Execute returns.
-			f, ok := request.StdoutWriter.(*os.File)
-			if !ok {
-				t.Fatalf("StdoutWriter is not *os.File")
-			}
-			f.Close()
-			return agent.Response{
-				Stdout: []byte("will fail to write"),
-			}, nil
-		},
-	}
-
-	result := agent.New(provider).Execute(context.Background(), executor.StepContext{
-		RunDir: runDir,
-		Spec: spec.Document{
-			Defaults: map[string]any{
-				"executors": map[string]any{
-					"claude": map[string]any{"model": "sonnet"},
-				},
-			},
-		},
-		Workspace: workspaceConfig,
-		StepIndex: 0,
-		Step:      step,
-		Runtime:   runtimeForWorkspace(workspaceConfig, nil),
-	})
-
-	if result.Status != state.StepStatusFailed {
-		t.Fatalf("result status = %q, want failed", result.Status)
-	}
-	if result.Error == nil || result.Error.Code != "artifact_capture_failed" {
-		t.Fatalf("result error = %#v, want artifact_capture_failed", result.Error)
-	}
-}
-
-func TestExecutorPreservesStreamWriterContentOnProviderError(t *testing.T) {
-	t.Parallel()
-
-	rootDir := t.TempDir()
-	runDir := filepath.Join(rootDir, ".amata", "runs", "run-partial-stream")
-	workspaceConfig := workspace.Config{
-		Root:     rootDir,
-		StateDir: filepath.Join(rootDir, ".amata"),
-	}
-	step := spec.Step{
-		ID:   "partial-stream",
-		Type: "claude",
-		Fields: map[string]any{
-			"prompt": "do something",
-		},
-	}
-
-	provider := &fakeProvider{
-		name: "claude",
-		execute: func(_ context.Context, request agent.Request) (agent.Response, *agent.Error) {
-			// Simulate a streaming provider: write directly to artifact writers
-			// before returning an error (e.g. provider crash mid-execution).
-			if _, err := request.StdoutWriter.Write([]byte("partial output\n")); err != nil {
-				t.Fatalf("write to StdoutWriter: %v", err)
-			}
-			if _, err := request.StderrWriter.Write([]byte("partial error\n")); err != nil {
-				t.Fatalf("write to StderrWriter: %v", err)
-			}
-			// Return agent_failed, which is what real providers (codex, claude)
-			// surface for process-level crashes. The executor boundary must
-			// normalize this to provider_crashed so callers see a stable code.
-			return agent.Response{
-					Transcript: []byte("partial"),
-					// Stdout/Stderr are empty: content was streamed via writers.
-				}, &agent.Error{
-					Code:    "agent_failed",
-					Message: "provider crashed mid-execution",
+	tests := []struct {
+		name    string
+		setup   func(t *testing.T, sc executor.StepContext)
+		execute func(t *testing.T, ctx context.Context, request agent.Request) (agent.Response, *agent.Error)
+	}{
+		{
+			name: "stream_open_fails",
+			setup: func(t *testing.T, sc executor.StepContext) {
+				t.Helper()
+				stepDir := filepath.Join(sc.RunDir, "artifacts", "step-00-capture-fail")
+				if err := os.MkdirAll(stepDir, 0o755); err != nil {
+					t.Fatalf("setup: %v", err)
 				}
-		},
-	}
-
-	result := agent.New(provider).Execute(context.Background(), executor.StepContext{
-		RunDir: runDir,
-		Spec: spec.Document{
-			Defaults: map[string]any{
-				"executors": map[string]any{
-					"claude": map[string]any{"model": "sonnet"},
-				},
+				if err := os.Chmod(stepDir, 0o444); err != nil {
+					t.Fatalf("setup chmod: %v", err)
+				}
+				t.Cleanup(func() { os.Chmod(stepDir, 0o755) })
+			},
+			execute: func(t *testing.T, _ context.Context, _ agent.Request) (agent.Response, *agent.Error) {
+				t.Fatalf("provider must not be called when stream open fails")
+				return agent.Response{}, nil
 			},
 		},
-		Workspace: workspaceConfig,
-		StepIndex: 0,
-		Step:      step,
-		Runtime:   runtimeForWorkspace(workspaceConfig, nil),
-	})
-
-	if result.Status != state.StepStatusFailed {
-		t.Fatalf("result status = %q, want failed", result.Status)
-	}
-	if result.Error == nil || result.Error.Code != "provider_crashed" {
-		t.Fatalf("result error = %#v, want provider_crashed", result.Error)
-	}
-
-	// Content written to both writers before the crash must be persisted.
-	testutil.AssertFileContents(t, result.Artifacts.Stdout, "partial output\n")
-	testutil.AssertFileContents(t, result.Artifacts.Stderr, "partial error\n")
-}
-
-func TestExecutorMapsCancellationToStableCode(t *testing.T) {
-	t.Parallel()
-
-	rootDir := t.TempDir()
-	runDir := filepath.Join(rootDir, ".amata", "runs", "run-cancel-code")
-	workspaceConfig := workspace.Config{
-		Root:     rootDir,
-		StateDir: filepath.Join(rootDir, ".amata"),
-	}
-	step := spec.Step{
-		ID:   "cancel-code",
-		Type: "claude",
-		Fields: map[string]any{
-			"prompt": "do something",
-		},
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	provider := &fakeProvider{
-		name: "claude",
-		execute: func(_ context.Context, _ agent.Request) (agent.Response, *agent.Error) {
-			cancel()
-			// Provider surfaces a different code; executor must override it.
-			return agent.Response{}, &agent.Error{Code: "agent_failed", Message: "provider saw cancellation"}
-		},
-	}
-
-	result := agent.New(provider).Execute(ctx, executor.StepContext{
-		RunDir: runDir,
-		Spec: spec.Document{
-			Defaults: map[string]any{
-				"executors": map[string]any{
-					"claude": map[string]any{"model": "sonnet"},
-				},
+		{
+			name: "stream_write_fails",
+			execute: func(t *testing.T, _ context.Context, request agent.Request) (agent.Response, *agent.Error) {
+				f, ok := request.StdoutWriter.(*os.File)
+				if !ok {
+					t.Fatalf("StdoutWriter is not *os.File")
+				}
+				f.Close()
+				return agent.Response{Stdout: []byte("will fail to write")}, nil
 			},
 		},
-		Workspace: workspaceConfig,
-		StepIndex: 0,
-		Step:      step,
-		Runtime:   runtimeForWorkspace(workspaceConfig, nil),
-	})
-
-	if result.Status != state.StepStatusFailed {
-		t.Fatalf("result status = %q, want failed", result.Status)
 	}
-	if result.Error == nil || result.Error.Code != "canceled" {
-		t.Fatalf("result error = %#v, want code=canceled", result.Error)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			step := spec.Step{
+				ID:   "capture-fail",
+				Type: "claude",
+				Fields: map[string]any{
+					"prompt": "do something",
+				},
+			}
+			sc := newStepContext(t, step, withDocument(documentWithProviderDefaults("claude", "sonnet")))
+			if tt.setup != nil {
+				tt.setup(t, sc)
+			}
+
+			provider := &fakeProvider{
+				name: "claude",
+				execute: func(ctx context.Context, request agent.Request) (agent.Response, *agent.Error) {
+					return tt.execute(t, ctx, request)
+				},
+			}
+			result := agent.New(provider).Execute(context.Background(), sc)
+			assertFailedWithCode(t, result, "artifact_capture_failed")
+		})
 	}
 }
 
-func TestExecutorPreservesPartialArtifactsOnCancellation(t *testing.T) {
+func TestExecutorNormalizesErrorCodes(t *testing.T) {
 	t.Parallel()
 
-	rootDir := t.TempDir()
-	runDir := filepath.Join(rootDir, ".amata", "runs", "run-cancel-partial")
-	workspaceConfig := workspace.Config{
-		Root:     rootDir,
-		StateDir: filepath.Join(rootDir, ".amata"),
-	}
-	step := spec.Step{
-		ID:   "cancel-partial",
-		Type: "claude",
-		Fields: map[string]any{
-			"prompt": "do something",
+	tests := []struct {
+		name           string
+		provider       string
+		model          string
+		cancel         bool
+		streamPartial  bool
+		wantCode       string
+		checkArtifacts bool
+	}{
+		{
+			name:           "provider_crash/claude",
+			provider:       "claude",
+			model:          "sonnet",
+			streamPartial:  true,
+			wantCode:       "provider_crashed",
+			checkArtifacts: true,
+		},
+		{
+			name:     "provider_crash/crush",
+			provider: "crush",
+			model:    "sonnet-5",
+			wantCode: "provider_crashed",
+		},
+		{
+			name:     "cancellation",
+			provider: "claude",
+			model:    "sonnet",
+			cancel:   true,
+			wantCode: "canceled",
+		},
+		{
+			name:           "cancellation/partial_artifacts",
+			provider:       "claude",
+			model:          "sonnet",
+			cancel:         true,
+			streamPartial:  true,
+			wantCode:       "canceled",
+			checkArtifacts: true,
 		},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	provider := &fakeProvider{
-		name: "claude",
-		execute: func(_ context.Context, request agent.Request) (agent.Response, *agent.Error) {
-			if _, err := request.StdoutWriter.Write([]byte("partial stdout\n")); err != nil {
-				t.Fatalf("write to StdoutWriter: %v", err)
-			}
-			if _, err := request.StderrWriter.Write([]byte("partial stderr\n")); err != nil {
-				t.Fatalf("write to StderrWriter: %v", err)
-			}
-			cancel()
-			return agent.Response{
-				Transcript: []byte("partial"),
-			}, &agent.Error{Code: "agent_failed", Message: "canceled mid-execution"}
-		},
-	}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
-	result := agent.New(provider).Execute(ctx, executor.StepContext{
-		RunDir: runDir,
-		Spec: spec.Document{
-			Defaults: map[string]any{
-				"executors": map[string]any{
-					"claude": map[string]any{"model": "sonnet"},
+			step := spec.Step{
+				ID:   "error-norm",
+				Type: tt.provider,
+				Fields: map[string]any{
+					"prompt": "do something",
 				},
-			},
-		},
-		Workspace: workspaceConfig,
-		StepIndex: 0,
-		Step:      step,
-		Runtime:   runtimeForWorkspace(workspaceConfig, nil),
-	})
+			}
+			sc := newStepContext(t, step, withDocument(documentWithProviderDefaults(tt.provider, tt.model)))
 
-	if result.Status != state.StepStatusFailed {
-		t.Fatalf("result status = %q, want failed", result.Status)
-	}
-	if result.Error == nil || result.Error.Code != "canceled" {
-		t.Fatalf("result error = %#v, want code=canceled", result.Error)
-	}
+			provider := &fakeProvider{
+				name: tt.provider,
+				execute: func(_ context.Context, request agent.Request) (agent.Response, *agent.Error) {
+					if tt.streamPartial {
+						if _, err := request.StdoutWriter.Write([]byte("partial stdout\n")); err != nil {
+							t.Fatalf("write to StdoutWriter: %v", err)
+						}
+						if _, err := request.StderrWriter.Write([]byte("partial stderr\n")); err != nil {
+							t.Fatalf("write to StderrWriter: %v", err)
+						}
+					}
+					if tt.cancel {
+						cancel()
+					}
+					resp := agent.Response{}
+					if tt.streamPartial {
+						resp.Transcript = []byte("partial")
+					}
+					return resp, &agent.Error{Code: "agent_failed", Message: "provider error"}
+				},
+			}
 
-	// Partial content written to both stream writers must survive cancellation.
-	testutil.AssertFileContents(t, result.Artifacts.Stdout, "partial stdout\n")
-	testutil.AssertFileContents(t, result.Artifacts.Stderr, "partial stderr\n")
+			result := agent.New(provider).Execute(ctx, sc)
+			assertFailedWithCode(t, result, tt.wantCode)
+			if tt.checkArtifacts {
+				testutil.AssertFileContents(t, result.Artifacts.Stdout, "partial stdout\n")
+				testutil.AssertFileContents(t, result.Artifacts.Stderr, "partial stderr\n")
+			}
+		})
+	}
 }
 
 func TestExecutorResolvesDefaultsAndPersistsArtifactsForCrush(t *testing.T) {
 	t.Parallel()
 
-	rootDir := t.TempDir()
-	runDir := filepath.Join(rootDir, ".amata", "runs", "run-crush-defaults")
-	workspaceConfig := workspace.Config{
-		Root:     rootDir,
-		StateDir: filepath.Join(rootDir, ".amata"),
-	}
 	document := spec.Document{
 		Defaults: map[string]any{
 			"cwd": "$.workspace.root",
@@ -842,6 +589,12 @@ func TestExecutorResolvesDefaultsAndPersistsArtifactsForCrush(t *testing.T) {
 			},
 		},
 	}
+
+	sc := newStepContext(t, step,
+		withDocument(document),
+		withParams(map[string]any{"task": "crush-task", "model": "claude-sonnet-5"}),
+	)
+	rootDir := sc.Workspace.Root
 
 	provider := &fakeProvider{
 		name: "crush",
@@ -880,14 +633,7 @@ func TestExecutorResolvesDefaultsAndPersistsArtifactsForCrush(t *testing.T) {
 		},
 	}
 
-	result := agent.New(provider).Execute(context.Background(), executor.StepContext{
-		RunDir:    runDir,
-		Spec:      document,
-		Workspace: workspaceConfig,
-		StepIndex: 0,
-		Step:      step,
-		Runtime:   runtimeForWorkspace(workspaceConfig, map[string]any{"task": "crush-task", "model": "claude-sonnet-5"}),
-	})
+	result := agent.New(provider).Execute(context.Background(), sc)
 	if result.Status != state.StepStatusSucceeded {
 		t.Fatalf("result status = %q, error = %#v", result.Status, result.Error)
 	}
@@ -895,7 +641,7 @@ func TestExecutorResolvesDefaultsAndPersistsArtifactsForCrush(t *testing.T) {
 		t.Fatalf("raw result value = %#v", result.Value)
 	}
 
-	stepDir := filepath.Join(runDir, "artifacts", "step-00-crush-step")
+	stepDir := filepath.Join(sc.RunDir, "artifacts", "step-00-crush-step")
 	assertArtifactPaths(t, result.Artifacts, stepDir)
 
 	testutil.AssertFileContents(t, result.Artifacts.Stdout, "crush stdout\n")
@@ -903,10 +649,10 @@ func TestExecutorResolvesDefaultsAndPersistsArtifactsForCrush(t *testing.T) {
 	testutil.AssertFileContents(t, result.Artifacts.Files["transcript"], "{\"done\":true}\n")
 
 	metadata := assertMetadata(t, result.Artifacts.Files["metadata"], map[string]any{
-		"provider":                 "crush",
-		"model":                    "claude-sonnet-5",
+		"provider":                  "crush",
+		"model":                     "claude-sonnet-5",
 		"structuredOutputRequested": true,
-		"structuredOutputMode":     "prompt_fallback",
+		"structuredOutputMode":      "prompt_fallback",
 	})
 	// reasoning must be absent (crush does not support it).
 	if r, ok := metadata["reasoning"]; ok && r != "" && r != nil {
@@ -914,52 +660,7 @@ func TestExecutorResolvesDefaultsAndPersistsArtifactsForCrush(t *testing.T) {
 	}
 }
 
-func TestExecutorNormalizesProviderCrashForCrush(t *testing.T) {
-	t.Parallel()
-
-	rootDir := t.TempDir()
-	runDir := filepath.Join(rootDir, ".amata", "runs", "run-crush-crash")
-	workspaceConfig := workspace.Config{
-		Root:     rootDir,
-		StateDir: filepath.Join(rootDir, ".amata"),
-	}
-	step := spec.Step{
-		ID:   "crush-crash",
-		Type: "crush",
-		Fields: map[string]any{
-			"prompt": "do something",
-		},
-	}
-
-	provider := &fakeProvider{
-		name: "crush",
-		execute: func(_ context.Context, _ agent.Request) (agent.Response, *agent.Error) {
-			return agent.Response{}, &agent.Error{Code: "agent_failed", Message: "crush crashed"}
-		},
-	}
-
-	result := agent.New(provider).Execute(context.Background(), executor.StepContext{
-		RunDir: runDir,
-		Spec: spec.Document{
-			Defaults: map[string]any{
-				"executors": map[string]any{
-					"crush": map[string]any{"model": "sonnet-5"},
-				},
-			},
-		},
-		Workspace: workspaceConfig,
-		StepIndex: 0,
-		Step:      step,
-		Runtime:   runtimeForWorkspace(workspaceConfig, nil),
-	})
-
-	if result.Status != state.StepStatusFailed {
-		t.Fatalf("result status = %q, want failed", result.Status)
-	}
-	if result.Error == nil || result.Error.Code != "provider_crashed" {
-		t.Fatalf("result error = %#v, want provider_crashed", result.Error)
-	}
-}
+// --- Test helpers ---
 
 type fakeProvider struct {
 	name    string
@@ -985,6 +686,63 @@ func runtimeForWorkspace(workspaceConfig workspace.Config, params map[string]any
 			"prev":   nil,
 		},
 	})
+}
+
+type stepContextOption func(*testing.T, *executor.StepContext)
+
+func withDocument(d spec.Document) stepContextOption {
+	return func(_ *testing.T, sc *executor.StepContext) { sc.Spec = d }
+}
+
+func withParams(p map[string]any) stepContextOption {
+	return func(_ *testing.T, sc *executor.StepContext) {
+		sc.Runtime = runtimeForWorkspace(sc.Workspace, p)
+	}
+}
+
+func withStepIndex(i int) stepContextOption {
+	return func(_ *testing.T, sc *executor.StepContext) { sc.StepIndex = i }
+}
+
+func newStepContext(t *testing.T, step spec.Step, opts ...stepContextOption) executor.StepContext {
+	t.Helper()
+	rootDir := t.TempDir()
+	ws := workspace.Config{
+		Root:     rootDir,
+		StateDir: filepath.Join(rootDir, ".amata"),
+	}
+	sc := executor.StepContext{
+		RunDir:    filepath.Join(rootDir, ".amata", "runs", "run-"+step.ID),
+		Workspace: ws,
+		Step:      step,
+		Runtime:   runtimeForWorkspace(ws, nil),
+	}
+	for _, opt := range opts {
+		opt(t, &sc)
+	}
+	return sc
+}
+
+func documentWithProviderDefaults(provider, model string) spec.Document {
+	return spec.Document{
+		Defaults: map[string]any{
+			"executors": map[string]any{
+				provider: map[string]any{
+					"model": model,
+				},
+			},
+		},
+	}
+}
+
+func assertFailedWithCode(t *testing.T, result state.StepResult, code string) {
+	t.Helper()
+	if result.Status != state.StepStatusFailed {
+		t.Fatalf("result status = %q, want failed", result.Status)
+	}
+	if result.Error == nil || result.Error.Code != code {
+		t.Fatalf("result error = %#v, want code=%s", result.Error, code)
+	}
 }
 
 func assertArtifactPaths(t *testing.T, artifacts state.Artifacts, stepDir string) {
