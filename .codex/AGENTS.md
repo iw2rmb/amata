@@ -1,51 +1,17 @@
 # General Mandatory Instructions (GMI)
 
-When Codex agent is in the **interactive mode**, it **MUST** read and follow policies from `~/.codex/policies/interactive-mode.md`.
-
-
-## Policies
+When in **interactive mode**, read and follow policies from `~/.codex/policies/interactive-mode.md`.
 
 Additional policies **MUST** be loaded when naming is literally corresponds the task:
-
 - When **composing desing docs**: `~/.codex/policies/composing-design-docs.md`
 - When **composing or implementing roadmaps**: `~/.codex/policies/composing-and-implementing-roadmaps.md`
 
 
-## Aster
+## Aster Usage
 
 - **Aster** is a framework for the effective codebase navigation and manipulation.
 - Follow instructions at `http://localhost:9090/v1/coding-agents-instructions`. 
 - Fallback to known instruments when Aster fails to respond or satisfy.
-
-
-## Architecture Patterns Policy
-
-Repetitive boilerplate is the primary source of bugs.
-The solution is to unify and generalize.
-- Before edits, search for existing helpers in the same domain.
-- After edits, review only the diff for duplication.
-- If a new helper overlaps an existing one, unify before commit.
-- If test setup is copied across packages, extract shared test helper before commit.
-- In the final answer, report what duplication was removed.
-
-
-### Overengineering
-
-Overengineering is the second source of bugs.
-It comes from generalization with unclear boundaries.
-
-To protect yourself from overengineering, 
-- Write down edge-cases before writing the code.
-- Keep files' and modules' domains distinctive.
-- Do **NOT** extend scope of the file or module without clear benefit.
-
-
-### Race conditions
-
-Race conditions must be solved by:
-  - execution order determinism,
-  - execution independence;
-  but never by time waits because they are not guaranteed.
 
 
 ## Development Policy
@@ -53,7 +19,21 @@ Race conditions must be solved by:
 - **NO** backward compatibility is required.
 - **ALWAYS** prefer architecture-wide solutions over time-saving band-aids.
 - Compose commit message from the current diff.
-- 500+ LOC files and 100+ LOC functions are first-class signs for mixed boundaries, thus overengineering; and are candidates to split or simplify.
+
+Reduce boilerplate growth by:
+- Before edits, search for existing helpers in the same domain.
+- If a new helper overlaps an existing one, consider unify before commit.
+- If test setup is copied across packages, extract shared test helper before commit.
+- In the final answer, report what duplication was removed.
+
+Avoid mixing domains and overcomplexity by:
+- Keeping files' and modules' domains distinctive.
+- Preventing domain extension of the file or module without clear benefit.
+- Considering 500+ LOC files and 100+ LOC functions to split or simplify.
+
+Avoid race conditions by:
+  - execution order determinism,
+  - execution independence.
 
 
 ## Fixing Policy
@@ -99,7 +79,7 @@ Race conditions must be solved by:
   - Keep documents cross-referenced. For cross-reference integrity checks, run `~/@iw2rmb/amata/scripts/check_docs_links.sh` from the target project root.
 
 
-## Tests Writing Policy
+## Writing Tests Policy
 
 - Prefer table-driven tests when setup and assertions are the same and only inputs or expected outcomes differ.
 - Keep one canonical test per behavior path; represent input variants as table rows, not separate top-level tests.
@@ -108,8 +88,3 @@ Race conditions must be solved by:
 - Merge or remove tests that do not add a unique assertion beyond existing coverage.
 - Use test names that encode both behavior and expected outcome.
 - For test refactors, run focused targets first, then package-level tests.
-
-
-## Feedback Loop
-
-- The moment you realize that it would be much easier for you to work if there will be some information or automation provided to you, please write the idea into `~/@iw2rmb/amata/i-want.md`, and I will be providing my responses there under every request starting with `> `.

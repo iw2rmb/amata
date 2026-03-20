@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/iw2rmb/amata/internal/executor/agent"
+	"github.com/iw2rmb/amata/internal/testutil"
 )
 
 func TestProviderStructuredOutputModes(t *testing.T) {
@@ -324,11 +325,4 @@ func (f fakeRunner) Run(ctx context.Context, spec command) (commandResult, error
 	return f(ctx, spec)
 }
 
-func containsArgPair(args []string, name string, value string) bool {
-	for index := 0; index+1 < len(args); index++ {
-		if args[index] == name && args[index+1] == value {
-			return true
-		}
-	}
-	return false
-}
+var containsArgPair = testutil.ContainsArgPair

@@ -6,10 +6,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
+	"slices"
 	"testing"
 
 	"github.com/iw2rmb/amata/internal/executor/agent"
+	"github.com/iw2rmb/amata/internal/testutil"
 )
 
 func TestProviderPassesSettingsAndParsesStructuredOutput(t *testing.T) {
@@ -62,7 +63,7 @@ func TestProviderPassesSettingsAndParsesStructuredOutput(t *testing.T) {
 	if !containsArgPair(capturedArgs, "-o", filepath.Join(artifactDir, "last-message.txt")) {
 		t.Fatalf("args = %#v, want last message output flag", capturedArgs)
 	}
-	if !containsString(capturedArgs, `model_reasoning_effort="high"`) {
+	if !slices.Contains(capturedArgs, `model_reasoning_effort="high"`) {
 		t.Fatalf("args = %#v, want reasoning setting", capturedArgs)
 	}
 	if !containsEnv(capturedEnv, "CODEX_TEST=1") {
@@ -300,29 +301,6 @@ func assertFileContents(t *testing.T, path string, want string) {
 	}
 }
 
-func containsArgPair(args []string, name string, value string) bool {
-	for index := 0; index+1 < len(args); index++ {
-		if args[index] == name && args[index+1] == value {
-			return true
-		}
-	}
-	return false
-}
+var containsArgPair = testutil.ContainsArgPair
 
-func containsString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
-}
-
-func containsEnv(values []string, want string) bool {
-	for _, value := range values {
-		if strings.HasPrefix(value, want) {
-			return true
-		}
-	}
-	return false
-}
+var containsEnv = testutil.ContainsEnv

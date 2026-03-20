@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/iw2rmb/amata/internal/state"
+	"github.com/iw2rmb/amata/internal/testutil"
 )
 
 func TestStoreAppendsEventsImmutablyAndRebuildsSnapshot(t *testing.T) {
@@ -603,13 +604,4 @@ func TestStoreRebuildsNestedFlowFrames(t *testing.T) {
 	}
 }
 
-func readFile(t *testing.T, path string) string {
-	t.Helper()
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
-
-	return string(data)
-}
+var readFile = testutil.ReadFile

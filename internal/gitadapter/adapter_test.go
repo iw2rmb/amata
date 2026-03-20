@@ -2,12 +2,12 @@ package gitadapter
 
 import (
 	"context"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/iw2rmb/amata/internal/testutil"
 )
 
 func TestInspectIncludesUntrackedFilesInSingleSnapshot(t *testing.T) {
@@ -208,28 +208,9 @@ func initRepository(t *testing.T) string {
 	return repoDir
 }
 
-func writeFile(t *testing.T, path string, content string) {
-	t.Helper()
+var writeFile = testutil.WriteFile
 
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("create parent directory for %s: %v", path, err)
-	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write %s: %v", path, err)
-	}
-}
-
-func runGit(t *testing.T, repoDir string, args ...string) string {
-	t.Helper()
-
-	cmd := exec.Command("git", args...)
-	cmd.Dir = repoDir
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, string(output))
-	}
-	return string(output)
-}
+var runGit = testutil.RunGit
 
 func contains(values []string, needle string) bool {
 	for _, value := range values {

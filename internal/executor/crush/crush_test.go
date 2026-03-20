@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/iw2rmb/amata/internal/executor/agent"
+	"github.com/iw2rmb/amata/internal/testutil"
 )
 
 // TestProvider is the canonical matrix covering args/env/cwd/stdin,
@@ -71,9 +72,9 @@ func TestProvider(t *testing.T) {
 		{
 			name: "streaming stdout writer receives output while running",
 			request: agent.Request{
-				Prompt:     "Stream test",
-				Model:      "sonnet-5",
-				CWD:        "/repo",
+				Prompt: "Stream test",
+				Model:  "sonnet-5",
+				CWD:    "/repo",
 			},
 			runOutput:      "streamed output\n",
 			wantTranscript: "streamed output\n",
@@ -163,7 +164,7 @@ func TestProvider(t *testing.T) {
 				t.Fatalf("cwd = %q, want %q", capturedDir, tc.wantCWD)
 			}
 			for _, flag := range tc.wantFlags {
-				if !containsString(capturedArgs, flag) {
+				if !slices.Contains(capturedArgs, flag) {
 					t.Fatalf("args = %#v, missing flag %q", capturedArgs, flag)
 				}
 			}
@@ -285,24 +286,6 @@ func TestProviderStreamsStdoutWhileRunning(t *testing.T) {
 	}
 }
 
-func containsArgPair(args []string, name string, value string) bool {
-	for i := 0; i+1 < len(args); i++ {
-		if args[i] == name && args[i+1] == value {
-			return true
-		}
-	}
-	return false
-}
+var containsArgPair = testutil.ContainsArgPair
 
-func containsString(values []string, want string) bool {
-	return slices.Contains(values, want)
-}
-
-func containsEnv(values []string, want string) bool {
-	for _, v := range values {
-		if strings.HasPrefix(v, want) {
-			return true
-		}
-	}
-	return false
-}
+var containsEnv = testutil.ContainsEnv
