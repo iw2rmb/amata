@@ -4,8 +4,8 @@ When in **interactive mode**, read and follow policies from `~/.codex/policies/i
 
 Read and follow policies that correspond to the nature of the current task:
 - **Composing Desing Docs**: `~/.codex/policies/composing-design-docs.md`
-- **Composing Roadmaps**: `~/.codex/policies/composing-roadmaps.md`
-- **Committing or Updating Documentation**: `~/.codex/policies/updating-documentation.md`
+- **Composing Roadmaps or Implementation Steps**: `~/.codex/policies/composing-roadmaps.md`
+- **Committing Codebase or Updating Documentation**: `~/.codex/policies/updating-documentation.md`
 - **Developing or Fixing**: `~/.codex/policies/developing.md`
 - **Deciding on Architecture**: `~/.codex/policies/deciding-on-architecture.md`
 
