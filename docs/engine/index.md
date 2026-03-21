@@ -324,6 +324,7 @@ Supported fields:
 Behavior:
 - `prompt`, `model`, `reasoning`, `cwd`, and `env` resolve through the shared expression/template runtime before execution.
 - `cwd` falls back to `defaults.cwd`, then `workspace.root`.
+- `claude -p --include-partial-messages --permission-mode bypassPermissions --model <model>` is invoked with the rendered prompt on stdin; output format remains `text` by default and switches to `json` when provider-side schema output is enabled.
 - When `response.schema` targets `value`, the executor uses Claude structured output support when available by passing `--output-format json` and `--json-schema`, and otherwise appends engine-owned JSON instructions before normalizing the returned JSON into `value`.
 - Raw provider stdout, stderr, the rendered prompt, the final transcript, and provider metadata persist as step artifacts.
 - `stdout.txt` and `stderr.txt` are streamed to disk during execution so they are readable before the step completes.

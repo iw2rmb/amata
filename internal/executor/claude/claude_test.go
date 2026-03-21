@@ -69,6 +69,9 @@ func TestProviderStructuredOutputModes(t *testing.T) {
 			if !containsArgPair(captured.args, "--model", "sonnet") {
 				t.Fatalf("args = %#v, want --model sonnet", captured.args)
 			}
+			if !containsArg(captured.args, "--include-partial-messages") {
+				t.Fatalf("args = %#v, want --include-partial-messages", captured.args)
+			}
 			if !containsArgPair(captured.args, "--effort", "medium") {
 				t.Fatalf("args = %#v, want --effort medium", captured.args)
 			}
@@ -314,3 +317,12 @@ func (f fakeRunner) Run(ctx context.Context, spec command) (commandResult, error
 }
 
 var containsArgPair = testutil.ContainsArgPair
+
+func containsArg(args []string, want string) bool {
+	for _, arg := range args {
+		if arg == want {
+			return true
+		}
+	}
+	return false
+}

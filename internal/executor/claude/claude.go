@@ -50,6 +50,7 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 	prompt := request.Prompt
 	args := []string{
 		"-p",
+		"--include-partial-messages",
 		"--permission-mode", "bypassPermissions",
 		"--model", request.Model,
 	}
