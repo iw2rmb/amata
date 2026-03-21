@@ -35,6 +35,8 @@ type provider struct {
 
 type execRunner struct{}
 
+const providerSchemaRetryInstruction = "\n\nReturn only strict JSON that matches the requested response schema. Do not include prose outside JSON."
+
 func New() executor.Executor {
 	return agent.New(provider{
 		runner:                    execRunner{},
@@ -74,16 +76,18 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 		args = append(args, "--output-format", "text")
 	}
 
-	spec := command{
-		args:         args,
-		dir:          request.CWD,
-		env:          agent.CommandEnv(request.Env),
-		stdin:        []byte(prompt),
-		stdoutWriter: request.StdoutWriter,
-		stderrWriter: request.StderrWriter,
+	runCommand := func(runArgs []string, runPrompt string) (commandResult, error) {
+		return p.runner.Run(ctx, command{
+			args:         append([]string(nil), runArgs...),
+			dir:          request.CWD,
+			env:          agent.CommandEnv(request.Env),
+			stdin:        []byte(runPrompt),
+			stdoutWriter: request.StdoutWriter,
+			stderrWriter: request.StderrWriter,
+		})
 	}
 
-	result, runErr := p.runner.Run(ctx, spec)
+	result, runErr := runCommand(args, prompt)
 	response := agent.Response{
 		Prompt:     prompt,
 		Transcript: result.stdout,
@@ -111,7 +115,66 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 			}
 		}
 		if structuredOutputMode == "provider_schema" {
-			value = unwrapProviderStructuredOutput(value)
+			unwrapped, missingStructuredOutput, sessionID := unwrapProviderStructuredOutput(value)
+			if missingStructuredOutput {
+				retryPrompt := request.Prompt + providerSchemaRetryInstruction
+				attempts := 1
+				response.Metadata["structuredOutputRetryOrder"] = "resume_then_fresh"
+
+				if sessionID != "" {
+					resumeArgs := append(append([]string(nil), args...), "--resume", sessionID)
+					retryResult, retryErr := runCommand(resumeArgs, retryPrompt)
+					attempts++
+					response.Prompt = retryPrompt
+					response.Transcript = retryResult.stdout
+					response.Metadata["command"] = executor.CommandWithBinary("claude", resumeArgs)
+					if retryErr == nil {
+						retryValue, parseErr := agent.ParseStructuredOutput(retryResult.stdout)
+						if parseErr == nil {
+							resumeUnwrapped, resumeMissingStructuredOutput, _ := unwrapProviderStructuredOutput(retryValue)
+							if !resumeMissingStructuredOutput {
+								response.Value = resumeUnwrapped
+								response.HasValue = true
+								response.Metadata["structuredOutputAttempts"] = attempts
+								return response, nil
+							}
+						}
+					}
+				}
+
+				freshResult, freshErr := runCommand(args, retryPrompt)
+				attempts++
+				response.Prompt = retryPrompt
+				response.Transcript = freshResult.stdout
+				response.Metadata["command"] = executor.CommandWithBinary("claude", args)
+				response.Metadata["structuredOutputAttempts"] = attempts
+				if freshErr != nil {
+					return response, &agent.Error{
+						Code:    "agent_failed",
+						Message: fmt.Sprintf("claude -p failed: %v", freshErr),
+					}
+				}
+
+				freshValue, parseErr := agent.ParseStructuredOutput(freshResult.stdout)
+				if parseErr != nil {
+					return response, &agent.Error{
+						Code:    "invalid_provider_output",
+						Message: fmt.Sprintf("claude output is invalid: %v", parseErr),
+					}
+				}
+
+				unwrappedFresh, freshMissingStructuredOutput, _ := unwrapProviderStructuredOutput(freshValue)
+				if freshMissingStructuredOutput {
+					return response, &agent.Error{
+						Code:    "invalid_provider_output",
+						Message: "claude output is invalid: provider schema response envelope is missing structured_output",
+					}
+				}
+				response.Value = unwrappedFresh
+				response.HasValue = true
+				return response, nil
+			}
+			value = unwrapped
 		}
 		response.Value = value
 		response.HasValue = true
@@ -142,21 +205,22 @@ func (execRunner) Run(ctx context.Context, spec command) (commandResult, error) 
 	return commandResult{stdout: stdoutBuf.Bytes()}, err
 }
 
-func unwrapProviderStructuredOutput(value any) any {
+func unwrapProviderStructuredOutput(value any) (any, bool, string) {
 	envelope, ok := value.(map[string]any)
 	if !ok {
-		return value
-	}
-
-	inner, ok := envelope["structured_output"]
-	if !ok {
-		return value
+		return value, false, ""
 	}
 
 	if !looksLikeClaudeJSONEnvelope(envelope) {
-		return value
+		return value, false, ""
 	}
-	return inner
+
+	sessionID, _ := envelope["session_id"].(string)
+	inner, ok := envelope["structured_output"]
+	if !ok {
+		return value, true, sessionID
+	}
+	return inner, false, sessionID
 }
 
 func looksLikeClaudeJSONEnvelope(envelope map[string]any) bool {

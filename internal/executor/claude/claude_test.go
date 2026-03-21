@@ -141,6 +141,116 @@ func TestProviderUnwrapsStructuredOutputEnvelope(t *testing.T) {
 	}
 }
 
+func TestProviderRetriesWithResumeBeforeFreshForMissingStructuredOutput(t *testing.T) {
+	t.Parallel()
+
+	var calls []command
+	provider := provider{
+		runner: fakeRunner(func(_ context.Context, spec command) (commandResult, error) {
+			calls = append(calls, spec)
+			switch len(calls) {
+			case 1:
+				return commandResult{
+					stdout: []byte(`{"type":"result","stop_reason":"end_turn","session_id":"sess-123","usage":{"input_tokens":1},"result":"not-structured"}`),
+				}, nil
+			case 2:
+				return commandResult{
+					stdout: []byte(`{"type":"result","stop_reason":"end_turn","session_id":"sess-123","usage":{"input_tokens":1},"structured_output":{"approved":true}}`),
+				}, nil
+			default:
+				t.Fatalf("unexpected call #%d", len(calls))
+				return commandResult{}, nil
+			}
+		}),
+		structuredOutputSupported: true,
+	}
+
+	response, execErr := provider.Execute(context.Background(), agent.Request{
+		Prompt: "Review the diff",
+		Model:  "sonnet",
+		CWD:    "/repo",
+		Structured: &agent.StructuredOutput{
+			JSON: `{"type":"object","properties":{"approved":{"type":"boolean"}},"required":["approved"]}`,
+		},
+	})
+	if execErr != nil {
+		t.Fatalf("execute error = %#v", execErr)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("calls = %d, want 2", len(calls))
+	}
+	if !containsArgPair(calls[1].args, "--resume", "sess-123") {
+		t.Fatalf("resume args = %#v, want --resume sess-123", calls[1].args)
+	}
+	if !strings.Contains(string(calls[1].stdin), providerSchemaRetryInstruction) {
+		t.Fatalf("resume prompt = %q, want retry instruction", string(calls[1].stdin))
+	}
+	if attempts, ok := response.Metadata["structuredOutputAttempts"].(int); !ok || attempts != 2 {
+		t.Fatalf("structuredOutputAttempts = %#v, want int(2)", response.Metadata["structuredOutputAttempts"])
+	}
+	value, ok := response.Value.(map[string]any)
+	if !ok || value["approved"] != true {
+		t.Fatalf("response value = %#v, want approved=true", response.Value)
+	}
+}
+
+func TestProviderFallsBackToFreshAfterResumeWhenStructuredOutputStillMissing(t *testing.T) {
+	t.Parallel()
+
+	var calls []command
+	provider := provider{
+		runner: fakeRunner(func(_ context.Context, spec command) (commandResult, error) {
+			calls = append(calls, spec)
+			switch len(calls) {
+			case 1:
+				return commandResult{
+					stdout: []byte(`{"type":"result","stop_reason":"end_turn","session_id":"sess-456","usage":{"input_tokens":1},"result":"not-structured"}`),
+				}, nil
+			case 2:
+				return commandResult{
+					stdout: []byte(`{"type":"result","stop_reason":"end_turn","session_id":"sess-456","usage":{"input_tokens":1},"result":"still-not-structured"}`),
+				}, nil
+			case 3:
+				return commandResult{
+					stdout: []byte(`{"type":"result","stop_reason":"end_turn","session_id":"fresh-1","usage":{"input_tokens":1},"structured_output":{"approved":true}}`),
+				}, nil
+			default:
+				t.Fatalf("unexpected call #%d", len(calls))
+				return commandResult{}, nil
+			}
+		}),
+		structuredOutputSupported: true,
+	}
+
+	response, execErr := provider.Execute(context.Background(), agent.Request{
+		Prompt: "Review the diff",
+		Model:  "sonnet",
+		CWD:    "/repo",
+		Structured: &agent.StructuredOutput{
+			JSON: `{"type":"object","properties":{"approved":{"type":"boolean"}},"required":["approved"]}`,
+		},
+	})
+	if execErr != nil {
+		t.Fatalf("execute error = %#v", execErr)
+	}
+	if len(calls) != 3 {
+		t.Fatalf("calls = %d, want 3", len(calls))
+	}
+	if !containsArgPair(calls[1].args, "--resume", "sess-456") {
+		t.Fatalf("resume args = %#v, want --resume sess-456", calls[1].args)
+	}
+	if containsArg(calls[2].args, "--resume") {
+		t.Fatalf("fresh args = %#v, want no --resume", calls[2].args)
+	}
+	if attempts, ok := response.Metadata["structuredOutputAttempts"].(int); !ok || attempts != 3 {
+		t.Fatalf("structuredOutputAttempts = %#v, want int(3)", response.Metadata["structuredOutputAttempts"])
+	}
+	value, ok := response.Value.(map[string]any)
+	if !ok || value["approved"] != true {
+		t.Fatalf("response value = %#v, want approved=true", response.Value)
+	}
+}
+
 func TestProviderReportsAgentFailureBeforeStructuredParse(t *testing.T) {
 	t.Parallel()
 
