@@ -1,11 +1,14 @@
 package claude
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os/exec"
+	"strings"
 
 	"github.com/iw2rmb/amata/internal/executor"
 	"github.com/iw2rmb/amata/internal/executor/agent"
@@ -52,7 +55,6 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 	prompt := request.Prompt
 	args := []string{
 		"-p",
-		"--include-partial-messages",
 		"--permission-mode", "bypassPermissions",
 		"--model", request.Model,
 	}
@@ -115,7 +117,7 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 			}
 		}
 		if structuredOutputMode == "provider_schema" {
-			unwrapped, missingStructuredOutput, sessionID := unwrapProviderStructuredOutput(value)
+			unwrapped, missingStructuredOutput, sessionID := selectProviderSchemaValue(value, result.stdout)
 			if missingStructuredOutput {
 				retryPrompt := request.Prompt + providerSchemaRetryInstruction
 				attempts := 1
@@ -131,7 +133,7 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 					if retryErr == nil {
 						retryValue, parseErr := agent.ParseStructuredOutput(retryResult.stdout)
 						if parseErr == nil {
-							resumeUnwrapped, resumeMissingStructuredOutput, _ := unwrapProviderStructuredOutput(retryValue)
+							resumeUnwrapped, resumeMissingStructuredOutput, _ := selectProviderSchemaValue(retryValue, retryResult.stdout)
 							if !resumeMissingStructuredOutput {
 								response.Value = resumeUnwrapped
 								response.HasValue = true
@@ -163,7 +165,7 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 					}
 				}
 
-				unwrappedFresh, freshMissingStructuredOutput, _ := unwrapProviderStructuredOutput(freshValue)
+				unwrappedFresh, freshMissingStructuredOutput, _ := selectProviderSchemaValue(freshValue, freshResult.stdout)
 				if freshMissingStructuredOutput {
 					return response, &agent.Error{
 						Code:    "invalid_provider_output",
@@ -221,6 +223,47 @@ func unwrapProviderStructuredOutput(value any) (any, bool, string) {
 		return value, true, sessionID
 	}
 	return inner, false, sessionID
+}
+
+func selectProviderSchemaValue(value any, transcript []byte) (any, bool, string) {
+	unwrapped, missingStructuredOutput, sessionID := unwrapProviderStructuredOutput(value)
+	if missingStructuredOutput {
+		return unwrapped, true, sessionID
+	}
+
+	// stream-json outputs NDJSON events where the first object is usually a
+	// system/init event. Prefer the final type=result envelope when present.
+	envelope, ok := findResultEnvelopeFromNDJSON(transcript)
+	if !ok {
+		return unwrapped, false, sessionID
+	}
+	return unwrapProviderStructuredOutput(envelope)
+}
+
+func findResultEnvelopeFromNDJSON(data []byte) (map[string]any, bool) {
+	scanner := bufio.NewScanner(strings.NewReader(string(data)))
+	// Raise the scanner buffer cap for long JSON lines emitted by providers.
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 4*1024*1024)
+
+	var result map[string]any
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var current map[string]any
+		if err := json.Unmarshal([]byte(line), &current); err != nil {
+			continue
+		}
+		if typ, _ := current["type"].(string); typ == "result" {
+			result = current
+		}
+	}
+	if result == nil {
+		return nil, false
+	}
+	return result, true
 }
 
 func looksLikeClaudeJSONEnvelope(envelope map[string]any) bool {
