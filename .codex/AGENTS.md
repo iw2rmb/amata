@@ -9,6 +9,8 @@ Read and follow policies that correspond to the nature of the current task:
 - **Developing or Fixing**: `~/.codex/policies/developing.md`
 - **Deciding on Architecture**: `~/.codex/policies/deciding-on-architecture.md`
 
+Both in designing DD/roadmaps, and in development, **NO** backward compatibility is required unless explicitly stated otherwise.
+
 
 ## Documentation Folders Structure
 

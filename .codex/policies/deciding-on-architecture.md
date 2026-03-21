@@ -12,6 +12,4 @@ Avoid race conditions by:
 - execution order determinism,
 - execution independence.
 
-Unless stated otherwise:
-- **NO** backward compatibility is required.
-- **ALWAYS** prefer architecture-wide solutions over time-saving band-aids.
+Prefer architecture-wide solutions over time-saving band-aids.
