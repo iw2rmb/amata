@@ -2,7 +2,7 @@
 
 ## Handling Conversations
 
-- Avoid repeating yourself. Provide new information only.
+- Avoid repeating.
 
 - Literal Interpretation:
   - Treat my instructions literally; do only what is stated.
@@ -31,13 +31,7 @@
 
 These rules were written by the agent after an hours-long session where it failed to look at the diff and failed to focus on the batching change the user repeatedly pointed out the root cause and place while chasing the bug elsewhere. They exist to avoid repeating that failure.
 
-- Always inspect the current diff first. Before making claims about what did or did not change, list and read every modified file in this workspace.
-- Treat the smallest change set as the universe. When only a few files changed before a regression, debug those files exhaustively before touching anything else.
-- When working from a roadmap, treat the current unchecked item as the universe. Do not drift into later phases or neighboring items before the current one is done.
-- When a roadmap says to mark an item complete and commit it, do that immediately after verification. Do not batch several roadmap items into one uncommitted rollout.
-- If a roadmap item feels too large, reduce the item size first. Do not keep expanding context while trying to solve the whole milestone at once.
 - Prioritize user-specified suspects. If the user points to a file or change, confirm or refute that hypothesis before exploring new areas.
-- Do not assert “I didn’t change X” without proof. Only say this after directly inspecting the relevant code path and lines.
 - Stay within the requested scope. Do not expand to new components or features unless the user explicitly approves that broader work.
 - Validate against the exact user scenario. Always re-run the precise command, size, and environment the user reported, not only synthetic or partial repros.
 - Make uncertainty explicit. If unsure about behavior or history, say so and describe the next concrete checks instead of giving confident but wrong statements.

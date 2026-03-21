@@ -11,7 +11,7 @@ Write a DD when at least one of these is true:
 - Proven patterns are unclear.
 - Success is hard to measure without an explicit contract.
 
-By default, store the result at docs/design/{scope}.md.
+By default, store the result at `design/{scope}.md`.
 
 ## What a DD must contain
 
@@ -66,9 +66,10 @@ A DD must not:
 - Add milestones when the change is too small to justify them.
 - Omit acceptance criteria for implementation-ready work.
 
+
 ## Document types
 
-Not every file in docs/design/ is the same type. Use the right shape for the document.
+Not every file in `design/**` is the same type. Use the right shape for the document.
 
 - Implementation DD
   - Default type.
@@ -82,34 +83,12 @@ Not every file in docs/design/ is the same type. Use the right shape for the doc
   - Should not pretend to be an architecture DD.
   - Must still state scope, status, and references.
 
+
 ## Process
 
-1. Read relevant docs/docs/**, docs/roadmap/**, and existing design docs.
+1. Read relevant `docs/**`, `roadmap/**`, and existing design docs.
 2. Inspect the actual code paths involved.
-3. If the design depends on external libraries, standards, or unfamiliar domains, add focused research in docs/research/.
-4. Use subagents when they reduce context bloat or parallelize bounded investigations.
-5. Treat subagent output as input material, not as final truth.
-6. Compose the DD from verified codebase facts and resolved design decisions.
-7. If docs disagree with code, align the docs.
-
-## Subagent use
-
-Subagents are optional tools, not a required authoring ceremony.
-Use them for:
-- bounded codebase investigations
-- parallel assumption checks
-- external research summaries
-- drafting when the structure is already clear
-
-Do not outsource the core design judgment. The final DD owner must verify:
-- current baseline against code
-- architectural claims
-- cross-references
-- milestone sanity
-
-## Relationship to roadmap
-
-A DD defines the target design. A roadmap defines implementation order.
-If implementation will happen in phases:
-- put architecture and invariants in docs/design/
-- put execution order and step-by-step rollout in docs/roadmap/
+3. If the design depends on external libraries, standards, or unfamiliar domains, add focused research in `research/`.
+4. Compose the DD from verified codebase facts and resolved design decisions.
+5. If docs disagree with code, align the docs.
+6. When a design decision is made, update the design itself to assume it; do not add “Decision:” meta text. Keep “Open questions” limited to unresolved items.
