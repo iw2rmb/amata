@@ -303,6 +303,7 @@ Supported fields:
 Behavior:
 - `prompt`, `model`, `reasoning`, `cwd`, and `env` resolve through the shared expression/template runtime before execution.
 - `cwd` falls back to `defaults.cwd`, then `workspace.root`.
+- `codex exec --json` is invoked with the rendered prompt on stdin.
 - When `response.schema` targets `value`, the executor accepts either an inline schema/ref or a path-like string to a `.json` schema file relative to the workflow file.
 - Inline Codex schemas are expanded into a provider-safe object schema artifact before `codex exec --output-schema`.
 - File-backed Codex schemas are passed through to `codex exec --output-schema` by absolute path instead of being copied into the prompt.

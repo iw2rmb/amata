@@ -57,6 +57,9 @@ func TestProviderPassesSettingsAndParsesStructuredOutput(t *testing.T) {
 	if !containsArgPair(capturedArgs, "--model", "gpt-5.4") {
 		t.Fatalf("args = %#v, want --model gpt-5.4", capturedArgs)
 	}
+	if !slices.Contains(capturedArgs, "--json") {
+		t.Fatalf("args = %#v, want --json", capturedArgs)
+	}
 	if !containsArgPair(capturedArgs, "--output-schema", filepath.Join(artifactDir, "response-schema.json")) {
 		t.Fatalf("args = %#v, want structured schema flag", capturedArgs)
 	}

@@ -44,6 +44,7 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 		"--color", "never",
 		"-C", request.CWD,
 		"--model", request.Model,
+		"--json",
 	}
 	if request.Reasoning != "" {
 		args = append(args, "-c", fmt.Sprintf("model_reasoning_effort=%q", request.Reasoning))
