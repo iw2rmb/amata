@@ -451,6 +451,7 @@ Current behavior:
 - Object form defaults to `type: rerun` and `after: 15` minutes when omitted.
 - `after` accepts either a numeric minute value such as `15` or a duration string such as `30s` or `5m`.
 - `rerun` cancels the stalled executor attempt and starts the same step again with the same resolved inputs.
+- When `rerun` triggers, live progress emits an intermediate failed `step_finished` for the canceled attempt, then an immediate restarted `step_started` whose descriptor headline begins with `<after> RERUN <next>/INF`.
 - `error` cancels the stalled executor attempt and fails the run with code `step_stalled`.
 - `call` cancels the stalled executor attempt and runs the named flow instead; the fallback flow's terminal result becomes the stalled step's result.
 - After cancellation, the runner waits up to one second for the in-flight executor attempt to stop. If it does not stop in time, the runner fails the step immediately (`step_stalled` for stall-triggered cancellation; `deadline_exceeded` or `canceled` for run-context cancellation) to avoid indefinite hangs.

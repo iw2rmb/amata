@@ -2,10 +2,12 @@ package runtime
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	executorapi "github.com/iw2rmb/amata/internal/executor"
+	"github.com/iw2rmb/amata/internal/progress"
 	"github.com/iw2rmb/amata/internal/spec"
 	"github.com/iw2rmb/amata/internal/state"
 )
@@ -290,5 +292,110 @@ func TestRunnerStallCallUsesFallbackFlowResult(t *testing.T) {
 	}
 	if got := snapshot.Steps[1].Value; got != "recovered" {
 		t.Fatalf("after value = %#v, want recovered", got)
+	}
+}
+
+func TestRunnerStallRerunEmitsFailedAndRestartedLiveProgress(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID:   "blocked",
+						Type: "fake",
+						Fields: map[string]any{
+							"stall": map[string]any{
+								"after": "10ms",
+								"type":  "rerun",
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+	mustPersist(t, config)
+
+	attempts := 0
+	registry := builtinRegistry()
+	if err := registry.Register("fake", func() executorapi.Executor {
+		return &fakeExecutor{
+			calls: new([]string),
+			executeWithContext: func(execCtx context.Context, _ executorapi.StepContext) state.StepResult {
+				attempts++
+				if attempts == 1 {
+					<-execCtx.Done()
+					return state.StepResult{
+						Status: state.StepStatusFailed,
+						Error: &state.Failure{
+							Code:    "canceled",
+							Message: "canceled",
+						},
+					}
+				}
+				return state.StepResult{
+					Status: state.StepStatusSucceeded,
+					Value:  "ok",
+				}
+			},
+		}
+	}); err != nil {
+		t.Fatalf("register fake executor: %v", err)
+	}
+
+	var events []progress.Event
+	sink := progress.SinkFunc(func(event progress.Event) {
+		events = append(events, event)
+	})
+
+	snapshot, err := NewRunner(registry, WithRunnerProgressSink(sink)).Run(context.Background(), config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if snapshot.Status != state.RunStatusSucceeded {
+		t.Fatalf("snapshot status = %q, want succeeded", snapshot.Status)
+	}
+	if attempts != 2 {
+		t.Fatalf("attempts = %d, want 2", attempts)
+	}
+
+	assertProgressKindsAndSteps(t, events,
+		[]progress.EventKind{
+			progress.EventRunStarted,
+			progress.EventStepStarted,
+			progress.EventStepFinished,
+			progress.EventStepStarted,
+			progress.EventStepFinished,
+			progress.EventRunFinished,
+		},
+		[]string{
+			"",
+			"blocked",
+			"blocked",
+			"blocked",
+			"blocked",
+			"",
+		},
+	)
+
+	failedAttempt := events[2].Step
+	if failedAttempt == nil || failedAttempt.Status != progress.StepStatusFailed {
+		t.Fatalf("failed rerun attempt event = %#v, want failed status", failedAttempt)
+	}
+	if failedAttempt.Error == nil || failedAttempt.Error.Code != "step_stalled" {
+		t.Fatalf("failed rerun attempt error = %#v, want step_stalled", failedAttempt.Error)
+	}
+
+	rerunStart := events[3].Step
+	if rerunStart == nil || rerunStart.Status != progress.StepStatusRunning {
+		t.Fatalf("rerun start event = %#v, want running step", rerunStart)
+	}
+	if rerunStart.Descriptor == nil || !strings.Contains(rerunStart.Descriptor.PrimaryText, "RERUN 2/INF") {
+		t.Fatalf("rerun descriptor = %#v, want RERUN 2/INF marker", rerunStart.Descriptor)
 	}
 }

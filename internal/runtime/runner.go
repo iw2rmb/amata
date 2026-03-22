@@ -241,7 +241,7 @@ func (r *Runner) dispatchStep(
 	case "for_each":
 		action, result = r.prepareForEach(config, runtime, plan, responses, lookup, frame.Flow, previous, frame.Bindings, stepIndex, step)
 	default:
-		action, result = r.executeStep(ctx, config, responses, snapshot, frame.Flow, stepIndex, step, previous, frame.Bindings)
+		action, result = r.executeStep(ctx, reporter, config, responses, snapshot, frame.Flow, stepIndex, step, previous, frame.Bindings)
 	}
 
 	if action.pushFrame != nil {

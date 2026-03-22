@@ -7,6 +7,7 @@
 > - For `assumption-bound` items, add an `Assumptions:` block with current best references and unresolved unknowns.
 > - For `assumption-bound` items, shift `Reasoning` one level to the right: low->medium, medium->high, high->xhigh, xhigh->xhigh.
 > - Keep wording plain, precise, short, and direct.
+> - Do not add any new sections that are not expected by template.
 > - Omit this `Rules...` block in the resulting roadmap.
 
 # <Title of the feature>

@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	executorapi "github.com/iw2rmb/amata/internal/executor"
 	exprruntime "github.com/iw2rmb/amata/internal/expr"
+	"github.com/iw2rmb/amata/internal/progress"
 	"github.com/iw2rmb/amata/internal/spec"
 	"github.com/iw2rmb/amata/internal/state"
 )
@@ -17,6 +19,7 @@ const (
 	defaultStallAfter          = 15 * time.Minute
 	stallCancellationGraceWait = 1 * time.Second
 	stallCallReturnType        = "stall.call"
+	stallRerunAttemptsTotal    = "INF"
 )
 
 type stallPolicy struct {
@@ -27,6 +30,7 @@ type stallPolicy struct {
 
 func (r *Runner) executeStep(
 	ctx context.Context,
+	reporter *progress.Reporter,
 	config Config,
 	responses responseResolver,
 	snapshot state.Snapshot,
@@ -117,6 +121,7 @@ func (r *Runner) executeStep(
 			}
 			switch policy.Action {
 			case "rerun":
+				r.reportStallRerunProgress(reporter, config, snapshot, flowName, stepIndex, step, previous, bindings, policy.After, attempt)
 				continue
 			case "error":
 				return stepAction{}, finalizeStatus(state.StepResult{
@@ -172,6 +177,53 @@ func (r *Runner) executeStep(
 			return stepAction{}, r.finalizeStepResult(config, responses, snapshot.StepByRef, previous, bindings, step, result)
 		}
 	}
+}
+
+func (r *Runner) reportStallRerunProgress(
+	reporter *progress.Reporter,
+	config Config,
+	snapshot state.Snapshot,
+	flowName string,
+	stepIndex int,
+	step spec.Step,
+	previous *state.StepResult,
+	bindings map[string]any,
+	after time.Duration,
+	attempt int,
+) {
+	if reporter == nil {
+		return
+	}
+
+	lookup := snapshot.StepByRef
+	nextAttempt := attempt + 1
+	attemptStatus := fmt.Sprintf("RERUN %d/%s", nextAttempt, stallRerunAttemptsTotal)
+	afterLabel := after.String()
+
+	failedResult := state.StepResult{
+		Index:  stepIndex,
+		ID:     step.ID,
+		Type:   step.ExecutorType(),
+		Status: state.StepStatusFailed,
+		Error: &state.Failure{
+			Code:    "step_stalled",
+			Message: fmt.Sprintf("step %d stalled after %s (attempt %d/%s)", stepIndex, afterLabel, attempt, stallRerunAttemptsTotal),
+		},
+	}
+	failedStep := progressResultStep(config, flowName, step, previous, bindings, failedResult, lookup)
+	failedStep.Descriptor = &progress.DescriptorData{
+		PrimaryText:         fmt.Sprintf("stalled after %s", afterLabel),
+		DetailText:          []string{attemptStatus + " scheduled"},
+		FinalSummaryDetails: []string{fmt.Sprintf("stalled after %s", afterLabel)},
+	}
+	reporter.StepFinished(failedStep)
+
+	rerunStep := progressStep(config, flowName, stepIndex, step, previous, bindings, lookup)
+	if rerunStep.Descriptor == nil {
+		rerunStep.Descriptor = &progress.DescriptorData{}
+	}
+	rerunStep.Descriptor.PrimaryText = strings.TrimSpace(strings.Join([]string{afterLabel, attemptStatus, rerunStep.Descriptor.PrimaryText}, " "))
+	reporter.StepStarted(rerunStep)
 }
 
 func executeStepAttempt(ctx context.Context, stepExecutor executorapi.Executor, stepCtx executorapi.StepContext, step spec.Step) state.StepResult {
