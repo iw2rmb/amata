@@ -1,5 +1,5 @@
 > Rules how to follow this template:
-> - Apply [COSMIC](~/.codex/estimating-effort.md) methodology for functional-process granularity and decomposition. Do not mix it with subject documentation.
+> - Apply [COSMIC](~/.codex/policies/estimating-effort.md) methodology for functional-process granularity and decomposition. Do not mix it with subject documentation.
 > - Use COSMIC-style granularity: one functional action per numbered line.
 > - Consider per item if it's determined (it is possible to point out all components, classes, functions, and structs involved; there is no ambigouty) or there are assumptions.
 > - For determined items, name or refer to concrete components, classes, functions, and structs per functional action. 
