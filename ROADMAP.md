@@ -1,29 +1,33 @@
 > Rules how to follow this template:
-> - Apply [COSMIC](~/.codex/policies/estimating-effort.md) methodology for functional-process granularity and decomposition. Do not mix it with subject documentation.
-> - Use COSMIC-style granularity: one functional action per numbered line.
-> - Consider per item if it's determined (it is possible to point out all components, classes, functions, and structs involved; there is no ambigouty) or there are assumptions.
-> - For determined items, name or refer to concrete components, classes, functions, and structs per functional action. 
-> - For determined items, keep functional actions within roadmap are at the same level of detalisation.
-> - For non-determined items, provide references or names determined at a time, and shift estimated reasoning to the right: low->medium, medium->high, high->xhigh, xhigh->xhigh.
+> - Apply [COSMIC](~/.codex/policies/estimating-effort.md) for decomposition granularity at the functional-process level. Use it to size and split work; do not copy COSMIC theory text into the subject roadmap.
+> - Use COSMIC-style granularity: one numbered implementation line equals one functional action with one observable outcome.
+> - Classify each roadmap item as either `determined` or `assumption-bound`.
+> - For `determined` items, name concrete repositories/components and concrete classes/functions/structs touched by each functional action.
+> - Keep all functional actions inside one item at the same detail level.
+> - For `assumption-bound` items, add an `Assumptions:` block with current best references and unresolved unknowns.
+> - For `assumption-bound` items, shift `Reasoning` one level to the right: low->medium, medium->high, high->xhigh, xhigh->xhigh.
 > - Keep wording plain, precise, short, and direct.
-> - Omit `Rules...` block in the resulting roadmap.
+> - Omit this `Rules...` block in the resulting roadmap.
 
 # <Title of the feature>
 
 Scope: <One short statement of boundary and intended outcome.>
 
-Documentation: <Relevant docs. Use design docs or roadmap docs for this subject, not both.>
+Documentation: <Relevant docs. Use design docs or roadmap docs for this subject, not both in the same item set.>
 
 - [ ] <n.n Item short title-summary>
-  - Implementaion:
-    1. <Functional action1 at class/function/struct level>
-    2. <Functional action2 at class/function/struct level>
+  - Repository: <repo name or `auto`>
+  - Component: <Concrete modules/files/classes/functions/structs>
+  - Assumptions: <Only for assumption-bound items; omit when none>
+  - Implementation:
+    1. <One functional action at class/function/struct level>
+    2. <One functional action at class/function/struct level>
     3. ...
-  - Verification: 
+  - Verification:
     1. <One-liner test scenario 1>
     2. <One-liner test scenario 2>
     3. ...
-  - Reasoning: <Estimated reasoning (effort) required for implementation: low|medium|high|xhigh>
+  - Reasoning: <Estimated implementation effort: low|medium|high|xhigh>
 
 - [ ] <n.n Next item short title-summary>
 ...

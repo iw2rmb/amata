@@ -1,52 +1,91 @@
 # Estimating Effort
 
-This doc describes methodology of implementation effort estimation in `CFP` (`COSMIC Functional Points`). 
-The benefit of this metric is that it refletcts linear dependency between `CFP` and effort required.
-Follow this checklist to size a feature in `CFP`.
+This doc defines implementation effort estimation in `CFP` (`COSMIC Functional Points`).
+`CFP` is useful only when scope, boundary, and granularity are consistent.
+Follow this checklist to size a feature or roadmap item in `CFP`.
 
 
-## Clarify Inputs
+## Clarify inputs
 
-Clarify purpose, measurement scope and layer(s), functional users, boundary, persistent storage, required granularity, triggering events, objects of interest and data groups, external interfaces, and error/confirmation messaging by inspecting corresponding docs and codebase. If unknown, state assumptions.
+Clarify purpose, scope, layer(s), functional users, boundary, triggering events, objects of interest, data groups, external interfaces, and error or confirmation messaging by inspecting docs and code.
+If unknown, state assumptions explicitly.
 
 
 ## Fix granularity
 
-Measure at the functional process level of granularity.
+Measure at the functional-process level.
+One functional process has one triggering `Entry`.
 
 
 ## Map the work
 
-Identify functional users and a simple context. Derive functional processes from triggering events. One process has one triggering Entry.
+Identify functional users and triggering events, then derive functional processes.
+Use the same decomposition level across all compared processes.
 
 
 ## Model data
 
-List objects of interest. Group attributes into data groups. Rule: different frequency or different key(s) ⇒ different data groups.
+List objects of interest and group attributes into data groups.
+Rule: different frequency or different key(s) means different data groups.
+Model both persisted and boundary-crossing transient data groups if they participate in counted movements.
 
 
 ## Identify data movements per process
 
-Use `COSMIC` types: `Entry` (E), `Exit` (X), `Read` (R), `Write` (W). 
-Each distinct movement = 1 `CFP`. 
-Ignore UI control commands. 
-Count one `Exit` for all error/confirmation messages per process. 
-A process has ≥1 `Entry` and either an `Exit` or a `Write`.
+Use `COSMIC` movement types: `Entry` (E), `Exit` (X), `Read` (R), `Write` (W).
+Each distinct movement counts as `1 CFP`.
+
+Counting rules:
+- Count only movements crossing the measured boundary or storage/interface boundary.
+- Do not count pure in-memory transformations that do not cross a boundary.
+- Ignore UI control commands unless they carry business data groups across the measured boundary.
+- Count one `Exit` for all error or confirmation messaging per process.
+- A valid process has at least one `Entry` and at least one `Exit` or `Write`.
 
 
 ## Aggregate sizes
 
-`CFP` = Σ(E)+Σ(X)+Σ(R)+Σ(W). Sum processes only within the defined scope and at comparable decomposition and granularity.
+`CFP_total = Σ(E) + Σ(X) + Σ(R) + Σ(W)`.
+Aggregate only processes inside the defined scope and at comparable granularity.
+Do not double-count the same movement across phases or items.
 
 
-## Changes
+## Changes (enhancements)
 
-For enhancements, count added, modified, and deleted data movements; then aggregate per rules.
+Estimate enhancement delta from before and after process maps:
+- Added movement: `+1`.
+- Deleted movement: `+1` in change effort.
+- Modified movement: count as delete plus add (`+2`) unless the change is only naming with no boundary, data group, or movement-type change.
+
+Report both:
+- `CFP_total_after` for resulting size.
+- `CFP_delta` for implementation effort of the enhancement.
 
 
-## Output format
+## Map CFP to roadmap reasoning
 
-If explicitly requested to provide estimation evidence, follow this format:
+When a roadmap item needs `Reasoning: low|medium|high|xhigh`, map by `CFP_delta`:
+
+| CFP_delta | Reasoning |
+|-----------|-----------|
+| 1-3       | low       |
+| 4-8       | medium    |
+| 9-16      | high      |
+| 17+       | xhigh     |
+
+If an item is assumption-bound, shift one level right:
+`low->medium`, `medium->high`, `high->xhigh`, `xhigh->xhigh`.
+
+
+## Output contract
+
+Always provide at least:
+- `CFP_total_after` (or `CFP_total` for new work),
+- `CFP_delta` (for enhancements),
+- mapped `Reasoning`,
+- assumptions and open questions.
+
+If explicitly asked for evidence, provide this table:
 
 ```md
 | Functional process | E | X | R | W | CFP |
@@ -55,22 +94,22 @@ If explicitly requested to provide estimation evidence, follow this format:
 | ...                |   |   |   |   |     |
 | TOTAL              |   |   |   |   | N   |
 
-<short note of assumptions>
-
-<open questions if there are any>
+<delta summary, if enhancement>
+<short assumptions note>
+<open questions, if any>
 ```
 
 
-## Pseudocode aid (use when text is unclear)
+## Pseudocode aid (when text is unclear)
 
-If the future code is unclear, draft minimal pseudocode that makes `Entries`/`Exits`/`Reads`/`Writes` explicit, then count from it. 
-`COSMIC` permits sizing from available artefacts and design models.
+If future code is unclear, draft minimal pseudocode that makes `E/X/R/W` explicit, then count from it.
+`COSMIC` permits sizing from available artifacts and design models.
 
 ```yaml
 process <name>:
   trigger: Entry(<data group from <functional user>>)
-  reads:   Read(<data group[s] from persistent storage>)
-  writes:  Write(<data group[s] to persistent storage>)
+  reads:   Read(<data group[s] from storage or external interface>)
+  writes:  Write(<data group[s] to storage or external interface>)
   outputs: Exit(<data group[s] to <functional user>>)
   outputs: Exit(errors)   # one Exit covers all error/confirmation messages
 ```

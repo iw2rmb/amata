@@ -1,15 +1,15 @@
 # Deciding on Architecture
 
-When working on roadmaps or design docs, take these rules into account and enrich tasks/goals with actions required to align to these criterias.
+When working on roadmaps or design docs, apply these rules and enrich tasks/goals with concrete actions needed to satisfy them.
 
-Avoid mixing domains, overcomplexity, and ambigouty:
-- Keep files' and modules' domains distinctive.
-- Keep file, var, and module names to correspond their domains.
+Avoid mixing domains, over-complexity, and ambiguity:
+- Keep file and module domains distinct.
+- Keep file, variable, and module names aligned with their domains.
 - Prevent domain extension of the file or module without clear benefit.
-- 500+ LOC files and 100+ LOC functions consider to split.
+- Split files above 500 LOC and functions above 100 LOC unless there is a clear reason not to.
 
 Avoid race conditions by:
-- execution order determinism,
+- deterministic execution order,
 - execution independence.
 
 Prefer architecture-wide solutions over time-saving band-aids.
