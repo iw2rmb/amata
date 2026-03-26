@@ -7,6 +7,7 @@ Read and follow policies that correspond to the nature of the current task:
 - **Composing Roadmaps or Implementation Steps**: `~/.codex/policies/composing-roadmaps.md`
 - **Committing Codebase or Updating Documentation**: `~/.codex/policies/updating-documentation.md`
 - **Developing or Fixing**: `~/.codex/policies/developing.md`
+- **Developing TUI**: `~/.codex/policies/developing-tui.md`
 - **Deciding on Architecture**: `~/.codex/policies/deciding-on-architecture.md`
 
 Both in designing DD/roadmaps, and in development, **NO** backward compatibility is required, unless it explicitly stated by user.
