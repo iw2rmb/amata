@@ -17,7 +17,6 @@ Scope: <One short statement of boundary and intended outcome.>
 Documentation: <Relevant docs. Use design docs or roadmap docs for this subject, not both in the same item set.>
 
 - [ ] <n.n Item short title-summary>
-  - Repository: <repo name or `auto`>
   - Component: <Concrete modules/files/classes/functions/structs>
   - Assumptions: <Only for assumption-bound items; omit when none>
   - Implementation:
@@ -28,7 +27,7 @@ Documentation: <Relevant docs. Use design docs or roadmap docs for this subject,
     1. <One-liner test scenario 1>
     2. <One-liner test scenario 2>
     3. ...
-  - Reasoning: <Estimated implementation effort: low|medium|high|xhigh>
+  - Reasoning: <Estimated implementation effort: low|medium|high|xhigh (<CFP_Delta>)
 
 - [ ] <n.n Next item short title-summary>
 ...

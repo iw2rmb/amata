@@ -43,13 +43,14 @@ Required sections:
   - Each milestone must have:
     - Scope
     - Expected Results
-    - testable outcome
+    - Testable outcome
 10. Acceptance Criteria
   - State how correctness will be judged at the end.
 11. Risks
   - List concrete technical risks or likely failure modes.
 12. References
   - Cross-link related docs, roadmap items, research, and code.
+
 
 ## DD quality bar
 

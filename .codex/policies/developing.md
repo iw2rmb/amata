@@ -1,38 +1,53 @@
 # Development Policy
 
-Before writing a function:
-- Check for designated helpers to cover parts or entire function.
-- Check for similar function and consider to extend it or extract common ground into helper to reuse in both.
+## Core Principles
 
-When commiting:
-- Compose commit message from the current diff. 
-- Follow **Updating Documentation** policy: `.codex/policies/updating-documentation.md`.
+- Prefer reuse over creating new code. Extend or extract helpers when possible.
+- Keep code small and modular unless there is a clear justification otherwise.
+- Solve root causes instead of applying superficial fixes.
+- Optimize for clarity, maintainability, and minimal duplication.
+
+
+## Code Structure
+
+- Split files exceeding ~500 LOC.
+- Split functions exceeding ~100 LOC.
+- Before implementing:
+  - Check for existing helpers.
+  - Check for similar logic and consolidate.
+
+
+## Testing Guidelines
+
+- Use table-driven tests when inputs vary but structure is the same.
+- Maintain one canonical test per behavior path.
+- Avoid duplicate tests that do not add new assertions.
+- Group tests by behavior domain (e.g., validation, orchestration).
+- In negative tests:
+  - Assert both failure result and absence of side effects.
+- Use descriptive names encoding behavior and expected outcome.
+
+
+## Debugging and Fixing
+
+For non-trivial or unclear issues:
+
+1. Reproduce the issue programmatically in a realistic environment.
+2. If tooling is missing, create minimal tools to reproduce.
+3. Identify root cause.
+4. Validate the fix using the same reproduction method.
+
+Shortcut allowed when root cause is immediately obvious.
 
 
 ## Database Schema Development
 
-- Modifying schema:
-  - update initial migration instead of creating migration.
-  - update `CREATE` statements instead of `ALTER`/`DROP` statements.
-- Do **NOT** plan data migrations.
+- Modify initial migrations instead of creating new ones.
+- Update `CREATE` statements instead of using `ALTER` or `DROP`.
+- Do not plan or implement data migrations.
 
 
-## Writing Tests
+## Commit Practices
 
-- Prefer table-driven tests when setup and assertions are the same and only inputs or expected outcomes differ.
-- Keep one canonical test per behavior path; represent input variants as table rows, not separate top-level tests.
-- Group tests by behavior domain (validation, orchestration, state transitions) once a file grows beyond a few tests.
-- In negative tests, assert both the response and the absence of side effects (for example, store writes were not called).
-- Merge or remove tests that do not add a unique assertion beyond existing coverage.
-- Use test names that encode both behavior and expected outcome.
-- For test refactors, run focused targets first, then package-level tests.
-
-
-## Fixing
-
-- **ALWAYS** prefer find and solve the root cause over local fix.
-- For **EVERY** case, the algorithm is:
-  - repeat it programmatically in the environment and conditions that are as close to actual ones as possible;
-  - if there are no tools to do that: write them, if they buggy - fix them before continue;
-  - find the root cause;
-  - validate solution with that tool.
+- Base commit messages on actual diff.
+- Follow documentation update policy: `~/.codex/policies/updating-documentation.md`

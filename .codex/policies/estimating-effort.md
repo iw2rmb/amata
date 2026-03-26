@@ -52,14 +52,11 @@ Do not double-count the same movement across phases or items.
 
 ## Changes (enhancements)
 
+`CFP_delta` is implementation effort of the enhancement.
 Estimate enhancement delta from before and after process maps:
 - Added movement: `+1`.
 - Deleted movement: `+1` in change effort.
 - Modified movement: count as delete plus add (`+2`) unless the change is only naming with no boundary, data group, or movement-type change.
-
-Report both:
-- `CFP_total_after` for resulting size.
-- `CFP_delta` for implementation effort of the enhancement.
 
 
 ## Map CFP to roadmap reasoning
@@ -73,15 +70,10 @@ When a roadmap item needs `Reasoning: low|medium|high|xhigh`, map by `CFP_delta`
 | 9-16      | high      |
 | 17+       | xhigh     |
 
-If an item is assumption-bound, shift one level right:
-`low->medium`, `medium->high`, `high->xhigh`, `xhigh->xhigh`.
-
 
 ## Output contract
 
 Always provide at least:
-- `CFP_total_after` (or `CFP_total` for new work),
-- `CFP_delta` (for enhancements),
 - mapped `Reasoning`,
 - assumptions and open questions.
 
@@ -113,10 +105,3 @@ process <name>:
   outputs: Exit(<data group[s] to <functional user>>)
   outputs: Exit(errors)   # one Exit covers all error/confirmation messages
 ```
-
-
-## Reference
-
-- [Glossary](https://cosmic-sizing.org/cosmic-sizing/cosmic-glossary/)
-- [Methodology](https://cosmic-sizing.org/wp-content/uploads/2020/08/Measuring-software-size-v1.0-August-2020-1.pdf)
-- [Estimation](https://cosmic-sizing.org/cosmic-sizing/estimating-with-software-size/)
