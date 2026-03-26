@@ -12,6 +12,8 @@ Read and follow policies that correspond to the nature of the current task:
 
 Both in designing DD/roadmaps, and in development, **NO** backward compatibility is required, unless it explicitly stated by user.
 
+`README.md` in any folder in the codebase contains high-level explanations and should be read first.
+
 
 ## Documentation Folders Structure
 
@@ -20,3 +22,14 @@ In every project, follow convetion:
 - `research/` — research docs (what are options and how cool feature can possibly be).
 - `roadmap/` — decomposed plans/implementation notes (in what order what to implement).
 - `docs/` — actual state docs (how it works right now).
+
+
+### README.md
+
+Every folder that contains source code must have a `README.md` file with:
+- One-liner what this folder (module) is about.
+- One-liners for first-level folders and files.
+
+Updates in these `README.md` files must follow by updates in the codebase.
+
+If there is `README.md` and it contains information other than per file/folder one-liners, it must be renamed to it's subject and moved to `docs/` (decomposed if required).
