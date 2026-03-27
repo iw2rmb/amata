@@ -15,6 +15,16 @@ Both in designing DD/roadmaps, and in development, **NO** backward compatibility
 `README.md` in any folder in the codebase contains high-level explanations and should be read first.
 
 
+## Structured Output Runs
+
+When a run has a strict JSON schema response requirement:
+- Emit exactly one final schema-conformant answer. Do not send progress updates formatted as partial schema answers.
+- Do not encode progress text as synthetic `gaps` items.
+- Keep review scope tightly bounded to requested item files, acceptance criteria, and required verification commands.
+- Run long verification commands sequentially (not in parallel) to avoid orphaned tool calls.
+- Use per-command execution limits and fail fast: if verification cannot complete, return `ok=false` with an explicit actionable timeout gap.
+
+
 ## Documentation Folders Structure
 
 In every project, follow convetion:
