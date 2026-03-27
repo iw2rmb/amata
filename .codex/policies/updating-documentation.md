@@ -1,6 +1,19 @@
 # Updating Documentation Policy
 
-1. When committing, you **MUST** ensure corresponding docs are updated with the code diff taken into account.
+
+## README.md
+
+Every folder with source code must have a `README.md` file with:
+- One-liner what this folder (module) is about.
+- One-liners for first-level folders and files.
+- If `README.md` contains information other than per file/folder one-liners, extract that information to designated files in `docs/` (decompose if required).
+
+
+## Updating
+
+1. When committing:
+  - Ensure docs in docs/** are updated corresponding to changes.
+  - `README.md` updated in all folders touched.
 2. In `design/**` and `roadmap/**`, references to other design docs or roadmaps are allowed only for not-yet-implemented prerequisites. Do not use completed transient docs as long-lived explanations of current behavior.
 3. When updating documents in `docs/**`:
   - Explanations of shipped behavior, schemas, standards, instructions, difficult algorithms, decisions, and principles belong in `docs/**`. When design or roadmap text needs to explain current implementation, point to `docs/**`, not to completed design or roadmap history.

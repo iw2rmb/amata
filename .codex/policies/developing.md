@@ -49,5 +49,5 @@ Shortcut allowed when root cause is immediately obvious.
 
 ## Commit Practices
 
+- Follow documentation update policy: `~/.codex/policies/updating-documentation.md`.
 - Base commit messages on actual diff.
-- Follow documentation update policy: `~/.codex/policies/updating-documentation.md`
