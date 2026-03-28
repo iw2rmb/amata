@@ -4,19 +4,72 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
 
 type gitCLI struct{}
 
-func (gitCLI) stagePaths(ctx context.Context, repoRoot string, paths []string) error {
-	args := append([]string{"add", "-A", "--"}, paths...)
-	if _, err := runGitCommand(ctx, repoRoot, args...); err != nil {
-		return fmt.Errorf("stage included paths: %w", err)
+func (c gitCLI) stagePaths(ctx context.Context, repoRoot string, paths []string) ([]string, error) {
+	stageablePaths, err := c.resolveStageablePaths(ctx, repoRoot, paths)
+	if err != nil {
+		return nil, err
 	}
-	return nil
+	if len(stageablePaths) == 0 {
+		return []string{}, nil
+	}
+
+	args := append([]string{"add", "-A", "--"}, stageablePaths...)
+	if _, err := runGitCommand(ctx, repoRoot, args...); err != nil {
+		return nil, fmt.Errorf("stage included paths: %w", err)
+	}
+	return stageablePaths, nil
+}
+
+func (gitCLI) resolveStageablePaths(ctx context.Context, repoRoot string, paths []string) ([]string, error) {
+	stageablePaths := make([]string, 0, len(paths))
+	for _, path := range paths {
+		exists, err := pathExistsInWorktree(repoRoot, path)
+		if err != nil {
+			return nil, fmt.Errorf("check included path %q in worktree: %w", path, err)
+		}
+		if exists {
+			stageablePaths = append(stageablePaths, path)
+			continue
+		}
+
+		tracked, err := isPathTracked(ctx, repoRoot, path)
+		if err != nil {
+			return nil, fmt.Errorf("check included path %q in index: %w", path, err)
+		}
+		if tracked {
+			stageablePaths = append(stageablePaths, path)
+		}
+	}
+	return stageablePaths, nil
+}
+
+func pathExistsInWorktree(repoRoot string, path string) (bool, error) {
+	worktreePath := filepath.Join(repoRoot, filepath.FromSlash(path))
+	_, err := os.Stat(worktreePath)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
+}
+
+func isPathTracked(ctx context.Context, repoRoot string, path string) (bool, error) {
+	output, err := runGitCommand(ctx, repoRoot, "ls-files", "--", path)
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(string(output)) != "", nil
 }
 
 func (gitCLI) hasCachedDiff(ctx context.Context, repoRoot string, paths []string) (bool, error) {

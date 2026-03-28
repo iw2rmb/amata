@@ -105,17 +105,22 @@ func (c *Client) Commit(ctx context.Context, snapshot Snapshot, opts CommitOptio
 
 	result := CommitResult{
 		Committed: false,
-		Paths:     includedPaths,
+		Paths:     []string{},
 	}
 	if len(includedPaths) == 0 {
 		return result, nil
 	}
 
-	if err := c.cli.stagePaths(ctx, snapshot.Root, includedPaths); err != nil {
+	stageablePaths, err := c.cli.stagePaths(ctx, snapshot.Root, includedPaths)
+	if err != nil {
 		return CommitResult{}, err
 	}
+	result.Paths = stageablePaths
+	if len(stageablePaths) == 0 {
+		return result, nil
+	}
 
-	hasCachedDiff, err := c.cli.hasCachedDiff(ctx, snapshot.Root, includedPaths)
+	hasCachedDiff, err := c.cli.hasCachedDiff(ctx, snapshot.Root, stageablePaths)
 	if err != nil {
 		return CommitResult{}, err
 	}
@@ -123,7 +128,7 @@ func (c *Client) Commit(ctx context.Context, snapshot Snapshot, opts CommitOptio
 		return result, nil
 	}
 
-	commit, err := c.cli.commitPaths(ctx, snapshot.Root, opts.Message, opts.Body, includedPaths)
+	commit, err := c.cli.commitPaths(ctx, snapshot.Root, opts.Message, opts.Body, stageablePaths)
 	if err != nil {
 		return CommitResult{}, err
 	}

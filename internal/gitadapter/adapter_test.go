@@ -2,6 +2,7 @@ package gitadapter
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -154,6 +155,120 @@ func TestCommitIncludesBodyInDescription(t *testing.T) {
 	want := "engine: commit tracked changes\n\nline one\n\nline two"
 	if got != want {
 		t.Fatalf("commit message body = %q, want %q", got, want)
+	}
+}
+
+func TestCommitHandlesMissingIncludedPaths(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		setup         func(t *testing.T, repoDir string)
+		files         []string
+		wantCommitted bool
+		wantPaths     []string
+		verify        func(t *testing.T, repoDir string, result CommitResult)
+	}{
+		{
+			name: "commits remaining stageable paths",
+			setup: func(t *testing.T, repoDir string) {
+				t.Helper()
+				writeFile(t, filepath.Join(repoDir, "engine.txt"), "engine change\n")
+			},
+			files:         []string{"engine.txt", "internal/workflow/contracts/mods_spec.go"},
+			wantCommitted: true,
+			wantPaths:     []string{"engine.txt"},
+			verify: func(t *testing.T, repoDir string, _ CommitResult) {
+				t.Helper()
+				if got := runGit(t, repoDir, "show", "HEAD:engine.txt"); got != "engine change\n" {
+					t.Fatalf("HEAD engine.txt = %q, want committed content", got)
+				}
+			},
+		},
+		{
+			name:          "returns no-op when only missing paths remain",
+			files:         []string{"internal/workflow/contracts/mods_spec.go"},
+			wantCommitted: false,
+			wantPaths:     []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			repoDir := initRepository(t)
+			if tt.setup != nil {
+				tt.setup(t, repoDir)
+			}
+
+			client := New()
+			result, err := client.Commit(context.Background(), Snapshot{
+				IsRepo: true,
+				Root:   repoDir,
+				Files:  tt.files,
+			}, CommitOptions{
+				Message: "engine: commit tracked changes",
+			})
+			if err != nil {
+				t.Fatalf("commit repository changes: %v", err)
+			}
+
+			if result.Committed != tt.wantCommitted {
+				t.Fatalf("result.Committed = %v, want %v", result.Committed, tt.wantCommitted)
+			}
+			if !reflect.DeepEqual(result.Paths, tt.wantPaths) {
+				t.Fatalf("result.Paths = %#v, want %#v", result.Paths, tt.wantPaths)
+			}
+
+			if tt.wantCommitted {
+				if result.Commit == "" {
+					t.Fatalf("result.Commit = empty, want sha")
+				}
+			} else if result.Commit != "" {
+				t.Fatalf("result.Commit = %q, want empty", result.Commit)
+			}
+
+			if tt.verify != nil {
+				tt.verify(t, repoDir, result)
+			}
+		})
+	}
+}
+
+func TestCommitStagesTrackedDeletionWhenPathMissingFromWorktree(t *testing.T) {
+	t.Parallel()
+
+	repoDir := initRepository(t)
+	if err := os.Remove(filepath.Join(repoDir, "tracked.txt")); err != nil {
+		t.Fatalf("remove tracked file: %v", err)
+	}
+
+	client := New()
+	snapshot, err := client.Inspect(context.Background(), repoDir)
+	if err != nil {
+		t.Fatalf("inspect repository: %v", err)
+	}
+
+	result, err := client.Commit(context.Background(), snapshot, CommitOptions{
+		Message: "engine: remove tracked file",
+	})
+	if err != nil {
+		t.Fatalf("commit repository changes: %v", err)
+	}
+	if !result.Committed {
+		t.Fatalf("result.Committed = false, want true")
+	}
+
+	wantPaths := []string{"tracked.txt"}
+	if !reflect.DeepEqual(result.Paths, wantPaths) {
+		t.Fatalf("result.Paths = %#v, want %#v", result.Paths, wantPaths)
+	}
+
+	headFiles := strings.Fields(runGit(t, repoDir, "ls-tree", "--name-only", "-r", "HEAD"))
+	if contains(headFiles, "tracked.txt") {
+		t.Fatalf("HEAD files = %#v, want tracked.txt to be removed", headFiles)
 	}
 }
 

@@ -387,7 +387,8 @@ Behavior:
 - The typed Git adapter uses `go-git` for repo discovery and status inspection, with the Git CLI limited to the internal mutation path needed for staged path-scoped commits.
 - The step returns `value.committed`, `value.commit`, and `value.paths`.
 - When no included changed paths remain after filtering, the step succeeds with `value.committed: false`, `value.commit: null`, and `value.paths: []`.
-- When included paths remain but staging them produces no staged diff, the step succeeds with `value.committed: false`, `value.commit: null`, and `value.paths` set to the included repo-relative paths.
+- When included paths remain but no stageable paths are left after pathspec sanitization, the step succeeds with `value.committed: false`, `value.commit: null`, and `value.paths: []`.
+- When stageable paths remain but staging them produces no staged diff, the step succeeds with `value.committed: false`, `value.commit: null`, and `value.paths` set to staged repo-relative paths.
 
 ## Response Resolution and Schema Validation
 
