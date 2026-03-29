@@ -12,7 +12,7 @@ Read and follow policies that correspond to the nature of the current task:
 
 Both in designing DD/roadmaps, and in development, **NO** backward compatibility is required, unless it explicitly stated by user.
 
-Read `README.md` in any folder of interest.
+Use `contents.md` files in subfolders for fast navigation when present.
 
 
 ## Structured Output Runs

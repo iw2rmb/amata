@@ -3,9 +3,8 @@
 > - Use COSMIC-style granularity: one numbered implementation line equals one functional action with one observable outcome.
 > - Classify each roadmap item as either `determined` or `assumption-bound`.
 > - For `determined` items, name concrete repositories/components and concrete classes/functions/structs touched by each functional action.
-> - Keep all functional actions inside one item at the same detail level.
 > - For `assumption-bound` items, add an `Assumptions:` block with current best references and unresolved unknowns.
-> - For `assumption-bound` items, shift `Reasoning` one level to the right: low->medium, medium->high, high->xhigh, xhigh->xhigh.
+> - Keep all functional actions inside one item at the same detail level.
 > - Keep wording plain, precise, short, and direct.
 > - Do not add any new sections that are not expected by template.
 > - Omit this `Rules...` block in the resulting roadmap.

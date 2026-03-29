@@ -55,6 +55,9 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 	prompt := request.Prompt
 	args := []string{
 		"-p",
+		"--verbose",
+		"--output-format", "stream-json",
+		"--include-partial-messages",
 		"--permission-mode", "bypassPermissions",
 		"--model", request.Model,
 	}
@@ -63,19 +66,14 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 	}
 
 	structuredOutputMode := ""
-	useJSONOutputFormat := false
 	if request.Structured != nil {
 		if p.structuredOutputSupported {
-			args = append(args, "--output-format", "json", "--json-schema", request.Structured.JSON)
+			args = append(args, "--json-schema", request.Structured.JSON)
 			structuredOutputMode = "provider_schema"
-			useJSONOutputFormat = true
 		} else {
 			prompt = agent.StructuredPrompt(prompt, request.Structured.JSON)
 			structuredOutputMode = "prompt_fallback"
 		}
-	}
-	if !useJSONOutputFormat {
-		args = append(args, "--output-format", "text")
 	}
 
 	runCommand := func(runArgs []string, runPrompt string) (commandResult, error) {

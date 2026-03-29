@@ -325,11 +325,12 @@ Supported fields:
 Behavior:
 - `prompt`, `model`, `reasoning`, `cwd`, and `env` resolve through the shared expression/template runtime before execution.
 - `cwd` falls back to `defaults.cwd`, then `workspace.root`.
-- `claude -p --include-partial-messages --permission-mode bypassPermissions --model <model>` is invoked with the rendered prompt on stdin; output format remains `text` by default and switches to `json` when provider-side schema output is enabled.
-- When `response.schema` targets `value`, the executor uses Claude structured output support when available by passing `--output-format json` and `--json-schema`, and otherwise appends engine-owned JSON instructions before normalizing the returned JSON into `value`.
+- `claude -p --verbose --output-format stream-json --include-partial-messages --permission-mode bypassPermissions --model <model>` is invoked with the rendered prompt on stdin.
+- Claude step execution always requests structured output. When `response.schema` is provided it is passed through as `--json-schema`; otherwise the executor injects a default schema:
+  - `{"type":"object","additionalProperties":false,"required":["summary"],"properties":{"summary":{"type":"string","$comment":"One-liner summary"}}}`
 - Raw provider stdout, stderr, the rendered prompt, the final transcript, and provider metadata persist as step artifacts.
 - `stdout.txt` and `stderr.txt` are streamed to disk during execution so they are readable before the step completes.
-- Without `response.schema`, the step `value` is the raw final transcript text.
+- The step `value` is always resolved from structured output (`response.from` still controls downstream response resolution when explicitly set).
 
 ### `crush`
 

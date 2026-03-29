@@ -160,7 +160,7 @@ func TestExecutorResolvesDefaultsTemplatesAndPersistsArtifacts(t *testing.T) {
 	})
 }
 
-func TestExecutorOnlyRequestsStructuredOutputForResponseValue(t *testing.T) {
+func TestExecutorClaudeRequestsStructuredOutputEvenWhenResponseFromIsStdout(t *testing.T) {
 	t.Parallel()
 
 	step := spec.Step{
@@ -185,12 +185,14 @@ func TestExecutorOnlyRequestsStructuredOutputForResponseValue(t *testing.T) {
 	provider := &fakeProvider{
 		name: "claude",
 		execute: func(_ context.Context, request agent.Request) (agent.Response, *agent.Error) {
-			if request.Structured != nil {
-				t.Fatalf("structured output request should be disabled when response.from = stdout")
+			if request.Structured == nil {
+				t.Fatalf("structured output request missing for claude")
 			}
 			return agent.Response{
-				Transcript: []byte("free-form transcript"),
-				Stdout:     []byte("{\"approved\":true}"),
+				Value:      map[string]any{"approved": true},
+				HasValue:   true,
+				Transcript: []byte("{\"approved\":true}"),
+				Stdout:     []byte("{\"approved\":true}\n"),
 			}, nil
 		},
 	}
@@ -204,10 +206,49 @@ func TestExecutorOnlyRequestsStructuredOutputForResponseValue(t *testing.T) {
 	if result.Status != state.StepStatusSucceeded {
 		t.Fatalf("result status = %q, error = %#v", result.Status, result.Error)
 	}
-	if got := result.Value; got != "free-form transcript" {
-		t.Fatalf("value = %#v, want transcript fallback", got)
+	if !reflect.DeepEqual(result.Value, map[string]any{"approved": true}) {
+		t.Fatalf("value = %#v, want approved=true object", result.Value)
 	}
-	testutil.AssertFileContents(t, result.Artifacts.Stdout, "{\"approved\":true}")
+	testutil.AssertFileContents(t, result.Artifacts.Stdout, "{\"approved\":true}\n")
+}
+
+func TestExecutorClaudeDefaultsStructuredSchemaWhenResponseSchemaMissing(t *testing.T) {
+	t.Parallel()
+
+	step := spec.Step{
+		ID:   "default-schema",
+		Type: "claude",
+		Fields: map[string]any{
+			"prompt": "Summarize repository",
+		},
+	}
+
+	provider := &fakeProvider{
+		name: "claude",
+		execute: func(_ context.Context, request agent.Request) (agent.Response, *agent.Error) {
+			if request.Structured == nil {
+				t.Fatalf("structured output request missing for claude")
+			}
+			if !strings.Contains(request.Structured.JSON, `"summary"`) {
+				t.Fatalf("structured schema = %q, want summary field", request.Structured.JSON)
+			}
+			return agent.Response{
+				Value:      map[string]any{"summary": "one-liner"},
+				HasValue:   true,
+				Transcript: []byte("{\"summary\":\"one-liner\"}\n"),
+			}, nil
+		},
+	}
+
+	sc := newStepContext(t, step, withDocument(documentWithProviderDefaults("claude", "sonnet")))
+	result := agent.New(provider).Execute(context.Background(), sc)
+
+	if result.Status != state.StepStatusSucceeded {
+		t.Fatalf("result status = %q, error = %#v", result.Status, result.Error)
+	}
+	if !reflect.DeepEqual(result.Value, map[string]any{"summary": "one-liner"}) {
+		t.Fatalf("value = %#v, want summary object", result.Value)
+	}
 }
 
 func TestExecutorUsesSchemaFilePathForCodexStructuredOutput(t *testing.T) {
@@ -361,17 +402,17 @@ func TestExecutorReturnsInvalidProviderPayloadFailureAndPersistsArtifacts(t *tes
 				t.Fatalf("structured output request missing")
 			}
 			return agent.Response{
-				Prompt:     request.Prompt + "\n\nProvider attempted JSON output.",
-				Transcript: []byte("not-json"),
-				Stdout:     []byte("provider stdout\n"),
-				Stderr:     []byte("provider stderr\n"),
-				Metadata: map[string]any{
-					"structuredOutputMode": "provider_schema",
-				},
-			}, &agent.Error{
-				Code:    "invalid_provider_output",
-				Message: "structured output does not contain valid JSON",
-			}
+					Prompt:     request.Prompt + "\n\nProvider attempted JSON output.",
+					Transcript: []byte("not-json"),
+					Stdout:     []byte("provider stdout\n"),
+					Stderr:     []byte("provider stderr\n"),
+					Metadata: map[string]any{
+						"structuredOutputMode": "provider_schema",
+					},
+				}, &agent.Error{
+					Code:    "invalid_provider_output",
+					Message: "structured output does not contain valid JSON",
+				}
 		},
 	}
 
@@ -404,12 +445,16 @@ func TestExecutorFailsWithArtifactCaptureFailed(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		setup   func(t *testing.T, sc executor.StepContext)
-		execute func(t *testing.T, ctx context.Context, request agent.Request) (agent.Response, *agent.Error)
+		name     string
+		provider string
+		model    string
+		setup    func(t *testing.T, sc executor.StepContext)
+		execute  func(t *testing.T, ctx context.Context, request agent.Request) (agent.Response, *agent.Error)
 	}{
 		{
-			name: "stream_open_fails",
+			name:     "stream_open_fails",
+			provider: "codex",
+			model:    "gpt-5.4",
 			setup: func(t *testing.T, sc executor.StepContext) {
 				t.Helper()
 				stepDir := filepath.Join(sc.RunDir, "artifacts", "step-00-capture-fail")
@@ -427,7 +472,9 @@ func TestExecutorFailsWithArtifactCaptureFailed(t *testing.T) {
 			},
 		},
 		{
-			name: "stream_write_fails",
+			name:     "stream_write_fails",
+			provider: "claude",
+			model:    "sonnet",
 			execute: func(t *testing.T, _ context.Context, request agent.Request) (agent.Response, *agent.Error) {
 				f, ok := request.StdoutWriter.(*os.File)
 				if !ok {
@@ -445,18 +492,18 @@ func TestExecutorFailsWithArtifactCaptureFailed(t *testing.T) {
 
 			step := spec.Step{
 				ID:   "capture-fail",
-				Type: "claude",
+				Type: tt.provider,
 				Fields: map[string]any{
 					"prompt": "do something",
 				},
 			}
-			sc := newStepContext(t, step, withDocument(documentWithProviderDefaults("claude", "sonnet")))
+			sc := newStepContext(t, step, withDocument(documentWithProviderDefaults(tt.provider, tt.model)))
 			if tt.setup != nil {
 				tt.setup(t, sc)
 			}
 
 			provider := &fakeProvider{
-				name: "claude",
+				name: tt.provider,
 				execute: func(ctx context.Context, request agent.Request) (agent.Response, *agent.Error) {
 					return tt.execute(t, ctx, request)
 				},

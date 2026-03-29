@@ -20,6 +20,18 @@ type ResolvedStep struct {
 	Env       map[string]string
 }
 
+var defaultClaudeResponseSchema = map[string]any{
+	"type":                 "object",
+	"additionalProperties": false,
+	"required":             []any{"summary"},
+	"properties": map[string]any{
+		"summary": map[string]any{
+			"type":     "string",
+			"$comment": "One-liner summary",
+		},
+	},
+}
+
 func loadRequest(stepCtx executor.StepContext, providerName string, stepDir string) (Request, *Error) {
 	resolved, resolvedErr := ResolveStep(stepCtx, providerName)
 	if resolvedErr != nil {
@@ -222,22 +234,23 @@ func resolveEnv(stepCtx executor.StepContext, values ...any) (map[string]string,
 
 func loadStructuredOutput(stepCtx executor.StepContext, providerName string, stepDir string) (*StructuredOutput, *Error) {
 	responseValue, ok := stepCtx.Step.Fields["response"]
-	if !ok {
+	if !ok && providerName != "claude" {
 		return nil, nil
 	}
 
-	responseFields, ok := responseValue.(map[string]any)
-	if !ok {
-		return nil, &Error{
-			Code:    "invalid_response",
-			Message: "response must be a map",
+	responseFields := map[string]any{}
+	if ok {
+		var casted bool
+		responseFields, casted = responseValue.(map[string]any)
+		if !casted {
+			return nil, &Error{
+				Code:    "invalid_response",
+				Message: "response must be a map",
+			}
 		}
 	}
 
-	rawSchema, ok := responseFields["schema"]
-	if !ok {
-		return nil, nil
-	}
+	rawSchema, hasSchema := responseFields["schema"]
 
 	if rawFrom, ok := responseFields["from"]; ok {
 		from, ok := rawFrom.(string)
@@ -247,9 +260,16 @@ func loadStructuredOutput(stepCtx executor.StepContext, providerName string, ste
 				Message: "response.from must be a string",
 			}
 		}
-		if from != "value" {
+		if from != "value" && providerName != "claude" {
 			return nil, nil
 		}
+	}
+
+	if !hasSchema {
+		if providerName != "claude" {
+			return nil, nil
+		}
+		rawSchema = jsonutil.CloneValue(defaultClaudeResponseSchema)
 	}
 
 	document, jsonText, schemaPath, err := buildStructuredSchema(stepCtx, providerName, stepDir, rawSchema)
