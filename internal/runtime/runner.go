@@ -205,7 +205,8 @@ func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state
 
 		stepIndex := frame.NextStep
 		step := flow.Steps[stepIndex]
-		if snapshot, err = r.recordStepStartedEvent(store, reporter, config, frame.Flow, frame.ID, stepIndex, step, previous, frame.Bindings, lookup); err != nil {
+		startedExecutionLabel := stepExecutionLabel(snapshot.LastSequence+2, 1)
+		if snapshot, err = r.recordStepStartedEvent(store, reporter, config, frame.Flow, frame.ID, stepIndex, step, startedExecutionLabel, previous, frame.Bindings, lookup); err != nil {
 			return state.Snapshot{}, err
 		}
 

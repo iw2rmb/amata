@@ -231,6 +231,12 @@ func TestRunnerAgentExecutorStreamsThroughRealCapturePath(t *testing.T) {
 	// Confirm artifact file is readable while the agent executor is still running,
 	// exercising the agent.StreamCapture pre-creation contract.
 	stdoutPath := <-firstChunkReady
+	if len(events) < 2 || events[1].Kind != progress.EventStepStarted || events[1].Step == nil {
+		t.Fatalf("expected step_started event before first chunk, events = %d", len(events))
+	}
+	if events[1].Step.Artifacts.Stdout != stdoutPath {
+		t.Fatalf("step_started stdout path = %q, want %q", events[1].Step.Artifacts.Stdout, stdoutPath)
+	}
 	midRunData, err := os.ReadFile(stdoutPath)
 	if err != nil {
 		t.Fatalf("read stdout during agent execution: %v", err)

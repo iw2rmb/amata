@@ -75,6 +75,11 @@ func StepFromContext(stepCtx executor.StepContext) (Step, error) {
 		Type:   stepCtx.Step.ExecutorType(),
 		Status: StepStatusRunning,
 	}
+	if isAgentStepType(step.Type) && strings.TrimSpace(stepCtx.RunDir) != "" {
+		stepDir := executor.StepArtifactDir(stepCtx.RunDir, stepCtx.StepIndex, stepCtx.Step.ID, stepCtx.ExecutionLabel)
+		step.Artifacts.Stdout = filepath.Join(stepDir, "stdout.txt")
+		step.Artifacts.Stderr = filepath.Join(stepDir, "stderr.txt")
+	}
 
 	data, err := descriptorDataFromContext(stepCtx)
 	if err != nil {
@@ -552,4 +557,3 @@ func nonEmptyStrings(values ...string) []string {
 	}
 	return filtered
 }
-

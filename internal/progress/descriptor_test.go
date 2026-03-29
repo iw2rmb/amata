@@ -1,6 +1,7 @@
 package progress_test
 
 import (
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -418,9 +419,11 @@ func stepContext(document spec.Document, step spec.Step, params map[string]any) 
 	return executor.StepContext{
 		FlowName:  "main",
 		StepIndex: 0,
+		RunDir:    "/repo/.amata/runs/run-001",
 		Step:      step,
 		Spec:      document,
 		Workspace: workspaceConfig,
+		ExecutionLabel: "seq-000001-a01",
 		Runtime: exprruntime.NewRuntime(map[string]any{
 			"ctx": map[string]any{
 				"workspace": map[string]any{
@@ -431,5 +434,34 @@ func stepContext(document spec.Document, step spec.Step, params map[string]any) 
 				"prev":   nil,
 			},
 		}),
+	}
+}
+
+func TestStepFromContextAgentIncludesArtifactPaths(t *testing.T) {
+	t.Parallel()
+
+	step, err := progress.StepFromContext(stepContext(spec.Document{
+		Defaults: map[string]any{
+			"executors": map[string]any{
+				"codex": map[string]any{"model": "gpt-5.4"},
+			},
+		},
+	}, spec.Step{
+		ID:   "agent",
+		Type: "codex",
+		Fields: map[string]any{
+			"prompt": "test",
+		},
+	}, nil))
+	if err != nil {
+		t.Fatalf("StepFromContext: %v", err)
+	}
+
+	stepDir := executor.StepArtifactDir("/repo/.amata/runs/run-001", 0, "agent", "seq-000001-a01")
+	if step.Artifacts.Stdout != filepath.Join(stepDir, "stdout.txt") {
+		t.Fatalf("stdout artifact = %q", step.Artifacts.Stdout)
+	}
+	if step.Artifacts.Stderr != filepath.Join(stepDir, "stderr.txt") {
+		t.Fatalf("stderr artifact = %q", step.Artifacts.Stderr)
 	}
 }

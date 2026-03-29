@@ -3,6 +3,7 @@ package progress
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	glamour "charm.land/glamour/v2"
 	"charm.land/glamour/v2/ansi"
@@ -17,27 +18,61 @@ const (
 
 func renderAgentPromptDetails(step Step, descriptor StepDescriptor, options renderStepOptions) []string {
 	data := cloneDescriptorData(step.Descriptor)
+	showLastAction := step.Status == StepStatusRunning
+	wrap := agentPromptWordWrap(options)
 	if data == nil || len(data.DetailText) == 0 {
-		return appendAgentLastActionDetails(descriptor.DetailLines, options.agentOutput)
+		return appendAgentLastActionDetails(
+			step,
+			options.now,
+			descriptor.DetailLines,
+			options.agentOutput,
+			showLastAction,
+			wrap,
+			options.styles.colorize,
+		)
 	}
 
-	rendered, err := renderAgentPromptMarkdown(data.DetailText[0], agentPromptWordWrap(options))
+	rendered, err := renderAgentPromptMarkdown(data.DetailText[0], wrap)
 	if err != nil {
 		return descriptor.DetailLines
 	}
 	if options.styles.colorize {
-		return appendAgentLastActionDetails(rendered, options.agentOutput)
+		return appendAgentLastActionDetails(
+			step,
+			options.now,
+			rendered,
+			options.agentOutput,
+			showLastAction,
+			wrap,
+			true,
+		)
 	}
 
 	plain := make([]string, 0, len(rendered))
 	for _, line := range rendered {
 		plain = append(plain, strings.TrimRight(charmansi.Strip(line), " "))
 	}
-	return appendAgentLastActionDetails(plain, options.agentOutput)
+	return appendAgentLastActionDetails(
+		step,
+		options.now,
+		plain,
+		options.agentOutput,
+		showLastAction,
+		wrap,
+		false,
+	)
 }
 
-func appendAgentLastActionDetails(lines []string, summary *agentOutputSummary) []string {
-	if summary == nil || summary.LastAction == nil {
+func appendAgentLastActionDetails(
+	step Step,
+	now time.Time,
+	lines []string,
+	summary *agentOutputSummary,
+	enabled bool,
+	wrap int,
+	colorize bool,
+) []string {
+	if !enabled || summary == nil || summary.LastAction == nil {
 		return lines
 	}
 
@@ -46,14 +81,10 @@ func appendAgentLastActionDetails(lines []string, summary *agentOutputSummary) [
 	if eventType == "" {
 		eventType = "event"
 	}
-	action := fmt.Sprintf(
-		"%s %s Out: %s In: %s Cached: %s",
-		formatAgentEventElapsed(last.Elapsed),
-		eventType,
-		formatTokenCount(last.Tokens.Out),
-		formatTokenCount(last.Tokens.In),
-		formatTokenCount(last.Tokens.Cached),
-	)
+	action := eventType
+	if !isZeroUsage(last.Tokens) {
+		action = fmt.Sprintf("%s | %s", eventType, formatAgentTokenTriplet(last.Tokens))
+	}
 
 	content := strings.TrimSpace(last.Content)
 	if content == "" {
@@ -62,12 +93,34 @@ func appendAgentLastActionDetails(lines []string, summary *agentOutputSummary) [
 	if last.Italic {
 		content = "*" + content + "*"
 	}
+	renderedContent := renderAgentEventContentMarkdown(content, wrap, colorize)
 
 	details := append([]string{}, lines...)
 	details = append(details, "")
 	details = append(details, action)
-	details = append(details, content)
+	details = append(details, "")
+	details = append(details, renderedContent...)
 	return details
+}
+
+func renderAgentEventContentMarkdown(content string, wrap int, colorize bool) []string {
+	rendered, err := renderAgentPromptMarkdown(content, wrap)
+	if err != nil {
+		return []string{content}
+	}
+	// renderAgentPromptMarkdown prepends an empty line so prompt blocks start
+	// with vertical spacing; event content is already spaced by caller.
+	if len(rendered) > 0 && strings.TrimSpace(rendered[0]) == "" {
+		rendered = rendered[1:]
+	}
+	if colorize {
+		return rendered
+	}
+	plain := make([]string, 0, len(rendered))
+	for _, line := range rendered {
+		plain = append(plain, strings.TrimRight(charmansi.Strip(line), " "))
+	}
+	return plain
 }
 
 func renderAgentPromptMarkdown(markdown string, wrap int) ([]string, error) {

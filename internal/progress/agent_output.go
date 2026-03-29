@@ -28,35 +28,67 @@ type agentLastAction struct {
 type agentOutputSummary struct {
 	Totals     agentTokenUsage
 	LastAction *agentLastAction
+	LastEventAt time.Time
 }
 
 func summarizeAgentStepOutput(step Step) (agentOutputSummary, bool) {
-	stdout, hasStdout := readArtifactFile(step.Artifacts.Stdout)
-	stderr, hasStderr := readArtifactFile(step.Artifacts.Stderr)
+	stdout, stdoutMod, hasStdout := readArtifactFile(step.Artifacts.Stdout)
+	stderr, stderrMod, hasStderr := readArtifactFile(step.Artifacts.Stderr)
 	if !hasStdout && !hasStderr {
 		return agentOutputSummary{}, false
 	}
 
 	switch step.Type {
 	case "claude":
-		return summarizeClaudeOutput(stdout)
+		summary, ok := summarizeClaudeOutput(stdout)
+		if !ok {
+			return summary, ok
+		}
+		if summary.LastEventAt.IsZero() {
+			summary.LastEventAt = latestTime(stdoutMod, stderrMod)
+		}
+		return summary, ok
 	case "codex":
-		return summarizeCodexOutput(stdout, stderr)
+		summary, ok := summarizeCodexOutput(stdout, stderr)
+		if !ok {
+			return summary, ok
+		}
+		if summary.LastEventAt.IsZero() {
+			summary.LastEventAt = latestTime(stdoutMod, stderrMod)
+		}
+		return summary, ok
 	default:
 		return agentOutputSummary{}, false
 	}
 }
 
-func readArtifactFile(path string) ([]byte, bool) {
+func readArtifactFile(path string) ([]byte, time.Time, bool) {
 	path = strings.TrimSpace(path)
 	if path == "" {
-		return nil, false
+		return nil, time.Time{}, false
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, false
+		return nil, time.Time{}, false
 	}
-	return data, true
+	info, statErr := os.Stat(path)
+	if statErr != nil {
+		return data, time.Time{}, true
+	}
+	return data, info.ModTime().UTC(), true
+}
+
+func latestTime(values ...time.Time) time.Time {
+	latest := time.Time{}
+	for _, value := range values {
+		if value.IsZero() {
+			continue
+		}
+		if latest.IsZero() || value.After(latest) {
+			latest = value
+		}
+	}
+	return latest
 }
 
 func summarizeClaudeOutput(data []byte) (agentOutputSummary, bool) {
@@ -90,12 +122,20 @@ func summarizeClaudeOutput(data []byte) (agentOutputSummary, bool) {
 			hasFirstAt = true
 		}
 
+		if usages := tokenUsagesFromTokensFields(event); len(usages) > 0 {
+			for _, usage := range usages {
+				summary.Totals.In += usage.In
+				summary.Totals.Out += usage.Out
+				summary.Totals.Cached += usage.Cached
+				if usage.In > 0 || usage.Out > 0 || usage.Cached > 0 {
+					sawTokens = true
+				}
+			}
+		}
+
 		usage, replaceTotals, hasUsage := claudeTokenUsageFromEvent(event)
 		if !hasUsage {
-			if genericUsage, ok := tokenUsageFromTokensField(event); ok {
-				usage = genericUsage
-				hasUsage = true
-			}
+			usage = agentTokenUsage{}
 		}
 		if hasUsage {
 			if usage.In > 0 || usage.Out > 0 || usage.Cached > 0 {
@@ -125,6 +165,9 @@ func summarizeClaudeOutput(data []byte) (agentOutputSummary, bool) {
 			Content:   content,
 			Tokens:    usage,
 			Italic:    italic,
+		}
+		if okAt {
+			summary.LastEventAt = at
 		}
 		sawAction = true
 	}
@@ -195,12 +238,29 @@ func summarizeCodexJSONOutput(data []byte) (agentOutputSummary, bool) {
 
 		entryType, _ := stringField(entry, "type")
 		payload, _ := mapField(entry, "payload")
-		if usage, ok := tokenUsageFromTokensField(entry); ok {
-			summary.Totals.In += usage.In
-			summary.Totals.Out += usage.Out
-			summary.Totals.Cached += usage.Cached
-			if usage.In > 0 || usage.Out > 0 || usage.Cached > 0 {
-				sawTokens = true
+		if usageMap, _ := mapField(entry, "usage"); usageMap != nil {
+			if usage, ok := usageFromMap(usageMap); ok {
+				summary.Totals = usage
+				if usage.In > 0 || usage.Out > 0 || usage.Cached > 0 {
+					sawTokens = true
+				}
+			}
+		}
+		if usages := tokenUsagesFromTokensFields(entry); len(usages) > 0 {
+			for _, usage := range usages {
+				summary.Totals.In += usage.In
+				summary.Totals.Out += usage.Out
+				summary.Totals.Cached += usage.Cached
+				if usage.In > 0 || usage.Out > 0 || usage.Cached > 0 {
+					sawTokens = true
+				}
+			}
+		}
+		if action, ok := codexActionFromItemEntry(entry, at, okAt, firstAt, hasFirstAt); ok {
+			lastAction = action
+			hasAction = true
+			if okAt {
+				summary.LastEventAt = at
 			}
 		}
 
@@ -233,6 +293,9 @@ func summarizeCodexJSONOutput(data []byte) (agentOutputSummary, bool) {
 			if action, ok := codexActionFromEventMessage(payload, at, okAt, firstAt, hasFirstAt); ok {
 				lastAction = action
 				hasAction = true
+				if okAt {
+					summary.LastEventAt = at
+				}
 			}
 			continue
 		}
@@ -241,6 +304,9 @@ func summarizeCodexJSONOutput(data []byte) (agentOutputSummary, bool) {
 			if action, ok := codexActionFromResponseItem(payload, at, okAt, firstAt, hasFirstAt); ok {
 				lastAction = action
 				hasAction = true
+				if okAt {
+					summary.LastEventAt = at
+				}
 			}
 		}
 	}
@@ -453,6 +519,38 @@ func codexActionFromResponseItem(payload map[string]any, at time.Time, okAt bool
 	}
 }
 
+func codexActionFromItemEntry(entry map[string]any, at time.Time, okAt bool, firstAt time.Time, hasFirstAt bool) (agentLastAction, bool) {
+	entryType, _ := stringField(entry, "type")
+	if entryType != "item.started" && entryType != "item.completed" {
+		return agentLastAction{}, false
+	}
+
+	item, _ := mapField(entry, "item")
+	if item == nil {
+		return agentLastAction{}, false
+	}
+	itemType, _ := stringField(item, "type")
+	if itemType != "command_execution" {
+		return agentLastAction{}, false
+	}
+
+	command, _ := stringField(item, "command")
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return agentLastAction{}, false
+	}
+
+	elapsed := time.Duration(0)
+	if hasFirstAt && okAt {
+		elapsed = at.Sub(firstAt)
+	}
+	return agentLastAction{
+		Elapsed:   elapsed,
+		EventType: "Bash",
+		Content:   command,
+	}, true
+}
+
 func claudeEventDescription(event map[string]any) (string, string, bool) {
 	content, ok := claudeContentBlocks(event)
 	if !ok || len(content) == 0 {
@@ -464,31 +562,48 @@ func claudeEventDescription(event map[string]any) (string, string, bool) {
 		}
 		return "", "", false
 	}
-	first, ok := content[0].(map[string]any)
-	if !ok {
-		return "", "", false
-	}
-
-	contentType, _ := stringField(first, "type")
-	switch contentType {
-	case "tool_use":
-		name, _ := stringField(first, "name")
-		eventType := strings.TrimSpace(name)
-		if eventType == "" {
-			eventType = "tool_use"
+	var bestType string
+	var bestContent string
+	var bestItalic bool
+	for _, block := range content {
+		current, ok := block.(map[string]any)
+		if !ok {
+			continue
 		}
-		input, _ := mapField(first, "input")
-		return eventType, toolContent(eventType, input), false
-	case "thinking":
-		thinking, _ := stringField(first, "thinking")
-		return "thinking", thinking, true
-	default:
-		text, _ := stringField(first, "text")
-		if text == "" {
-			text = contentType
+		contentType, _ := stringField(current, "type")
+		switch contentType {
+		case "tool_use":
+			name, _ := stringField(current, "name")
+			eventType := strings.TrimSpace(name)
+			if eventType == "" {
+				eventType = "tool_use"
+			}
+			input, _ := mapField(current, "input")
+			bestType = eventType
+			bestContent = toolContent(eventType, input)
+			bestItalic = false
+		case "thinking":
+			thinking, _ := stringField(current, "thinking")
+			if strings.TrimSpace(thinking) == "" {
+				thinking = "thinking"
+			}
+			bestType = "thinking"
+			bestContent = thinking
+			bestItalic = true
+		default:
+			text, _ := stringField(current, "text")
+			if text == "" {
+				text = contentType
+			}
+			if strings.TrimSpace(text) == "" {
+				continue
+			}
+			bestType = contentType
+			bestContent = text
+			bestItalic = false
 		}
-		return contentType, text, false
 	}
+	return bestType, bestContent, bestItalic
 }
 
 func claudeContentBlocks(event map[string]any) ([]any, bool) {
@@ -584,40 +699,52 @@ func usageFromMap(source map[string]any) (agentTokenUsage, bool) {
 	}, true
 }
 
-func tokenUsageFromTokensField(event map[string]any) (agentTokenUsage, bool) {
+func tokenUsagesFromTokensFields(event map[string]any) []agentTokenUsage {
 	if event == nil {
-		return agentTokenUsage{}, false
+		return nil
 	}
-	raw, ok := findNestedField(event, "tokens")
-	if !ok {
-		return agentTokenUsage{}, false
+	raw := findAllNestedFields(event, "tokens")
+	if len(raw) == 0 {
+		return nil
 	}
-	tokens, ok := raw.(map[string]any)
-	if !ok {
-		return agentTokenUsage{}, false
+	usage := make([]agentTokenUsage, 0, len(raw))
+	for _, item := range raw {
+		switch typed := item.(type) {
+		case map[string]any:
+			if parsed, ok := usageFromMap(typed); ok {
+				usage = append(usage, parsed)
+			}
+		case []any:
+			for _, nested := range typed {
+				nestedMap, ok := nested.(map[string]any)
+				if !ok {
+					continue
+				}
+				if parsed, ok := usageFromMap(nestedMap); ok {
+					usage = append(usage, parsed)
+				}
+			}
+		}
 	}
-	return usageFromMap(tokens)
+	return usage
 }
 
-func findNestedField(value any, key string) (any, bool) {
+func findAllNestedFields(value any, key string) []any {
+	found := []any{}
 	switch typed := value.(type) {
 	case map[string]any:
 		if direct, ok := typed[key]; ok {
-			return direct, true
+			found = append(found, direct)
 		}
 		for _, nested := range typed {
-			if found, ok := findNestedField(nested, key); ok {
-				return found, true
-			}
+			found = append(found, findAllNestedFields(nested, key)...)
 		}
 	case []any:
 		for _, nested := range typed {
-			if found, ok := findNestedField(nested, key); ok {
-				return found, true
-			}
+			found = append(found, findAllNestedFields(nested, key)...)
 		}
 	}
-	return nil, false
+	return found
 }
 
 func toolEventTypeAndContent(name string, rawInput string) (string, string) {
@@ -676,17 +803,21 @@ func toolContent(eventType string, input map[string]any) string {
 }
 
 func formatAgentTokenSummary(base string, totals agentTokenUsage) string {
-	suffix := fmt.Sprintf(
-		"Out: %s In: %s Cached: %s",
-		formatTokenCount(totals.Out),
-		formatTokenCount(totals.In),
-		formatTokenCount(totals.Cached),
-	)
+	suffix := formatAgentTokenTriplet(totals)
 	base = strings.TrimSpace(base)
 	if base == "" {
 		return suffix
 	}
-	return base + "  " + suffix
+	return base + " | " + suffix
+}
+
+func formatAgentTokenTriplet(usage agentTokenUsage) string {
+	return fmt.Sprintf(
+		"🢁%s 🢃%s 🢃🢃%s",
+		formatTokenCount(usage.Out),
+		formatTokenCount(usage.In),
+		formatTokenCount(usage.Cached),
+	)
 }
 
 func formatTokenCount(value int) string {
@@ -719,10 +850,14 @@ func formatAgentEventElapsed(elapsed time.Duration) string {
 	if elapsed < 0 {
 		elapsed = 0
 	}
-	minutes := int(elapsed / time.Minute)
-	hours := minutes / 60
-	remainingMinutes := minutes % 60
-	return fmt.Sprintf("%02d:%02d", hours, remainingMinutes)
+	totalSeconds := int(elapsed.Round(time.Second).Seconds())
+	hours := totalSeconds / 3600
+	minutes := (totalSeconds % 3600) / 60
+	seconds := totalSeconds % 60
+	if hours > 0 {
+		return fmt.Sprintf("%d:%02d:%02d", hours, minutes, seconds)
+	}
+	return fmt.Sprintf("%02d:%02d", minutes, seconds)
 }
 
 func parseEventTimestamp(event map[string]any) (time.Time, bool) {

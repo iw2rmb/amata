@@ -68,14 +68,14 @@ func TestSummarizeClaudeOutputAndRenderBlock(t *testing.T) {
 		width: 120,
 	}, newStreamStyles(false))
 
-	if !strings.Contains(block, "claude claude-sonnet-4-5:high Out: 10 In: 30 Cached: 10") {
+	if !strings.Contains(block, "claude claude-sonnet-4-5:high | 🢁10 🢃30 🢃🢃10") {
 		t.Fatalf("block = %q, want summed token summary in headline", block)
 	}
-	if !strings.Contains(block, "00:07 Bash Out: 6 In: 20 Cached: 5") {
-		t.Fatalf("block = %q, want last action line with per-event tokens", block)
+	if strings.Contains(block, "Bash | 🢁6 🢃20 🢃🢃5") {
+		t.Fatalf("block = %q, should not render last action line for completed step", block)
 	}
-	if !strings.Contains(block, "ls -la") {
-		t.Fatalf("block = %q, want last action content", block)
+	if strings.Contains(block, "ls -la") {
+		t.Fatalf("block = %q, should not render last action content for completed step", block)
 	}
 }
 
@@ -117,14 +117,14 @@ func TestSummarizeCodexOutputAndRenderBlock(t *testing.T) {
 		width: 120,
 	}, newStreamStyles(false))
 
-	if !strings.Contains(block, "codex gpt-5.4:high Out: 30 In: 120 Cached: 110") {
+	if !strings.Contains(block, "codex gpt-5.4:high | 🢁30 🢃120 🢃🢃110") {
 		t.Fatalf("block = %q, want total token summary in headline", block)
 	}
-	if !strings.Contains(block, "00:02 Bash Out: 3 In: 12 Cached: 11") {
-		t.Fatalf("block = %q, want last action token line", block)
+	if strings.Contains(block, "Bash | 🢁3 🢃12 🢃🢃11") {
+		t.Fatalf("block = %q, should not render last action line for completed step", block)
 	}
-	if !strings.Contains(block, "pwd") {
-		t.Fatalf("block = %q, want command content", block)
+	if strings.Contains(block, "pwd") {
+		t.Fatalf("block = %q, should not render command content for completed step", block)
 	}
 }
 
@@ -173,14 +173,14 @@ func TestSummarizeCodexStderrFallbackAndRenderBlock(t *testing.T) {
 		width: 120,
 	}, newStreamStyles(false))
 
-	if !strings.Contains(block, "codex gpt-5.4:high Out: 0 In: 11.5k Cached: 0") {
+	if !strings.Contains(block, "codex gpt-5.4:high | 🢁0 🢃11.5k 🢃🢃0") {
 		t.Fatalf("block = %q, want token summary from stderr fallback", block)
 	}
-	if !strings.Contains(block, "00:00 Bash Out: 0 In: 11.5k Cached: 0") {
-		t.Fatalf("block = %q, want last action line from stderr fallback", block)
+	if strings.Contains(block, "Bash | 🢁0 🢃11.5k 🢃🢃0") {
+		t.Fatalf("block = %q, should not render last action line for completed step", block)
 	}
-	if !strings.Contains(block, "/bin/zsh -lc 'pwd'") {
-		t.Fatalf("block = %q, want parsed command content", block)
+	if strings.Contains(block, "/bin/zsh -lc 'pwd'") {
+		t.Fatalf("block = %q, should not render command content for completed step", block)
 	}
 }
 
@@ -218,13 +218,113 @@ func TestSummarizeClaudeResultEnvelopeAndRenderBlock(t *testing.T) {
 		width: 120,
 	}, newStreamStyles(false))
 
-	if !strings.Contains(block, "claude claude-sonnet-4-6:high Out: 3.5k In: 18 Cached: 496.9k") {
+	if !strings.Contains(block, "claude claude-sonnet-4-6:high | 🢁3.5k 🢃18 🢃🢃496.9k") {
 		t.Fatalf("block = %q, want total token summary from result envelope", block)
 	}
-	if !strings.Contains(block, "00:00 result Out: 3.5k In: 18 Cached: 496.9k") {
-		t.Fatalf("block = %q, want result last action line", block)
+	if strings.Contains(block, "result | 🢁3.5k 🢃18 🢃🢃496.9k") {
+		t.Fatalf("block = %q, should not render last action line for completed step", block)
 	}
-	if !strings.Contains(block, "end_turn") {
-		t.Fatalf("block = %q, want stop reason content", block)
+	if strings.Contains(block, "end_turn") {
+		t.Fatalf("block = %q, should not render stop reason content for completed step", block)
+	}
+}
+
+func TestSummarizeCodexModernEventStreamAndRenderBlock(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	stdoutPath := filepath.Join(tempDir, "stdout.txt")
+	content := strings.Join([]string{
+		`{"timestamp":"2026-03-29T10:00:00Z","type":"thread.started","thread_id":"tid-1"}`,
+		`{"timestamp":"2026-03-29T10:01:00Z","type":"item.started","item":{"id":"item_2","type":"command_execution","command":"/bin/zsh -lc \"pwd\"","status":"in_progress"}}`,
+		`{"timestamp":"2026-03-29T10:02:00Z","type":"item.completed","item":{"id":"item_2","type":"command_execution","command":"/bin/zsh -lc \"pwd\"","status":"completed"}}`,
+		`{"timestamp":"2026-03-29T10:03:00Z","type":"turn.completed","usage":{"input_tokens":31506,"cached_input_tokens":4864,"output_tokens":595}}`,
+	}, "\n")
+	if err := os.WriteFile(stdoutPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write stdout: %v", err)
+	}
+
+	startedAt := time.Date(2026, time.March, 29, 10, 0, 0, 0, time.UTC)
+	finishedAt := startedAt.Add(9 * time.Second)
+
+	block := blockForEvent(Event{
+		Kind: EventStepFinished,
+		Step: &Step{
+			Type:       "codex",
+			Status:     StepStatusSucceeded,
+			StartedAt:  startedAt,
+			FinishedAt: finishedAt,
+			Artifacts: Artifacts{
+				Stdout: stdoutPath,
+			},
+			Descriptor: &DescriptorData{
+				PrimaryText: "gpt-5.3-codex:low",
+				DetailText:  []string{"Implement feature X."},
+			},
+		},
+		Snapshot: Snapshot{},
+	}, streamRenderSettings{
+		now:   func() time.Time { return finishedAt },
+		width: 120,
+	}, newStreamStyles(false))
+
+	if !strings.Contains(block, "codex gpt-5.3-codex:low | 🢁595 🢃31.5k 🢃🢃4.9k") {
+		t.Fatalf("block = %q, want token summary from turn.completed usage", block)
+	}
+	if strings.Contains(block, "Bash | 🢁0 🢃0 🢃🢃0") {
+		t.Fatalf("block = %q, should not render last action line for completed step", block)
+	}
+	if strings.Contains(block, "/bin/zsh -lc \"pwd\"") {
+		t.Fatalf("block = %q, should not render command content for completed step", block)
+	}
+}
+
+func TestRenderRunningAgentShowsLastActionBelowPrompt(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	stdoutPath := filepath.Join(tempDir, "stdout.txt")
+	content := strings.Join([]string{
+		`{"timestamp":"2026-03-29T10:00:00Z","type":"item.started","item":{"id":"item_2","type":"command_execution","command":"/bin/zsh -lc \"pwd\"","status":"in_progress"}}`,
+		`{"timestamp":"2026-03-29T10:03:00Z","type":"turn.completed","usage":{"input_tokens":31506,"cached_input_tokens":4864,"output_tokens":595}}`,
+	}, "\n")
+	if err := os.WriteFile(stdoutPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write stdout: %v", err)
+	}
+
+	startedAt := time.Date(2026, time.March, 29, 10, 0, 0, 0, time.UTC)
+	now := startedAt.Add(9 * time.Second)
+
+	block := blockForEvent(Event{
+		Kind: EventStepStarted,
+		Step: &Step{
+			Type:      "codex",
+			Status:    StepStatusRunning,
+			StartedAt: startedAt,
+			Artifacts: Artifacts{
+				Stdout: stdoutPath,
+			},
+			Descriptor: &DescriptorData{
+				PrimaryText: "gpt-5.3-codex:low",
+				DetailText:  []string{"Implement feature X."},
+			},
+		},
+		Snapshot: Snapshot{},
+	}, streamRenderSettings{
+		now:   func() time.Time { return now },
+		width: 120,
+	}, newStreamStyles(false))
+
+	if !strings.Contains(block, "codex gpt-5.3-codex:low | 🢁595 🢃31.5k 🢃🢃4.9k") {
+		t.Fatalf("block = %q, want token summary while running", block)
+	}
+	if !strings.Contains(block, "Bash") {
+		t.Fatalf("block = %q, want running tool line", block)
+	}
+	if strings.Contains(block, "Bash | 🢁0 🢃0 🢃🢃0") {
+		t.Fatalf("block = %q, should not render empty token triplet", block)
+	}
+	if !strings.Contains(block, "/bin/zsh -lc \"pwd\"") {
+		t.Fatalf("block = %q, want last action content while running", block)
 	}
 }

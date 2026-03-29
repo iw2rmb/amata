@@ -218,7 +218,8 @@ func (r *Runner) reportStallRerunProgress(
 	}
 	reporter.StepFinished(failedStep)
 
-	rerunStep := progressStep(config, flowName, stepIndex, step, previous, bindings, lookup)
+	rerunExecutionLabel := stepExecutionLabel(snapshot.LastSequence+1, nextAttempt)
+	rerunStep := progressStep(config, flowName, stepIndex, step, rerunExecutionLabel, previous, bindings, lookup)
 	if rerunStep.Descriptor == nil {
 		rerunStep.Descriptor = &progress.DescriptorData{}
 	}

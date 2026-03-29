@@ -12,8 +12,6 @@ Read and follow policies that correspond to the nature of the current task:
 
 Both in designing DD/roadmaps, and in development, **NO** backward compatibility is required, unless it explicitly stated by user.
 
-Use `contents.md` files in subfolders for fast navigation when present.
-
 
 ## Structured Output Runs
 
@@ -32,3 +30,14 @@ In every project, follow convetion:
 - `research/` — research docs (what are options and how cool feature can possibly be).
 - `roadmap/` — decomposed plans/implementation notes (in what order what to implement).
 - `docs/` — actual state docs (how it works right now).
+
+
+## contents.md
+
+File `contents.md` in any folder contains a list of first-level git tracked files and folders in that folder with a meaningful summary per entity.
+It is guaranteed that content of any `contents.md` is actual: they updated on every commit automatically.
+Use `contents.md` as primary tool to reduce tokens burn and prevent context bloat with content of files that are not relevant.
+
+When and how to use them effectively: 
+- When navigating/investigating codebase, always check for `contents.md` and read it if found first: for fast navigation and to reduce need of reading entire files.
+- When looking for pattern, files or folders, always try first to search only in `contents.md` files using command: `git grep -i "{pattern}" -- "**/contents.md"`

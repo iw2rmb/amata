@@ -384,7 +384,9 @@ func renderStepBlock(step Step, options renderStepOptions) string {
 	if isAgentStepType(step.Type) {
 		if summary, ok := summarizeAgentStepOutput(step); ok {
 			options.agentOutput = &summary
-			descriptor.PrimaryText = formatAgentTokenSummary(descriptor.PrimaryText, summary.Totals)
+			if !summaryHasNoTokens(summary) {
+				descriptor.PrimaryText = formatAgentTokenSummary(descriptor.PrimaryText, summary.Totals)
+			}
 		}
 	}
 
