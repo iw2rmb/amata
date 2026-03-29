@@ -34,10 +34,10 @@ In every project, follow convetion:
 
 ## contents.md
 
-File `contents.md` in any folder contains a list of first-level git tracked files and folders in that folder with a meaningful summary per entity.
-It is guaranteed that content of any `contents.md` is actual: they updated on every commit automatically.
-Use `contents.md` as primary tool to reduce tokens burn and prevent context bloat with content of files that are not relevant.
+File `contents.md` in any folder contains meanignful one-liner summaries for every first-level git tracked entity in that folder.
+Prefer search over `contents.md`s to prevent context bloat with entire contents of files.
+Content of `contents.md`s is kept actual via automatic updates on every commit.
 
-When and how to use them effectively: 
-- When navigating/investigating codebase, always check for `contents.md` and read it if found first: for fast navigation and to reduce need of reading entire files.
-- When looking for pattern, files or folders, always try first to search only in `contents.md` files using command: `git grep -i "{pattern}" -- "**/contents.md"`
+When and how to use it effectively: 
+- Start any search with `git grep -i "{pattern}" -- "**/contents.md"`.
+- Only when you find no match in `contents.md`s, use `rg` over files' contents.

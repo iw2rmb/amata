@@ -1,6 +1,7 @@
 package schema_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/iw2rmb/amata/internal/schema"
@@ -87,48 +88,65 @@ func TestProviderDocumentExpandsTopLevelWorkflowRef(t *testing.T) {
 	}
 }
 
-func TestProviderDocumentRejectsUnsupportedProviderKeywords(t *testing.T) {
+func TestProviderDocumentRejectsInvalidSchemas(t *testing.T) {
 	t.Parallel()
 
-	_, err := schema.ProviderDocument(map[string]any{
-		"$ref": "#/schemas/selected_value",
-	}, map[string]any{
-		"selected_value": map[string]any{
-			"type":                 "object",
-			"required":             []any{"selected"},
-			"additionalProperties": false,
-			"allOf": []any{
-				map[string]any{
-					"if": map[string]any{
-						"properties": map[string]any{
-							"selected": map[string]any{"const": "x"},
+	testCases := []struct {
+		name            string
+		schema          any
+		schemas         map[string]any
+		wantErrContains string
+	}{
+		{
+			name: "unsupported provider keywords",
+			schema: map[string]any{
+				"$ref": "#/schemas/selected_value",
+			},
+			schemas: map[string]any{
+				"selected_value": map[string]any{
+					"type":                 "object",
+					"required":             []any{"selected"},
+					"additionalProperties": false,
+					"allOf": []any{
+						map[string]any{
+							"if": map[string]any{
+								"properties": map[string]any{
+									"selected": map[string]any{"const": "x"},
+								},
+							},
+							"then": map[string]any{
+								"required": []any{"selected"},
+							},
 						},
 					},
-					"then": map[string]any{
-						"required": []any{"selected"},
+					"properties": map[string]any{
+						"selected": map[string]any{"$ref": "#/schemas/selection_name"},
 					},
 				},
+				"selection_name": "string",
 			},
-			"properties": map[string]any{
-				"selected": map[string]any{"$ref": "#/schemas/selection_name"},
-			},
+			wantErrContains: `does not support "allOf"`,
 		},
-		"selection_name": "string",
-	})
-	if err == nil {
-		t.Fatalf("expected provider document error")
+		{
+			name:            "non-object top level",
+			schema:          "string",
+			wantErrContains: "object",
+		},
 	}
-	if got := err.Error(); got != `codex structured output schema does not support "allOf" at #/$defs/workflow:selected_value/allOf` {
-		t.Fatalf("provider document error = %q", got)
-	}
-}
 
-func TestProviderDocumentRejectsNonObjectTopLevelSchema(t *testing.T) {
-	t.Parallel()
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	_, err := schema.ProviderDocument("string", nil)
-	if err == nil {
-		t.Fatalf("expected provider document error")
+			_, err := schema.ProviderDocument(tc.schema, tc.schemas)
+			if err == nil {
+				t.Fatalf("expected provider document error")
+			}
+			if !strings.Contains(err.Error(), tc.wantErrContains) {
+				t.Fatalf("error = %q, want %q", err, tc.wantErrContains)
+			}
+		})
 	}
 }
 

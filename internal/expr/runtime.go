@@ -26,6 +26,7 @@ func (r Runtime) Eval(expression string) (any, error) {
 		return nil, err
 	}
 
+	expression = normalizeExpressionShorthand(expression)
 	value, err := starlark.Eval(&starlark.Thread{Name: "expr"}, "<expr>", expression, globals)
 	if err != nil {
 		return nil, err
@@ -106,12 +107,19 @@ func (r Runtime) resolveString(value string) (any, error) {
 		return value[1:], nil
 	}
 	if strings.HasPrefix(value, "$.") {
-		return r.Eval("ctx" + strings.TrimPrefix(value, "$"))
+		return r.Eval(value)
 	}
 	if strings.Contains(value, "{{") {
 		return templateapi.Render(value, r.Eval)
 	}
 	return value, nil
+}
+
+func normalizeExpressionShorthand(expression string) string {
+	if strings.HasPrefix(expression, "$.") {
+		return "ctx" + strings.TrimPrefix(expression, "$")
+	}
+	return expression
 }
 
 func expressionString(value map[string]any) (string, bool, error) {

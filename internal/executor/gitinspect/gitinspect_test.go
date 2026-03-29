@@ -18,68 +18,86 @@ import (
 	"github.com/iw2rmb/amata/internal/workspace"
 )
 
-func TestExecutorReturnsTypedSnapshot(t *testing.T) {
+func TestExecutorSnapshotCases(t *testing.T) {
 	t.Parallel()
 
-	result := gitinspect.NewWithService(fakeInspectService{
-		snapshot: gitadapter.Snapshot{
-			IsRepo:  true,
-			HasDiff: true,
-			Files:   []string{"tracked.txt", "notes/todo.txt"},
-		},
-	}).Execute(context.Background(), executor.StepContext{
-		Workspace: workspace.Config{Root: "/repo"},
-		StepIndex: 2,
-		Step: spec.Step{
-			Type: "git.inspect",
-			Fields: map[string]any{
-				"cwd": "notes",
+	testCases := []struct {
+		name      string
+		executor  func(t *testing.T) executor.Executor
+		stepCtx   func(t *testing.T) executor.StepContext
+		wantValue map[string]any
+	}{
+		{
+			name: "returns typed snapshot from fake service",
+			executor: func(_ *testing.T) executor.Executor {
+				return gitinspect.NewWithService(fakeInspectService{
+					snapshot: gitadapter.Snapshot{
+						IsRepo:  true,
+						HasDiff: true,
+						Files:   []string{"tracked.txt", "notes/todo.txt"},
+					},
+				})
+			},
+			stepCtx: func(_ *testing.T) executor.StepContext {
+				return executor.StepContext{
+					Workspace: workspace.Config{Root: "/repo"},
+					StepIndex: 2,
+					Step: spec.Step{
+						Type: "git.inspect",
+						Fields: map[string]any{
+							"cwd": "notes",
+						},
+					},
+					Runtime: exprruntime.NewRuntime(map[string]any{}),
+				}
+			},
+			wantValue: map[string]any{
+				"isRepo":  true,
+				"hasDiff": true,
+				"files":   []string{"tracked.txt", "notes/todo.txt"},
 			},
 		},
-		Runtime: exprruntime.NewRuntime(map[string]any{}),
-	})
-
-	if result.Status != state.StepStatusSucceeded {
-		t.Fatalf("result.Status = %q, want %q", result.Status, state.StepStatusSucceeded)
-	}
-
-	want := map[string]any{
-		"isRepo":  true,
-		"hasDiff": true,
-		"files":   []string{"tracked.txt", "notes/todo.txt"},
-	}
-	if !reflect.DeepEqual(result.Value, want) {
-		t.Fatalf("result.Value = %#v, want %#v", result.Value, want)
-	}
-}
-
-func TestExecutorReturnsTypedSnapshotOutsideRepository(t *testing.T) {
-	t.Parallel()
-
-	rootDir := t.TempDir()
-	result := gitinspect.New().Execute(context.Background(), executor.StepContext{
-		Workspace: workspace.Config{Root: rootDir},
-		StepIndex: 1,
-		Step: spec.Step{
-			Type: "git.inspect",
-			Fields: map[string]any{
-				"cwd": filepath.Join(rootDir, "missing-repo"),
+		{
+			name: "returns typed empty snapshot outside repository",
+			executor: func(_ *testing.T) executor.Executor {
+				return gitinspect.New()
+			},
+			stepCtx: func(t *testing.T) executor.StepContext {
+				t.Helper()
+				rootDir := t.TempDir()
+				return executor.StepContext{
+					Workspace: workspace.Config{Root: rootDir},
+					StepIndex: 1,
+					Step: spec.Step{
+						Type: "git.inspect",
+						Fields: map[string]any{
+							"cwd": filepath.Join(rootDir, "missing-repo"),
+						},
+					},
+					Runtime: exprruntime.NewRuntime(map[string]any{}),
+				}
+			},
+			wantValue: map[string]any{
+				"isRepo":  false,
+				"hasDiff": false,
+				"files":   []string{},
 			},
 		},
-		Runtime: exprruntime.NewRuntime(map[string]any{}),
-	})
-
-	if result.Status != state.StepStatusSucceeded {
-		t.Fatalf("result.Status = %q, want %q", result.Status, state.StepStatusSucceeded)
 	}
 
-	want := map[string]any{
-		"isRepo":  false,
-		"hasDiff": false,
-		"files":   []string{},
-	}
-	if !reflect.DeepEqual(result.Value, want) {
-		t.Fatalf("result.Value = %#v, want %#v", result.Value, want)
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := tc.executor(t).Execute(context.Background(), tc.stepCtx(t))
+			if result.Status != state.StepStatusSucceeded {
+				t.Fatalf("result.Status = %q, want %q", result.Status, state.StepStatusSucceeded)
+			}
+			if !reflect.DeepEqual(result.Value, tc.wantValue) {
+				t.Fatalf("result.Value = %#v, want %#v", result.Value, tc.wantValue)
+			}
+		})
 	}
 }
 

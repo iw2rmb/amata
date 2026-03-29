@@ -11,54 +11,70 @@ import (
 	"github.com/iw2rmb/amata/internal/testutil"
 )
 
-func TestInspectIncludesUntrackedFilesInSingleSnapshot(t *testing.T) {
+func TestInspectSnapshotCases(t *testing.T) {
 	t.Parallel()
 
-	repoDir := initRepository(t)
-	writeFile(t, filepath.Join(repoDir, "tracked.txt"), "updated\n")
-	writeFile(t, filepath.Join(repoDir, "notes", "todo.txt"), "draft\n")
-	writeFile(t, filepath.Join(repoDir, "staged.txt"), "staged\n")
-	runGit(t, repoDir, "add", "staged.txt")
-
-	client := New()
-	snapshot, err := client.Inspect(context.Background(), filepath.Join(repoDir, "notes"))
-	if err != nil {
-		t.Fatalf("inspect repository: %v", err)
+	testCases := []struct {
+		name      string
+		setup     func(t *testing.T) string // returns inspect path
+		wantRepo  bool
+		wantDiff  bool
+		wantFiles []string
+		checkRoot func(t *testing.T, root string)
+	}{
+		{
+			name: "includes untracked files in single snapshot",
+			setup: func(t *testing.T) string {
+				t.Helper()
+				repoDir := initRepository(t)
+				writeFile(t, filepath.Join(repoDir, "tracked.txt"), "updated\n")
+				writeFile(t, filepath.Join(repoDir, "notes", "todo.txt"), "draft\n")
+				writeFile(t, filepath.Join(repoDir, "staged.txt"), "staged\n")
+				runGit(t, repoDir, "add", "staged.txt")
+				return filepath.Join(repoDir, "notes")
+			},
+			wantRepo:  true,
+			wantDiff:  true,
+			wantFiles: []string{"notes/todo.txt", "staged.txt", "tracked.txt"},
+		},
+		{
+			name: "outside repository returns typed empty result",
+			setup: func(t *testing.T) string {
+				t.Helper()
+				return t.TempDir()
+			},
+			wantRepo:  false,
+			wantDiff:  false,
+			wantFiles: nil,
+		},
 	}
 
-	if !snapshot.IsRepo {
-		t.Fatalf("snapshot.IsRepo = false, want true")
-	}
-	if !snapshot.HasDiff {
-		t.Fatalf("snapshot.HasDiff = false, want true")
-	}
-	if snapshot.Root != repoDir {
-		t.Fatalf("snapshot.Root = %q, want %q", snapshot.Root, repoDir)
-	}
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	wantFiles := []string{"notes/todo.txt", "staged.txt", "tracked.txt"}
-	if !reflect.DeepEqual(snapshot.Files, wantFiles) {
-		t.Fatalf("snapshot.Files = %#v, want %#v", snapshot.Files, wantFiles)
-	}
-}
+			inspectPath := tc.setup(t)
+			client := New()
+			snapshot, err := client.Inspect(context.Background(), inspectPath)
+			if err != nil {
+				t.Fatalf("inspect: %v", err)
+			}
 
-func TestInspectOutsideRepositoryReturnsTypedEmptyResult(t *testing.T) {
-	t.Parallel()
-
-	client := New()
-	snapshot, err := client.Inspect(context.Background(), t.TempDir())
-	if err != nil {
-		t.Fatalf("inspect non-repository directory: %v", err)
-	}
-
-	if snapshot.IsRepo {
-		t.Fatalf("snapshot.IsRepo = true, want false")
-	}
-	if snapshot.HasDiff {
-		t.Fatalf("snapshot.HasDiff = true, want false")
-	}
-	if len(snapshot.Files) != 0 {
-		t.Fatalf("snapshot.Files = %#v, want empty", snapshot.Files)
+			if snapshot.IsRepo != tc.wantRepo {
+				t.Fatalf("snapshot.IsRepo = %v, want %v", snapshot.IsRepo, tc.wantRepo)
+			}
+			if snapshot.HasDiff != tc.wantDiff {
+				t.Fatalf("snapshot.HasDiff = %v, want %v", snapshot.HasDiff, tc.wantDiff)
+			}
+			if tc.wantFiles == nil {
+				if len(snapshot.Files) != 0 {
+					t.Fatalf("snapshot.Files = %#v, want empty", snapshot.Files)
+				}
+			} else if !reflect.DeepEqual(snapshot.Files, tc.wantFiles) {
+				t.Fatalf("snapshot.Files = %#v, want %#v", snapshot.Files, tc.wantFiles)
+			}
+		})
 	}
 }
 

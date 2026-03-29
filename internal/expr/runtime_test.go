@@ -40,6 +40,11 @@ func TestRuntimeResolveShorthandAndEscape(t *testing.T) {
 			want:  true,
 		},
 		{
+			name:  "expression object supports root shorthand",
+			value: map[string]any{"expr": `$.prev.value["approved"]`},
+			want:  true,
+		},
+		{
 			name:  "whole template returns raw value",
 			value: "{{ ctx.prev.value }}",
 			want: map[string]any{
