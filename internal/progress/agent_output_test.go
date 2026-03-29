@@ -127,3 +127,104 @@ func TestSummarizeCodexOutputAndRenderBlock(t *testing.T) {
 		t.Fatalf("block = %q, want command content", block)
 	}
 }
+
+func TestSummarizeCodexStderrFallbackAndRenderBlock(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	stdoutPath := filepath.Join(tempDir, "stdout.txt")
+	stderrPath := filepath.Join(tempDir, "stderr.txt")
+	if err := os.WriteFile(stdoutPath, []byte(`{"ok":true}`), 0o644); err != nil {
+		t.Fatalf("write stdout: %v", err)
+	}
+
+	stderr := strings.Join([]string{
+		"exec",
+		"/bin/zsh -lc 'pwd' in /tmp succeeded in 1ms:",
+		"tokens used",
+		"11,496",
+	}, "\n")
+	if err := os.WriteFile(stderrPath, []byte(stderr), 0o644); err != nil {
+		t.Fatalf("write stderr: %v", err)
+	}
+
+	startedAt := time.Date(2026, time.March, 29, 10, 0, 0, 0, time.UTC)
+	finishedAt := startedAt.Add(9 * time.Second)
+
+	block := blockForEvent(Event{
+		Kind: EventStepFinished,
+		Step: &Step{
+			Type:       "codex",
+			Status:     StepStatusSucceeded,
+			StartedAt:  startedAt,
+			FinishedAt: finishedAt,
+			Artifacts: Artifacts{
+				Stdout: stdoutPath,
+				Stderr: stderrPath,
+			},
+			Descriptor: &DescriptorData{
+				PrimaryText: "gpt-5.4:high",
+				DetailText:  []string{"Implement feature X."},
+			},
+		},
+		Snapshot: Snapshot{},
+	}, streamRenderSettings{
+		now:   func() time.Time { return finishedAt },
+		width: 120,
+	}, newStreamStyles(false))
+
+	if !strings.Contains(block, "codex gpt-5.4:high Out: 0 In: 11.5k Cached: 0") {
+		t.Fatalf("block = %q, want token summary from stderr fallback", block)
+	}
+	if !strings.Contains(block, "00:00 Bash Out: 0 In: 11.5k Cached: 0") {
+		t.Fatalf("block = %q, want last action line from stderr fallback", block)
+	}
+	if !strings.Contains(block, "/bin/zsh -lc 'pwd'") {
+		t.Fatalf("block = %q, want parsed command content", block)
+	}
+}
+
+func TestSummarizeClaudeResultEnvelopeAndRenderBlock(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	stdoutPath := filepath.Join(tempDir, "stdout.txt")
+	content := `{"type":"result","stop_reason":"end_turn","usage":{"input_tokens":18,"cache_creation_input_tokens":24700,"cache_read_input_tokens":472210,"output_tokens":3543}}`
+	if err := os.WriteFile(stdoutPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write stdout: %v", err)
+	}
+
+	startedAt := time.Date(2026, time.March, 29, 10, 0, 0, 0, time.UTC)
+	finishedAt := startedAt.Add(8 * time.Second)
+
+	block := blockForEvent(Event{
+		Kind: EventStepFinished,
+		Step: &Step{
+			Type:       "claude",
+			Status:     StepStatusSucceeded,
+			StartedAt:  startedAt,
+			FinishedAt: finishedAt,
+			Artifacts: Artifacts{
+				Stdout: stdoutPath,
+			},
+			Descriptor: &DescriptorData{
+				PrimaryText: "claude-sonnet-4-6:high",
+				DetailText:  []string{"Review the diff."},
+			},
+		},
+		Snapshot: Snapshot{},
+	}, streamRenderSettings{
+		now:   func() time.Time { return finishedAt },
+		width: 120,
+	}, newStreamStyles(false))
+
+	if !strings.Contains(block, "claude claude-sonnet-4-6:high Out: 3.5k In: 18 Cached: 496.9k") {
+		t.Fatalf("block = %q, want total token summary from result envelope", block)
+	}
+	if !strings.Contains(block, "00:00 result Out: 3.5k In: 18 Cached: 496.9k") {
+		t.Fatalf("block = %q, want result last action line", block)
+	}
+	if !strings.Contains(block, "end_turn") {
+		t.Fatalf("block = %q, want stop reason content", block)
+	}
+}

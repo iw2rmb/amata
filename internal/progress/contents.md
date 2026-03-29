@@ -1,5 +1,5 @@
-[agent_output.go](agent_output.go) Summarizes agent stdout logs into total token counts and the latest actionable event details.
-[agent_output_test.go](agent_output_test.go) Verifies token formatting and Claude/Codex output summarization used in rendered progress blocks.
+[agent_output.go](agent_output.go) Summarizes Claude/Codex artifacts from stdout and stderr into token totals and the latest actionable event details.
+[agent_output_test.go](agent_output_test.go) Verifies progress block token/action rendering for Claude and Codex JSON parsing plus stderr fallback paths.
 [descriptor.go](descriptor.go) Builds step descriptor text from executor context and result data for progress rendering.
 [descriptor_test.go](descriptor_test.go) Tests descriptor generation across executor types, statuses, and prompt/detail formatting behavior.
 [progress.go](progress.go) Defines progress event/snapshot models and reporter logic that emits run and step lifecycle updates.

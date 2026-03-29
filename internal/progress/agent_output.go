@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -30,26 +31,39 @@ type agentOutputSummary struct {
 }
 
 func summarizeAgentStepOutput(step Step) (agentOutputSummary, bool) {
-	stdoutPath := strings.TrimSpace(step.Artifacts.Stdout)
-	if stdoutPath == "" {
-		return agentOutputSummary{}, false
-	}
-	data, err := os.ReadFile(stdoutPath)
-	if err != nil {
+	stdout, hasStdout := readArtifactFile(step.Artifacts.Stdout)
+	stderr, hasStderr := readArtifactFile(step.Artifacts.Stderr)
+	if !hasStdout && !hasStderr {
 		return agentOutputSummary{}, false
 	}
 
 	switch step.Type {
 	case "claude":
-		return summarizeClaudeOutput(data)
+		return summarizeClaudeOutput(stdout)
 	case "codex":
-		return summarizeCodexOutput(data)
+		return summarizeCodexOutput(stdout, stderr)
 	default:
 		return agentOutputSummary{}, false
 	}
 }
 
+func readArtifactFile(path string) ([]byte, bool) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil, false
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, false
+	}
+	return data, true
+}
+
 func summarizeClaudeOutput(data []byte) (agentOutputSummary, bool) {
+	if len(data) == 0 {
+		return agentOutputSummary{}, false
+	}
+
 	scanner := bufio.NewScanner(strings.NewReader(string(data)))
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 
@@ -76,37 +90,43 @@ func summarizeClaudeOutput(data []byte) (agentOutputSummary, bool) {
 			hasFirstAt = true
 		}
 
-		message, _ := mapField(event, "message")
-		if message != nil {
-			usage := agentTokenUsage{
-				In:  intField(message, "input_tokens"),
-				Out: intField(message, "output_tokens"),
-				Cached: intField(message, "cache_creation_input_tokens") +
-					intField(message, "cache_read_input_tokens"),
+		usage, replaceTotals, hasUsage := claudeTokenUsageFromEvent(event)
+		if !hasUsage {
+			if genericUsage, ok := tokenUsageFromTokensField(event); ok {
+				usage = genericUsage
+				hasUsage = true
 			}
+		}
+		if hasUsage {
 			if usage.In > 0 || usage.Out > 0 || usage.Cached > 0 {
 				sawTokens = true
 			}
-			summary.Totals.In += usage.In
-			summary.Totals.Out += usage.Out
-			summary.Totals.Cached += usage.Cached
-
-			eventType, content, italic := claudeEventDescription(event)
-			if eventType != "" || content != "" {
-				elapsed := time.Duration(0)
-				if hasFirstAt && okAt {
-					elapsed = at.Sub(firstAt)
-				}
-				summary.LastAction = &agentLastAction{
-					Elapsed:   elapsed,
-					EventType: eventType,
-					Content:   content,
-					Tokens:    usage,
-					Italic:    italic,
-				}
-				sawAction = true
+			if replaceTotals {
+				summary.Totals = usage
+			} else {
+				summary.Totals.In += usage.In
+				summary.Totals.Out += usage.Out
+				summary.Totals.Cached += usage.Cached
 			}
 		}
+
+		eventType, content, italic := claudeEventDescription(event)
+		if eventType == "" && content == "" {
+			continue
+		}
+
+		elapsed := time.Duration(0)
+		if hasFirstAt && okAt {
+			elapsed = at.Sub(firstAt)
+		}
+		summary.LastAction = &agentLastAction{
+			Elapsed:   elapsed,
+			EventType: eventType,
+			Content:   content,
+			Tokens:    usage,
+			Italic:    italic,
+		}
+		sawAction = true
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -119,7 +139,33 @@ func summarizeClaudeOutput(data []byte) (agentOutputSummary, bool) {
 	return summary, true
 }
 
-func summarizeCodexOutput(data []byte) (agentOutputSummary, bool) {
+func summarizeCodexOutput(stdout []byte, stderr []byte) (agentOutputSummary, bool) {
+	stdoutSummary, hasStdoutSummary := summarizeCodexJSONOutput(stdout)
+	stderrSummary, hasStderrSummary := summarizeCodexStderrOutput(stderr)
+
+	switch {
+	case hasStdoutSummary && hasStderrSummary:
+		if summaryHasNoTokens(stdoutSummary) {
+			stdoutSummary.Totals = stderrSummary.Totals
+		}
+		if stdoutSummary.LastAction == nil {
+			stdoutSummary.LastAction = stderrSummary.LastAction
+		}
+		return stdoutSummary, true
+	case hasStdoutSummary:
+		return stdoutSummary, true
+	case hasStderrSummary:
+		return stderrSummary, true
+	default:
+		return agentOutputSummary{}, false
+	}
+}
+
+func summarizeCodexJSONOutput(data []byte) (agentOutputSummary, bool) {
+	if len(data) == 0 {
+		return agentOutputSummary{}, false
+	}
+
 	scanner := bufio.NewScanner(strings.NewReader(string(data)))
 	scanner.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
 
@@ -149,6 +195,14 @@ func summarizeCodexOutput(data []byte) (agentOutputSummary, bool) {
 
 		entryType, _ := stringField(entry, "type")
 		payload, _ := mapField(entry, "payload")
+		if usage, ok := tokenUsageFromTokensField(entry); ok {
+			summary.Totals.In += usage.In
+			summary.Totals.Out += usage.Out
+			summary.Totals.Cached += usage.Cached
+			if usage.In > 0 || usage.Out > 0 || usage.Cached > 0 {
+				sawTokens = true
+			}
+		}
 
 		if entryType == "event_msg" && payload != nil {
 			payloadType, _ := stringField(payload, "type")
@@ -209,6 +263,104 @@ func summarizeCodexOutput(data []byte) (agentOutputSummary, bool) {
 		return agentOutputSummary{}, false
 	}
 	return summary, true
+}
+
+func summarizeCodexStderrOutput(data []byte) (agentOutputSummary, bool) {
+	if len(data) == 0 {
+		return agentOutputSummary{}, false
+	}
+
+	scanner := bufio.NewScanner(strings.NewReader(string(data)))
+	scanner.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+
+	var summary agentOutputSummary
+	var pendingTool string
+	expectTokens := false
+	sawTokens := false
+	sawAction := false
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+
+		if expectTokens {
+			expectTokens = false
+			if value, ok := parseCompactInt(line); ok {
+				summary.Totals.In = value
+				sawTokens = true
+			}
+			continue
+		}
+
+		if strings.EqualFold(line, "tokens used") {
+			expectTokens = true
+			continue
+		}
+
+		if pendingTool != "" {
+			eventType := pendingTool
+			content := line
+			if pendingTool == "Bash" {
+				if index := strings.Index(content, " in "); index > 0 {
+					content = strings.TrimSpace(content[:index])
+				}
+			}
+			summary.LastAction = &agentLastAction{
+				EventType: eventType,
+				Content:   content,
+			}
+			pendingTool = ""
+			sawAction = true
+			continue
+		}
+
+		switch strings.ToLower(line) {
+		case "exec":
+			pendingTool = "Bash"
+		case "read":
+			pendingTool = "Read"
+		case "write":
+			pendingTool = "Write"
+		case "grep":
+			pendingTool = "Grep"
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return agentOutputSummary{}, false
+	}
+
+	if sawTokens && summary.LastAction != nil && isZeroUsage(summary.LastAction.Tokens) {
+		summary.LastAction.Tokens = summary.Totals
+	}
+
+	if !sawTokens && !sawAction {
+		return agentOutputSummary{}, false
+	}
+	return summary, true
+}
+
+func summaryHasNoTokens(summary agentOutputSummary) bool {
+	return isZeroUsage(summary.Totals)
+}
+
+func isZeroUsage(usage agentTokenUsage) bool {
+	return usage.In == 0 && usage.Out == 0 && usage.Cached == 0
+}
+
+func parseCompactInt(raw string) (int, bool) {
+	sanitized := strings.ReplaceAll(strings.TrimSpace(raw), ",", "")
+	sanitized = strings.ReplaceAll(sanitized, "_", "")
+	if sanitized == "" {
+		return 0, false
+	}
+	parsed, err := strconv.Atoi(sanitized)
+	if err != nil {
+		return 0, false
+	}
+	return parsed, true
 }
 
 func codexActionFromEventMessage(payload map[string]any, at time.Time, okAt bool, firstAt time.Time, hasFirstAt bool) (agentLastAction, bool) {
@@ -302,8 +454,14 @@ func codexActionFromResponseItem(payload map[string]any, at time.Time, okAt bool
 }
 
 func claudeEventDescription(event map[string]any) (string, string, bool) {
-	content, ok := sliceField(event, "content")
+	content, ok := claudeContentBlocks(event)
 	if !ok || len(content) == 0 {
+		eventType, _ := stringField(event, "type")
+		if eventType == "result" {
+			if stopReason, ok := stringField(event, "stop_reason"); ok && strings.TrimSpace(stopReason) != "" {
+				return "result", stopReason, false
+			}
+		}
 		return "", "", false
 	}
 	first, ok := content[0].(map[string]any)
@@ -331,6 +489,135 @@ func claudeEventDescription(event map[string]any) (string, string, bool) {
 		}
 		return contentType, text, false
 	}
+}
+
+func claudeContentBlocks(event map[string]any) ([]any, bool) {
+	if content, ok := sliceField(event, "content"); ok && len(content) > 0 {
+		return content, true
+	}
+	message, _ := mapField(event, "message")
+	if message == nil {
+		return nil, false
+	}
+	content, ok := sliceField(message, "content")
+	if !ok || len(content) == 0 {
+		return nil, false
+	}
+	return content, true
+}
+
+func claudeTokenUsageFromEvent(event map[string]any) (agentTokenUsage, bool, bool) {
+	eventType, _ := stringField(event, "type")
+	message, _ := mapField(event, "message")
+
+	if message != nil {
+		if usageMap, _ := mapField(message, "usage"); usageMap != nil {
+			if usage, ok := usageFromMap(usageMap); ok {
+				return usage, eventType == "result", true
+			}
+		}
+		if usage, ok := usageFromMap(message); ok {
+			return usage, eventType == "result", true
+		}
+	}
+
+	if usageMap, _ := mapField(event, "usage"); usageMap != nil {
+		if usage, ok := usageFromMap(usageMap); ok {
+			return usage, eventType == "result", true
+		}
+	}
+
+	if usage, ok := usageFromMap(event); ok {
+		return usage, eventType == "result", true
+	}
+	return agentTokenUsage{}, false, false
+}
+
+func usageFromMap(source map[string]any) (agentTokenUsage, bool) {
+	if source == nil {
+		return agentTokenUsage{}, false
+	}
+	_, hasInput := source["input_tokens"]
+	_, hasOutput := source["output_tokens"]
+	_, hasCached := source["cached_input_tokens"]
+	_, hasCacheCreation := source["cache_creation_input_tokens"]
+	_, hasCacheRead := source["cache_read_input_tokens"]
+	_, hasIn := source["in"]
+	_, hasOut := source["out"]
+	_, hasCachedShort := source["cached"]
+	_, hasInputShort := source["input"]
+	_, hasOutputShort := source["output"]
+
+	if !hasInput && !hasOutput && !hasCached && !hasCacheCreation && !hasCacheRead &&
+		!hasIn && !hasOut && !hasCachedShort && !hasInputShort && !hasOutputShort {
+		return agentTokenUsage{}, false
+	}
+
+	cached := intField(source, "cached_input_tokens")
+	if cached == 0 {
+		cached = intField(source, "cache_creation_input_tokens") + intField(source, "cache_read_input_tokens")
+	}
+	if cached == 0 {
+		cached = intField(source, "cached")
+	}
+
+	in := intField(source, "input_tokens")
+	if in == 0 {
+		in = intField(source, "in")
+	}
+	if in == 0 {
+		in = intField(source, "input")
+	}
+
+	out := intField(source, "output_tokens")
+	if out == 0 {
+		out = intField(source, "out")
+	}
+	if out == 0 {
+		out = intField(source, "output")
+	}
+
+	return agentTokenUsage{
+		In:     in,
+		Out:    out,
+		Cached: cached,
+	}, true
+}
+
+func tokenUsageFromTokensField(event map[string]any) (agentTokenUsage, bool) {
+	if event == nil {
+		return agentTokenUsage{}, false
+	}
+	raw, ok := findNestedField(event, "tokens")
+	if !ok {
+		return agentTokenUsage{}, false
+	}
+	tokens, ok := raw.(map[string]any)
+	if !ok {
+		return agentTokenUsage{}, false
+	}
+	return usageFromMap(tokens)
+}
+
+func findNestedField(value any, key string) (any, bool) {
+	switch typed := value.(type) {
+	case map[string]any:
+		if direct, ok := typed[key]; ok {
+			return direct, true
+		}
+		for _, nested := range typed {
+			if found, ok := findNestedField(nested, key); ok {
+				return found, true
+			}
+		}
+	case []any:
+		for _, nested := range typed {
+			if found, ok := findNestedField(nested, key); ok {
+				return found, true
+			}
+		}
+	}
+	return nil, false
 }
 
 func toolEventTypeAndContent(name string, rawInput string) (string, string) {
