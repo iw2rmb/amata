@@ -7,7 +7,7 @@
 [common.stall.amata.schema.json](common.stall.amata.schema.json) Shared schema for stall handling policies (`rerun`, `error`, or fallback flow call).
 [common.string-or-expr.amata.schema.json](common.string-or-expr.amata.schema.json) Shared schema type allowing either literal strings or `{expr: ...}` expressions.
 [crush.amata.schema.json](crush.amata.schema.json) JSON Schema for `crush` agent steps with prompt/model/runtime and response controls.
-[data.get.amata.schema.json](data.get.amata.schema.json) JSON Schema for `data.get` steps that read files and extract values via query/default options.
+[data.get.amata.schema.json](data.get.amata.schema.json) JSON Schema for `data.get` steps that read files with optional format/query/default and cwd controls.
 [expr.amata.schema.json](expr.amata.schema.json) JSON Schema for `expr` steps that evaluate expressions.
 [for_each.amata.schema.json](for_each.amata.schema.json) JSON Schema for `for_each` steps with item source, alias, and required body steps.
 [git.commit.amata.schema.json](git.commit.amata.schema.json) JSON Schema for `git.commit` steps, including message/body/exclusions and default result schema binding.
