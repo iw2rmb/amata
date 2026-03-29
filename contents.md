@@ -1,6 +1,5 @@
 [.codex/](.codex) Project-local Codex operating instructions and policy set used during interactive runs.
 [cmd/](cmd) CLI entrypoint binaries that bootstrap the runtime and command handling.
-[design/](design) Reserved space for implementation design documents before coding.
 [docs/](docs) Current-state product and engine documentation for shipped behavior.
 [internal/](internal) Core engine implementation packages for execution, runtime state, and utilities.
 [research/](research) Exploratory notes for deferred topics that are not implementation-ready.
