@@ -7,7 +7,6 @@
 [go.sum](go.sum) Go dependency checksum lockfile for module integrity.
 [internal/](internal) Core engine implementation packages for execution, runtime state, and utilities.
 [research/](research) Exploratory notes for deferred topics that are not implementation-ready.
-[roadmap/](roadmap) Decomposed implementation plans and milestone-oriented execution notes.
 [schemas/](schemas) Embedded JSON Schema definitions for validating built-in workflow step shapes.
 [scripts/](scripts) Repository maintenance scripts used for docs and workflow checks.
 [tests/](tests) Test fixtures and workflow samples used by integration-style runtime tests.
