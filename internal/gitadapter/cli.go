@@ -6,12 +6,102 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 )
 
 type gitCLI struct{}
+
+func (c gitCLI) inspectSnapshot(ctx context.Context, cwd string) (Snapshot, error) {
+	repoRoot, isRepo, err := c.resolveRepoRoot(ctx, cwd)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	if !isRepo {
+		return Snapshot{
+			IsRepo:  false,
+			HasDiff: false,
+			Files:   []string{},
+		}, nil
+	}
+
+	files, err := c.changedPaths(ctx, repoRoot)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	return Snapshot{
+		IsRepo:  true,
+		Root:    repoRoot,
+		HasDiff: len(files) > 0,
+		Files:   files,
+	}, nil
+}
+
+func (gitCLI) resolveRepoRoot(ctx context.Context, cwd string) (string, bool, error) {
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel")
+	cmd.Dir = cwd
+
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		return filepath.Clean(strings.TrimSpace(string(output))), true, nil
+	}
+
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok {
+		return "", false, formatGitError([]string{"rev-parse", "--show-toplevel"}, err, output)
+	}
+	if exitErr.ExitCode() == 128 && strings.Contains(strings.ToLower(string(output)), "not a git repository") {
+		return "", false, nil
+	}
+	return "", false, formatGitError([]string{"rev-parse", "--show-toplevel"}, err, output)
+}
+
+func (c gitCLI) changedPaths(ctx context.Context, repoRoot string) ([]string, error) {
+	outputs := make([][]byte, 0, 3)
+
+	worktreeDiff, err := runGitCommand(ctx, repoRoot, "diff", "--name-only")
+	if err != nil {
+		return nil, fmt.Errorf("load unstaged paths: %w", err)
+	}
+	outputs = append(outputs, worktreeDiff)
+
+	cachedDiff, err := runGitCommand(ctx, repoRoot, "diff", "--cached", "--name-only")
+	if err != nil {
+		return nil, fmt.Errorf("load staged paths: %w", err)
+	}
+	outputs = append(outputs, cachedDiff)
+
+	untracked, err := runGitCommand(ctx, repoRoot, "ls-files", "--others", "--exclude-standard")
+	if err != nil {
+		return nil, fmt.Errorf("load untracked paths: %w", err)
+	}
+	outputs = append(outputs, untracked)
+
+	seen := map[string]struct{}{}
+	for _, output := range outputs {
+		for _, line := range strings.Split(string(output), "\n") {
+			rawPath := strings.TrimSpace(line)
+			if rawPath == "" {
+				continue
+			}
+			cleaned := path.Clean(filepath.ToSlash(rawPath))
+			if cleaned == "." || cleaned == "" {
+				continue
+			}
+			seen[cleaned] = struct{}{}
+		}
+	}
+
+	files := make([]string, 0, len(seen))
+	for file := range seen {
+		files = append(files, file)
+	}
+	sort.Strings(files)
+	return files, nil
+}
 
 func (c gitCLI) stagePaths(ctx context.Context, repoRoot string, paths []string) ([]string, error) {
 	stageablePaths, err := c.resolveStageablePaths(ctx, repoRoot, paths)

@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-
-	gogit "github.com/go-git/go-git/v5"
 )
 
 var ErrNotRepository = errors.New("current working directory is not inside a git work tree")
@@ -61,36 +59,12 @@ func New() *Client {
 	return &Client{cli: gitCLI{}}
 }
 
-func (c *Client) Inspect(_ context.Context, cwd string) (Snapshot, error) {
-	repo, repoRoot, err := openRepository(cwd)
-	if errors.Is(err, gogit.ErrRepositoryNotExists) {
-		return Snapshot{
-			IsRepo:  false,
-			HasDiff: false,
-			Files:   []string{},
-		}, nil
-	}
+func (c *Client) Inspect(ctx context.Context, cwd string) (Snapshot, error) {
+	snapshot, err := c.cli.inspectSnapshot(ctx, cwd)
 	if err != nil {
 		return Snapshot{}, err
 	}
-
-	worktree, err := repo.Worktree()
-	if err != nil {
-		return Snapshot{}, fmt.Errorf("open worktree: %w", err)
-	}
-
-	status, err := worktree.Status()
-	if err != nil {
-		return Snapshot{}, fmt.Errorf("load repository status: %w", err)
-	}
-
-	files := changedPaths(status)
-	return Snapshot{
-		IsRepo:  true,
-		Root:    repoRoot,
-		HasDiff: len(files) > 0,
-		Files:   files,
-	}, nil
+	return snapshot, nil
 }
 
 func (c *Client) Commit(ctx context.Context, snapshot Snapshot, opts CommitOptions) (CommitResult, error) {
@@ -141,38 +115,6 @@ func (c *Client) Commit(ctx context.Context, snapshot Snapshot, opts CommitOptio
 	result.Commit = commit
 	result.Metadata = metadata
 	return result, nil
-}
-
-func openRepository(cwd string) (*gogit.Repository, string, error) {
-	repo, err := gogit.PlainOpenWithOptions(cwd, &gogit.PlainOpenOptions{
-		DetectDotGit:          true,
-		EnableDotGitCommonDir: true,
-	})
-	if err != nil {
-		return nil, "", err
-	}
-
-	worktree, err := repo.Worktree()
-	if err != nil {
-		return nil, "", err
-	}
-
-	return repo, filepath.Clean(worktree.Filesystem.Root()), nil
-}
-
-func changedPaths(status gogit.Status) []string {
-	files := make([]string, 0, len(status))
-	for file, fileStatus := range status {
-		if fileStatus == nil {
-			continue
-		}
-		if fileStatus.Staging == gogit.Unmodified && fileStatus.Worktree == gogit.Unmodified {
-			continue
-		}
-		files = append(files, path.Clean(filepath.ToSlash(file)))
-	}
-	sort.Strings(files)
-	return files
 }
 
 func filterPaths(paths []string, repoRoot string, rawExcludes []string) ([]string, error) {
