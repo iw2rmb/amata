@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -397,5 +399,94 @@ func TestRunnerStallRerunEmitsFailedAndRestartedLiveProgress(t *testing.T) {
 	}
 	if rerunStart.Descriptor == nil || !strings.Contains(rerunStart.Descriptor.PrimaryText, "RERUN 2/INF") {
 		t.Fatalf("rerun descriptor = %#v, want RERUN 2/INF marker", rerunStart.Descriptor)
+	}
+}
+
+func TestRunnerStallRerunDoesNotTriggerWhenStepKeepsEmittingOutput(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, spec.Document{
+		Version: spec.Version,
+		Name:    "sample",
+		Entry:   "main",
+		Flows: map[string]spec.Flow{
+			"main": {
+				Steps: []spec.Step{
+					{
+						ID:   "active",
+						Type: "fake",
+						Fields: map[string]any{
+							"stall": map[string]any{
+								"after": "25ms",
+								"type":  "rerun",
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+	mustPersist(t, config)
+
+	attempts := 0
+	registry := builtinRegistry()
+	if err := registry.Register("fake", func() executorapi.Executor {
+		return &fakeExecutor{
+			calls: new([]string),
+			executeWithContext: func(_ context.Context, ctx executorapi.StepContext) state.StepResult {
+				attempts++
+
+				stepDir := executorapi.StepArtifactDir(ctx.RunDir, ctx.StepIndex, ctx.Step.ID, ctx.ExecutionLabel)
+				if err := os.MkdirAll(stepDir, 0o755); err != nil {
+					return state.StepResult{
+						Status: state.StepStatusFailed,
+						Error:  &state.Failure{Code: "mkdir_failed", Message: err.Error()},
+					}
+				}
+				stdoutPath := filepath.Join(stepDir, "stdout.txt")
+				if err := os.WriteFile(stdoutPath, []byte(""), 0o644); err != nil {
+					return state.StepResult{
+						Status: state.StepStatusFailed,
+						Error:  &state.Failure{Code: "create_stdout_failed", Message: err.Error()},
+					}
+				}
+				for i := 0; i < 8; i++ {
+					f, err := os.OpenFile(stdoutPath, os.O_APPEND|os.O_WRONLY, 0o644)
+					if err != nil {
+						return state.StepResult{
+							Status: state.StepStatusFailed,
+							Error:  &state.Failure{Code: "open_stdout_failed", Message: err.Error()},
+						}
+					}
+					if _, err := f.WriteString("tick\n"); err != nil {
+						_ = f.Close()
+						return state.StepResult{
+							Status: state.StepStatusFailed,
+							Error:  &state.Failure{Code: "write_stdout_failed", Message: err.Error()},
+						}
+					}
+					_ = f.Close()
+					time.Sleep(10 * time.Millisecond)
+				}
+
+				return state.StepResult{
+					Status: state.StepStatusSucceeded,
+					Value:  "ok",
+				}
+			},
+		}
+	}); err != nil {
+		t.Fatalf("register fake executor: %v", err)
+	}
+
+	snapshot, err := NewRunner(registry).Run(context.Background(), config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if snapshot.Status != state.RunStatusSucceeded {
+		t.Fatalf("snapshot status = %q, want succeeded", snapshot.Status)
+	}
+	if attempts != 1 {
+		t.Fatalf("attempts = %d, want 1", attempts)
 	}
 }

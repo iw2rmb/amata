@@ -229,8 +229,9 @@ func selectProviderSchemaValue(value any, transcript []byte) (any, bool, string)
 		return unwrapped, true, sessionID
 	}
 
-	// stream-json outputs NDJSON events where the first object is usually a
-	// system/init event. Prefer the final type=result envelope when present.
+	// stream-json may include multiple type=result envelopes within one command
+	// session. Prefer the latest envelope that actually contains
+	// structured_output, falling back to the final result envelope when none do.
 	envelope, ok := findResultEnvelopeFromNDJSON(transcript)
 	if !ok {
 		return unwrapped, false, sessionID
@@ -244,7 +245,8 @@ func findResultEnvelopeFromNDJSON(data []byte) (map[string]any, bool) {
 	buf := make([]byte, 0, 64*1024)
 	scanner.Buffer(buf, 4*1024*1024)
 
-	var result map[string]any
+	var latestResult map[string]any
+	var latestStructuredResult map[string]any
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
@@ -255,13 +257,19 @@ func findResultEnvelopeFromNDJSON(data []byte) (map[string]any, bool) {
 			continue
 		}
 		if typ, _ := current["type"].(string); typ == "result" {
-			result = current
+			latestResult = current
+			if _, ok := current["structured_output"]; ok {
+				latestStructuredResult = current
+			}
 		}
 	}
-	if result == nil {
+	if latestStructuredResult != nil {
+		return latestStructuredResult, true
+	}
+	if latestResult == nil {
 		return nil, false
 	}
-	return result, true
+	return latestResult, true
 }
 
 func looksLikeClaudeJSONEnvelope(envelope map[string]any) bool {

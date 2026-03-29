@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -73,6 +75,7 @@ func (r *Runner) executeStep(
 		return stepAction{}, finalizeStatus(result)
 	}
 
+attemptLoop:
 	for attempt := 1; ; attempt++ {
 		stepCtx := executorapi.StepContext{
 			RunID:          config.RunID,
@@ -99,84 +102,189 @@ func (r *Runner) executeStep(
 			done <- executeStepAttempt(attemptCtx, stepExecutor, stepCtx, step)
 		}()
 
+		activityProbe := newStepActivityProbe(stepCtx)
+		lastActivityAt := time.Now().UTC()
+		activityProbe.ObserveChanged()
+
 		timer := time.NewTimer(policy.After)
-		select {
-		case result = <-done:
-			timer.Stop()
-			cancel()
-			return stepAction{}, r.finalizeStepResult(config, responses, snapshot.StepByRef, previous, bindings, step, result)
-		case <-timer.C:
-			cancel()
-			if _, ok := waitForAttemptResult(done, stallCancellationGraceWait); !ok {
-				return stepAction{}, finalizeStatus(state.StepResult{
-					Index:  stepIndex,
-					ID:     step.ID,
-					Type:   step.ExecutorType(),
-					Status: state.StepStatusFailed,
-					Error: &state.Failure{
-						Code:    "step_stalled",
-						Message: fmt.Sprintf("step %d stalled after %s and did not stop within %s after cancellation", stepIndex, policy.After, stallCancellationGraceWait),
-					},
-				})
-			}
-			switch policy.Action {
-			case "rerun":
-				r.reportStallRerunProgress(reporter, config, snapshot, flowName, stepIndex, step, previous, bindings, policy.After, attempt)
-				continue
-			case "error":
-				return stepAction{}, finalizeStatus(state.StepResult{
-					Index:  stepIndex,
-					ID:     step.ID,
-					Type:   step.ExecutorType(),
-					Status: state.StepStatusFailed,
-					Error: &state.Failure{
-						Code:    "step_stalled",
-						Message: fmt.Sprintf("step %d stalled after %s", stepIndex, policy.After),
-					},
-				})
-			case "call":
-				action, result := r.stallCallAction(config, stepIndex, step, previous, policy.Flow)
-				if result.Status != "" || action.pushFrame == nil {
-					return stepAction{}, finalizeStatus(result)
+		probeTicker := time.NewTicker(stallProbeInterval(policy.After))
+		for {
+			select {
+			case result = <-done:
+				timer.Stop()
+				probeTicker.Stop()
+				cancel()
+				return stepAction{}, r.finalizeStepResult(config, responses, snapshot.StepByRef, previous, bindings, step, result)
+			case <-probeTicker.C:
+				if activityProbe.ObserveChanged() {
+					lastActivityAt = time.Now().UTC()
+					resetTimer(timer, policy.After)
 				}
-				return action, state.StepResult{}
-			default:
-				return stepAction{}, finalizeStatus(state.StepResult{
-					Index:  stepIndex,
-					ID:     step.ID,
-					Type:   step.ExecutorType(),
-					Status: state.StepStatusFailed,
-					Error: &state.Failure{
-						Code:    "invalid_stall",
-						Message: fmt.Sprintf("step %d stall action %q is unsupported", stepIndex, policy.Action),
-					},
-				})
-			}
-		case <-ctx.Done():
-			timer.Stop()
-			cancel()
-			result, ok := waitForAttemptResult(done, stallCancellationGraceWait)
-			if !ok {
-				errCode := "canceled"
-				errMessage := fmt.Sprintf("step %d canceled but did not stop within %s", stepIndex, stallCancellationGraceWait)
-				if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-					errCode = "deadline_exceeded"
-					errMessage = fmt.Sprintf("step %d deadline exceeded and executor did not stop within %s", stepIndex, stallCancellationGraceWait)
+			case <-timer.C:
+				if activityProbe.ObserveChanged() {
+					lastActivityAt = time.Now().UTC()
+					resetTimer(timer, policy.After)
+					continue
 				}
-				return stepAction{}, finalizeStatus(state.StepResult{
-					Index:  stepIndex,
-					ID:     step.ID,
-					Type:   step.ExecutorType(),
-					Status: state.StepStatusFailed,
-					Error: &state.Failure{
-						Code:    errCode,
-						Message: errMessage,
-					},
-				})
+				inactiveFor := time.Since(lastActivityAt)
+				if inactiveFor < policy.After {
+					resetTimer(timer, policy.After-inactiveFor)
+					continue
+				}
+
+				cancel()
+				probeTicker.Stop()
+				if _, ok := waitForAttemptResult(done, stallCancellationGraceWait); !ok {
+					return stepAction{}, finalizeStatus(state.StepResult{
+						Index:  stepIndex,
+						ID:     step.ID,
+						Type:   step.ExecutorType(),
+						Status: state.StepStatusFailed,
+						Error: &state.Failure{
+							Code:    "step_stalled",
+							Message: fmt.Sprintf("step %d stalled after %s and did not stop within %s after cancellation", stepIndex, policy.After, stallCancellationGraceWait),
+						},
+					})
+				}
+				switch policy.Action {
+				case "rerun":
+					r.reportStallRerunProgress(reporter, config, snapshot, flowName, stepIndex, step, previous, bindings, policy.After, attempt)
+					continue attemptLoop
+				case "error":
+					return stepAction{}, finalizeStatus(state.StepResult{
+						Index:  stepIndex,
+						ID:     step.ID,
+						Type:   step.ExecutorType(),
+						Status: state.StepStatusFailed,
+						Error: &state.Failure{
+							Code:    "step_stalled",
+							Message: fmt.Sprintf("step %d stalled after %s", stepIndex, policy.After),
+						},
+					})
+				case "call":
+					action, result := r.stallCallAction(config, stepIndex, step, previous, policy.Flow)
+					if result.Status != "" || action.pushFrame == nil {
+						return stepAction{}, finalizeStatus(result)
+					}
+					return action, state.StepResult{}
+				default:
+					return stepAction{}, finalizeStatus(state.StepResult{
+						Index:  stepIndex,
+						ID:     step.ID,
+						Type:   step.ExecutorType(),
+						Status: state.StepStatusFailed,
+						Error: &state.Failure{
+							Code:    "invalid_stall",
+							Message: fmt.Sprintf("step %d stall action %q is unsupported", stepIndex, policy.Action),
+						},
+					})
+				}
+			case <-ctx.Done():
+				timer.Stop()
+				probeTicker.Stop()
+				cancel()
+				result, ok := waitForAttemptResult(done, stallCancellationGraceWait)
+				if !ok {
+					errCode := "canceled"
+					errMessage := fmt.Sprintf("step %d canceled but did not stop within %s", stepIndex, stallCancellationGraceWait)
+					if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+						errCode = "deadline_exceeded"
+						errMessage = fmt.Sprintf("step %d deadline exceeded and executor did not stop within %s", stepIndex, stallCancellationGraceWait)
+					}
+					return stepAction{}, finalizeStatus(state.StepResult{
+						Index:  stepIndex,
+						ID:     step.ID,
+						Type:   step.ExecutorType(),
+						Status: state.StepStatusFailed,
+						Error: &state.Failure{
+							Code:    errCode,
+							Message: errMessage,
+						},
+					})
+				}
+				return stepAction{}, r.finalizeStepResult(config, responses, snapshot.StepByRef, previous, bindings, step, result)
 			}
-			return stepAction{}, r.finalizeStepResult(config, responses, snapshot.StepByRef, previous, bindings, step, result)
 		}
 	}
+}
+
+type stepActivityProbe struct {
+	paths []string
+	last  map[string]fileStamp
+}
+
+type fileStamp struct {
+	Exists  bool
+	Size    int64
+	ModUnix int64
+}
+
+func newStepActivityProbe(stepCtx executorapi.StepContext) *stepActivityProbe {
+	stepDir := executorapi.StepArtifactDir(stepCtx.RunDir, stepCtx.StepIndex, stepCtx.Step.ID, stepCtx.ExecutionLabel)
+	return &stepActivityProbe{
+		paths: []string{
+			filepath.Join(stepDir, "stdout.txt"),
+			filepath.Join(stepDir, "stderr.txt"),
+		},
+		last: map[string]fileStamp{},
+	}
+}
+
+func (p *stepActivityProbe) ObserveChanged() bool {
+	changed := false
+	for _, path := range p.paths {
+		current := readFileStamp(path)
+		previous, ok := p.last[path]
+		if !ok || previous != current {
+			changed = true
+			p.last[path] = current
+		}
+	}
+	return changed
+}
+
+func readFileStamp(path string) fileStamp {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fileStamp{}
+	}
+	return fileStamp{
+		Exists:  true,
+		Size:    info.Size(),
+		ModUnix: info.ModTime().UTC().UnixNano(),
+	}
+}
+
+func stallProbeInterval(after time.Duration) time.Duration {
+	switch {
+	case after <= 0:
+		return 250 * time.Millisecond
+	case after <= 2*time.Second:
+		interval := after / 10
+		if interval < 10*time.Millisecond {
+			return 10 * time.Millisecond
+		}
+		return interval
+	default:
+		interval := after / 6
+		if interval > 5*time.Second {
+			return 5 * time.Second
+		}
+		return interval
+	}
+}
+
+func resetTimer(timer *time.Timer, duration time.Duration) {
+	if duration <= 0 {
+		duration = time.Millisecond
+	}
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
+	timer.Reset(duration)
 }
 
 func (r *Runner) reportStallRerunProgress(
