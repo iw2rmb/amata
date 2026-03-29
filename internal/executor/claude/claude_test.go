@@ -43,6 +43,13 @@ func TestProviderStructuredOutputModes(t *testing.T) {
 			provider := provider{
 				runner: fakeRunner(func(_ context.Context, spec command) (commandResult, error) {
 					captured = spec
+					if testCase.supported {
+						return commandResult{
+							stdout:              []byte(`{"type":"result","structured_output":{"approved":true}}`),
+							structuredOutput:    map[string]any{"approved": true},
+							hasStructuredOutput: true,
+						}, nil
+					}
 					return commandResult{
 						stdout: []byte("```json\n{\"approved\":true}\n```\n"),
 					}, nil
@@ -86,6 +93,9 @@ func TestProviderStructuredOutputModes(t *testing.T) {
 			if hasSchemaFlag != testCase.wantFlag {
 				t.Fatalf("schema flag = %v, want %v (args=%#v)", hasSchemaFlag, testCase.wantFlag, captured.args)
 			}
+			if captured.stopOnStructuredOutput != testCase.supported {
+				t.Fatalf("stopOnStructuredOutput = %v, want %v", captured.stopOnStructuredOutput, testCase.supported)
+			}
 
 			prompt := string(captured.stdin)
 			if testCase.wantPromptFragment != "" && !strings.Contains(prompt, testCase.wantPromptFragment) {
@@ -106,13 +116,16 @@ func TestProviderStructuredOutputModes(t *testing.T) {
 	}
 }
 
-func TestProviderUnwrapsStructuredOutputEnvelope(t *testing.T) {
+func TestProviderUsesStructuredOutputCapturedByRunner(t *testing.T) {
 	t.Parallel()
 
 	provider := provider{
 		runner: fakeRunner(func(_ context.Context, spec command) (commandResult, error) {
 			return commandResult{
-				stdout: []byte(`{"type":"result","stop_reason":"end_turn","session_id":"abc","usage":{"input_tokens":1},"structured_output":{"approved":true,"notes":"ok"}}`),
+				stdout:              []byte(`{"type":"result","stop_reason":"end_turn","session_id":"abc","usage":{"input_tokens":1},"structured_output":{"approved":true,"notes":"ok"}}`),
+				sessionID:           "abc",
+				structuredOutput:    map[string]any{"approved": true, "notes": "ok"},
+				hasStructuredOutput: true,
 			}, nil
 		}),
 		structuredOutputSupported: true,
@@ -135,81 +148,7 @@ func TestProviderUnwrapsStructuredOutputEnvelope(t *testing.T) {
 		t.Fatalf("response value type = %T, want map[string]any", response.Value)
 	}
 	if value["approved"] != true || value["notes"] != "ok" {
-		t.Fatalf("response value = %#v, want unwrapped structured_output payload", response.Value)
-	}
-}
-
-func TestProviderUsesResultEnvelopeFromStreamJSONTranscript(t *testing.T) {
-	t.Parallel()
-
-	provider := provider{
-		runner: fakeRunner(func(_ context.Context, spec command) (commandResult, error) {
-			return commandResult{
-				stdout: []byte(strings.Join([]string{
-					`{"type":"system","session_id":"abc","subtype":"init"}`,
-					`{"type":"assistant","session_id":"abc","message":{"role":"assistant"}}`,
-					`{"type":"result","stop_reason":"end_turn","session_id":"abc","usage":{"input_tokens":1},"structured_output":{"approved":true,"notes":"ok"}}`,
-				}, "\n")),
-			}, nil
-		}),
-		structuredOutputSupported: true,
-	}
-
-	response, execErr := provider.Execute(context.Background(), agent.Request{
-		Prompt: "Review the diff",
-		Model:  "sonnet",
-		CWD:    "/repo",
-		Structured: &agent.StructuredOutput{
-			JSON: `{"type":"object","properties":{"approved":{"type":"boolean"},"notes":{"type":"string"}},"required":["approved","notes"]}`,
-		},
-	})
-	if execErr != nil {
-		t.Fatalf("execute error = %#v", execErr)
-	}
-	value, ok := response.Value.(map[string]any)
-	if !ok {
-		t.Fatalf("response value type = %T, want map[string]any", response.Value)
-	}
-	if value["approved"] != true || value["notes"] != "ok" {
-		t.Fatalf("response value = %#v, want stream result structured output", response.Value)
-	}
-}
-
-func TestProviderPrefersLatestStructuredResultWhenLaterResultLacksStructuredOutput(t *testing.T) {
-	t.Parallel()
-
-	provider := provider{
-		runner: fakeRunner(func(_ context.Context, spec command) (commandResult, error) {
-			return commandResult{
-				stdout: []byte(strings.Join([]string{
-					`{"type":"system","session_id":"abc","subtype":"init"}`,
-					`{"type":"result","stop_reason":"end_turn","session_id":"abc","usage":{"input_tokens":1},"structured_output":{"approved":true,"notes":"first"}}`,
-					`{"type":"assistant","session_id":"abc","message":{"role":"assistant"}}`,
-					`{"type":"result","stop_reason":"end_turn","session_id":"abc","usage":{"input_tokens":1},"result":"post-structured-summary"}`,
-				}, "\n")),
-			}, nil
-		}),
-		structuredOutputSupported: true,
-	}
-
-	response, execErr := provider.Execute(context.Background(), agent.Request{
-		Prompt: "Review the diff",
-		Model:  "sonnet",
-		CWD:    "/repo",
-		Structured: &agent.StructuredOutput{
-			JSON: `{"type":"object","properties":{"approved":{"type":"boolean"},"notes":{"type":"string"}},"required":["approved","notes"]}`,
-		},
-	})
-	if execErr != nil {
-		t.Fatalf("execute error = %#v", execErr)
-	}
-
-	value, ok := response.Value.(map[string]any)
-	if !ok {
-		t.Fatalf("response value type = %T, want map[string]any", response.Value)
-	}
-	if value["approved"] != true || value["notes"] != "first" {
-		t.Fatalf("response value = %#v, want structured output from earlier result envelope", response.Value)
+		t.Fatalf("response value = %#v, want runner-captured structured output", response.Value)
 	}
 }
 
@@ -223,11 +162,15 @@ func TestProviderRetriesWithResumeBeforeFreshForMissingStructuredOutput(t *testi
 			switch len(calls) {
 			case 1:
 				return commandResult{
-					stdout: []byte(`{"type":"result","stop_reason":"end_turn","session_id":"sess-123","usage":{"input_tokens":1},"result":"not-structured"}`),
+					stdout:    []byte(`{"type":"result","stop_reason":"end_turn","session_id":"sess-123","usage":{"input_tokens":1},"result":"not-structured"}`),
+					sessionID: "sess-123",
 				}, nil
 			case 2:
 				return commandResult{
-					stdout: []byte(`{"type":"result","stop_reason":"end_turn","session_id":"sess-123","usage":{"input_tokens":1},"structured_output":{"approved":true}}`),
+					stdout:              []byte(`{"type":"result","stop_reason":"end_turn","session_id":"sess-123","usage":{"input_tokens":1},"structured_output":{"approved":true}}`),
+					sessionID:           "sess-123",
+					structuredOutput:    map[string]any{"approved": true},
+					hasStructuredOutput: true,
 				}, nil
 			default:
 				t.Fatalf("unexpected call #%d", len(calls))
@@ -276,15 +219,20 @@ func TestProviderFallsBackToFreshAfterResumeWhenStructuredOutputStillMissing(t *
 			switch len(calls) {
 			case 1:
 				return commandResult{
-					stdout: []byte(`{"type":"result","stop_reason":"end_turn","session_id":"sess-456","usage":{"input_tokens":1},"result":"not-structured"}`),
+					stdout:    []byte(`{"type":"result","stop_reason":"end_turn","session_id":"sess-456","usage":{"input_tokens":1},"result":"not-structured"}`),
+					sessionID: "sess-456",
 				}, nil
 			case 2:
 				return commandResult{
-					stdout: []byte(`{"type":"result","stop_reason":"end_turn","session_id":"sess-456","usage":{"input_tokens":1},"result":"still-not-structured"}`),
+					stdout:    []byte(`{"type":"result","stop_reason":"end_turn","session_id":"sess-456","usage":{"input_tokens":1},"result":"still-not-structured"}`),
+					sessionID: "sess-456",
 				}, nil
 			case 3:
 				return commandResult{
-					stdout: []byte(`{"type":"result","stop_reason":"end_turn","session_id":"fresh-1","usage":{"input_tokens":1},"structured_output":{"approved":true}}`),
+					stdout:              []byte(`{"type":"result","stop_reason":"end_turn","session_id":"fresh-1","usage":{"input_tokens":1},"structured_output":{"approved":true}}`),
+					sessionID:           "fresh-1",
+					structuredOutput:    map[string]any{"approved": true},
+					hasStructuredOutput: true,
 				}, nil
 			default:
 				t.Fatalf("unexpected call #%d", len(calls))
