@@ -69,7 +69,7 @@ func Load(path string) (Loaded, error) {
 		return Loaded{}, err
 	}
 
-	document, err := Decode(data)
+	document, err := decodeWithPath(data, absPath)
 	if err != nil {
 		return Loaded{}, fmt.Errorf("decode spec %s: %w", absPath, err)
 	}
@@ -81,6 +81,10 @@ func Load(path string) (Loaded, error) {
 }
 
 func Decode(data []byte) (Document, error) {
+	return decodeWithPath(data, "")
+}
+
+func decodeWithPath(data []byte, specPath string) (Document, error) {
 	var document Document
 
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
@@ -89,14 +93,14 @@ func Decode(data []byte) (Document, error) {
 		return Document{}, err
 	}
 
-	if err := validate(document); err != nil {
+	if err := validate(document, specPath); err != nil {
 		return Document{}, err
 	}
 
 	return document, nil
 }
 
-func validate(document Document) error {
+func validate(document Document, specPath string) error {
 	if document.Version != Version {
 		return fmt.Errorf("unsupported version %q", document.Version)
 	}
@@ -113,6 +117,9 @@ func validate(document Document) error {
 		return fmt.Errorf("entry flow %q is not defined", document.Entry)
 	}
 	if err := validateBuiltInSteps(document); err != nil {
+		return err
+	}
+	if err := validateProviderResponseSchemas(document, specPath); err != nil {
 		return err
 	}
 

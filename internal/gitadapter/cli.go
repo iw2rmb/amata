@@ -91,6 +91,11 @@ func (gitCLI) hasCachedDiff(ctx context.Context, repoRoot string, paths []string
 }
 
 func (gitCLI) commitPaths(ctx context.Context, repoRoot string, message string, body string, paths []string) (string, error) {
+	headBefore, hasHeadBefore, err := resolveCurrentHead(ctx, repoRoot)
+	if err != nil {
+		return "", fmt.Errorf("resolve pre-commit sha: %w", err)
+	}
+
 	args := []string{"commit", "--quiet", "-m", message}
 	if strings.TrimSpace(body) != "" {
 		args = append(args, "-m", body)
@@ -105,7 +110,19 @@ func (gitCLI) commitPaths(ctx context.Context, repoRoot string, message string, 
 	if err != nil {
 		return "", fmt.Errorf("resolve commit sha: %w", err)
 	}
-	return strings.TrimSpace(string(output)), nil
+	headAfter := strings.TrimSpace(string(output))
+	if !hasHeadBefore {
+		return headAfter, nil
+	}
+
+	originalCommit, ok, err := resolveFirstCommitAfter(ctx, repoRoot, headBefore, headAfter)
+	if err != nil {
+		return "", fmt.Errorf("resolve original commit sha: %w", err)
+	}
+	if ok {
+		return originalCommit, nil
+	}
+	return headAfter, nil
 }
 
 func (gitCLI) commitMetadata(ctx context.Context, repoRoot string, commit string) (*CommitMetadata, error) {
@@ -146,6 +163,41 @@ func runGitCommand(ctx context.Context, repoRoot string, args ...string) ([]byte
 		return nil, formatGitError(args, err, output)
 	}
 	return output, nil
+}
+
+func resolveCurrentHead(ctx context.Context, repoRoot string) (string, bool, error) {
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--verify", "HEAD")
+	cmd.Dir = repoRoot
+
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		return strings.TrimSpace(string(output)), true, nil
+	}
+
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok {
+		return "", false, formatGitError([]string{"rev-parse", "--verify", "HEAD"}, err, output)
+	}
+	if exitErr.ExitCode() == 128 {
+		return "", false, nil
+	}
+	return "", false, formatGitError([]string{"rev-parse", "--verify", "HEAD"}, err, output)
+}
+
+func resolveFirstCommitAfter(ctx context.Context, repoRoot string, before string, after string) (string, bool, error) {
+	rangeSpec := before + ".." + after
+	output, err := runGitCommand(ctx, repoRoot, "rev-list", "--reverse", "--ancestry-path", rangeSpec)
+	if err != nil {
+		return "", false, err
+	}
+
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		candidate := strings.TrimSpace(line)
+		if candidate != "" {
+			return candidate, true, nil
+		}
+	}
+	return "", false, nil
 }
 
 func formatGitError(args []string, err error, output []byte) error {

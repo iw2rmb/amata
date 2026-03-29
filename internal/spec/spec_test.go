@@ -463,6 +463,97 @@ flows:
 	}
 }
 
+func TestLoadRejectsCodexResponseSchemaWithUnsupportedKeywords(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	specPath := filepath.Join(tempDir, "workflow.yaml")
+	specBody := `
+version: amata/v1
+name: sample
+entry: main
+schemas:
+  review_result:
+    type: object
+    additionalProperties: false
+    properties:
+      ok:
+        type: boolean
+    allOf:
+      - if:
+          properties:
+            ok:
+              const: true
+        then:
+          required: [ok]
+flows:
+  main:
+    steps:
+      - codex: |
+          Return JSON.
+        response: "#/schemas/review_result"
+`
+	if err := os.WriteFile(specPath, []byte(specBody), 0o644); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+
+	_, err := spec.Load(specPath)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if !strings.Contains(err.Error(), `flow "main" step 0 (codex): response.schema is invalid`) {
+		t.Fatalf("error = %q, want flow/step codex schema context", err)
+	}
+	if !strings.Contains(err.Error(), `does not support "allOf"`) {
+		t.Fatalf("error = %q, want unsupported keyword fragment", err)
+	}
+}
+
+func TestLoadRejectsCodexResponseSchemaFileWithUnsupportedKeywords(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	specPath := filepath.Join(tempDir, "workflow.yaml")
+	schemaPath := filepath.Join(tempDir, "review.schema.json")
+
+	if err := os.WriteFile(schemaPath, []byte(`{
+  "type": "object",
+  "properties": {
+    "ok": { "type": "boolean" }
+  },
+  "allOf": [{ "required": ["ok"] }]
+}`), 0o644); err != nil {
+		t.Fatalf("write schema: %v", err)
+	}
+
+	specBody := `
+version: amata/v1
+name: sample
+entry: main
+flows:
+  main:
+    steps:
+      - codex: |
+          Return JSON.
+        response:
+          schema: ./review.schema.json
+`
+	if err := os.WriteFile(specPath, []byte(specBody), 0o644); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+
+	_, err := spec.Load(specPath)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if !strings.Contains(err.Error(), `flow "main" step 0 (codex): response.schema is invalid`) {
+		t.Fatalf("error = %q, want flow/step codex schema context", err)
+	}
+	if !strings.Contains(err.Error(), `does not support "allOf"`) {
+		t.Fatalf("error = %q, want unsupported keyword fragment", err)
+	}
+}
+
 func TestLoadResolvesIncludeTags(t *testing.T) {
 	t.Parallel()
 

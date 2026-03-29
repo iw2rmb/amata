@@ -174,6 +174,75 @@ func TestCommitIncludesBodyInDescription(t *testing.T) {
 	}
 }
 
+func TestCommitReturnsOriginalCommitWhenPostCommitHookAddsAnotherCommit(t *testing.T) {
+	t.Parallel()
+
+	repoDir := initRepository(t)
+	headBefore := strings.TrimSpace(runGit(t, repoDir, "rev-parse", "HEAD"))
+
+	hooksDir := filepath.Join(repoDir, ".githooks")
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		t.Fatalf("create hooks dir: %v", err)
+	}
+	hookPath := filepath.Join(hooksDir, "post-commit")
+	hook := "#!/bin/sh\n" +
+		"if [ -f .post-commit-done ]; then\n" +
+		"  exit 0\n" +
+		"fi\n" +
+		"echo done > .post-commit-done\n" +
+		"git add .post-commit-done\n" +
+		"git commit --quiet -m \"hook: follow-up\"\n"
+	if err := os.WriteFile(hookPath, []byte(hook), 0o755); err != nil {
+		t.Fatalf("write post-commit hook: %v", err)
+	}
+	runGit(t, repoDir, "config", "core.hooksPath", ".githooks")
+
+	writeFile(t, filepath.Join(repoDir, "engine.txt"), "engine change\n")
+
+	client := New()
+	snapshot, err := client.Inspect(context.Background(), repoDir)
+	if err != nil {
+		t.Fatalf("inspect repository: %v", err)
+	}
+
+	result, err := client.Commit(context.Background(), snapshot, CommitOptions{
+		Message: "engine: commit tracked changes",
+	})
+	if err != nil {
+		t.Fatalf("commit repository changes: %v", err)
+	}
+	if !result.Committed {
+		t.Fatalf("result.Committed = false, want true")
+	}
+
+	headAfter := strings.TrimSpace(runGit(t, repoDir, "rev-parse", "HEAD"))
+	if headAfter == headBefore {
+		t.Fatalf("HEAD after commit = %q, want new commit", headAfter)
+	}
+	if result.Commit == headAfter {
+		t.Fatalf("result.Commit = %q, want original commit instead of final HEAD", result.Commit)
+	}
+
+	originalRange := strings.Fields(runGit(t, repoDir, "rev-list", "--reverse", "--ancestry-path", headBefore+".."+headAfter))
+	if len(originalRange) < 2 {
+		t.Fatalf("rev-list range = %#v, want original commit + hook commit", originalRange)
+	}
+	if got, want := result.Commit, originalRange[0]; got != want {
+		t.Fatalf("result.Commit = %q, want %q", got, want)
+	}
+
+	subject := strings.TrimSpace(runGit(t, repoDir, "show", "-s", "--format=%s", result.Commit))
+	if got, want := subject, "engine: commit tracked changes"; got != want {
+		t.Fatalf("original commit subject = %q, want %q", got, want)
+	}
+	if result.Metadata == nil {
+		t.Fatalf("result.Metadata = nil, want metadata")
+	}
+	if result.Metadata.ShortCommit == "" {
+		t.Fatalf("result.Metadata.ShortCommit = empty, want short sha")
+	}
+}
+
 func TestCommitHandlesMissingIncludedPaths(t *testing.T) {
 	t.Parallel()
 
