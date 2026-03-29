@@ -12,6 +12,8 @@ Read and follow policies that correspond to the nature of the current task:
 
 Both in designing DD/roadmaps, and in development, **NO** backward compatibility is required, unless it explicitly stated by user.
 
+**NEVER** use `--no-verify` when commiting. 
+You **MUST** wait for pre-commit hook to complete.
 
 ## Structured Output Runs
 
