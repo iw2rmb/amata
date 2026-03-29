@@ -194,30 +194,44 @@ func TestRenderStepBlockColorizesStatusTokensAndBoldsStepType(t *testing.T) {
 		statusToken: "⏺",
 	}
 
-	succeeded := renderStepBlock(Step{
-		Type:       "shell",
-		Status:     StepStatusSucceeded,
-		StartedAt:  now.Add(-5 * time.Second),
-		FinishedAt: now,
-		Descriptor: &DescriptorData{
-			PrimaryText: "echo ok",
+	testCases := []struct {
+		name    string
+		step    Step
+		wantSub string
+	}{
+		{
+			name: "succeeded renders green bullet and bold type",
+			step: Step{
+				Type:       "shell",
+				Status:     StepStatusSucceeded,
+				StartedAt:  now.Add(-5 * time.Second),
+				FinishedAt: now,
+				Descriptor: &DescriptorData{PrimaryText: "echo ok"},
+			},
+			wantSub: styles.statusOK.Render("⏺") + " 00:05 " + styles.strong.Render("shell") + " echo ok",
 		},
-	}, options)
-	if !strings.Contains(succeeded, styles.statusOK.Render("⏺")+" 00:05 "+styles.strong.Render("shell")+" echo ok") {
-		t.Fatalf("succeeded block = %q, want green bullet and bold step type", succeeded)
+		{
+			name: "failed renders red bullet and bold type",
+			step: Step{
+				Type:       "assert",
+				Status:     StepStatusFailed,
+				StartedAt:  now.Add(-1 * time.Second),
+				FinishedAt: now,
+				Descriptor: &DescriptorData{PrimaryText: "false"},
+			},
+			wantSub: styles.statusFail.Render("⏺") + " 00:01 " + styles.strong.Render("assert") + " false",
+		},
 	}
 
-	failed := renderStepBlock(Step{
-		Type:       "assert",
-		Status:     StepStatusFailed,
-		StartedAt:  now.Add(-1 * time.Second),
-		FinishedAt: now,
-		Descriptor: &DescriptorData{
-			PrimaryText: "false",
-		},
-	}, options)
-	if !strings.Contains(failed, styles.statusFail.Render("⏺")+" 00:01 "+styles.strong.Render("assert")+" false") {
-		t.Fatalf("failed block = %q, want red bullet and bold step type", failed)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := renderStepBlock(tc.step, options)
+			if !strings.Contains(got, tc.wantSub) {
+				t.Fatalf("block = %q, want %q", got, tc.wantSub)
+			}
+		})
 	}
 }
 
