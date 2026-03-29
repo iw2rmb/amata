@@ -9,6 +9,7 @@ This document describes the shipped `amata` engine behavior in this repository.
 ```text
 amata run <spec.yaml> [--workspace <dir>] [--set key=value ...] [--run-id <id>]
 amata resume <run-id>
+amata validate <spec.yaml>
 ```
 
 The current implementation includes durable on-disk run state, one shared expression/template runtime, response value and schema handling, eight built-in executors (`shell`, `expr`, `assert`, `codex`, `claude`, `crush`, `git.inspect`, and `git.commit`), and first-version control blocks (`switch`, `call`, and `for_each`) over a deterministically planned resumable flow stack.
@@ -35,6 +36,10 @@ flows:
 Current behavior:
 - `version`, `name`, `entry`, and `flows` are required.
 - `entry` must name a flow present in `flows`.
+- Any scalar node may use `!include <path[#/pointer]>` to include YAML from another file before strict spec decode.
+- Include paths resolve relative to the including file unless absolute.
+- Include fragments use JSON Pointer syntax (for example `!include ./flows.yaml#/flows/main`).
+- Include cycles fail with an explicit include-cycle error.
 - `flows` may include named subflows that are reachable through `type: call`, `call: <flow>`, and synthetic `switch` and `for_each` child frames.
 - `workspace.root` and `workspace.state_dir` are accepted and normalized before execution.
 - `params` are exposed to expressions and templates under `ctx.params`.

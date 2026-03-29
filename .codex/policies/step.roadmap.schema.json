@@ -1,0 +1,258 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "step.roadmap.schema.json",
+  "title": "Roadmap Step",
+  "description": "Schema definition for a single roadmap item.",
+  "$defs": {
+    "done": {
+      "type": "boolean",
+      "$comment": "Completed correctly and in full."
+    },
+    "reasoning": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "$comment": "Estimated by COSMIC FP (COSMIC Functional Points, CFP) implementation effort tier."
+    },
+    "item": {
+      "$comment": "Implementation step. Avoid ambiguity: step must identify concrete files/modules and expected observable outcomes.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "done",
+        "gaps",
+        "label",
+        "summary",
+        "classification",
+        "components",
+        "implementation",
+        "verification",
+        "reasoning",
+        "cfp"
+      ],
+      "properties": {
+        "commit": {
+          "$ref": "./common.roadmap.schema.json#/$defs/commit"
+        },
+        "done": {
+          "$ref": "#/$defs/done"
+        },
+        "gaps": {
+          "$ref": "./common.roadmap.schema.json#/$defs/gaps"
+        },
+        "label": {
+          "type": "string",
+          "pattern": "^[0-9]+(?:\\.[0-9]+)*$",
+          "$comment": "Roadmap numbering label, e.g. 1.5a is not allowed by template, 1.5 is allowed."
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "$comment": "One-liner summary of the scope for the item"
+        },
+        "classification": {
+          "type": "string",
+          "enum": [
+            "determined",
+            "assumption-bound"
+          ],
+          "$comment": "`determined`: all involved components/classes/functions/structs are known. `assumption-bound`: unresolved unknowns remain."
+        },
+        "components": {
+          "type": "array",
+          "minItems": 1,
+          "$comment": "Concrete modules/files/classes/functions/structs touched by the item. Use relative paths. Can use patterns, e.g. `<folder>/<subfolder>/**`, `<folder>/{file1,file2, ...}`",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._\\-/*{}, ]+$"
+          }
+        },
+        "assumptions": {
+          "type": "string",
+          "minLength": 1,
+          "$comment": "Required only for assumption-bound items; omit for determined items."
+        },
+        "implementation": {
+          "type": "array",
+          "minItems": 1,
+          "$comment": "Keep all functional actions inside one item at the same detail level",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "$comment": "Functional actions at class/function/struct level."
+          }
+        },
+        "verification": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "$comment": "One-line verification scenarios."
+        },
+        "reasoning": {
+          "$ref": "#/$defs/reasoning"
+        },
+        "cfp": {
+          "type": "integer",
+          "minimum": 1,
+          "$comment": "Calculated COSMIC FP"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "classification": {
+                "const": "assumption-bound"
+              }
+            },
+            "required": [
+              "classification"
+            ]
+          },
+          "then": {
+            "required": [
+              "assumptions"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "classification": {
+                "const": "determined"
+              }
+            },
+            "required": [
+              "classification"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "assumptions"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "done": {
+                "const": true
+              }
+            },
+            "required": [
+              "done"
+            ]
+          },
+          "then": {
+            "required": [
+              "commit"
+            ],
+            "properties": {
+              "gaps": {
+                "not": {
+                  "contains": {
+                    "type": "object",
+                    "not": {
+                      "required": [
+                        "commit"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "cfp": {
+                "minimum": 1,
+                "maximum": 3
+              }
+            },
+            "required": [
+              "cfp"
+            ]
+          },
+          "then": {
+            "properties": {
+              "reasoning": {
+                "const": "low"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "cfp": {
+                "minimum": 4,
+                "maximum": 8
+              }
+            },
+            "required": [
+              "cfp"
+            ]
+          },
+          "then": {
+            "properties": {
+              "reasoning": {
+                "const": "medium"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "cfp": {
+                "minimum": 9,
+                "maximum": 16
+              }
+            },
+            "required": [
+              "cfp"
+            ]
+          },
+          "then": {
+            "properties": {
+              "reasoning": {
+                "const": "high"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "cfp": {
+                "minimum": 17
+              }
+            },
+            "required": [
+              "cfp"
+            ]
+          },
+          "then": {
+            "properties": {
+              "reasoning": {
+                "const": "xhigh"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

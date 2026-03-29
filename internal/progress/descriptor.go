@@ -158,6 +158,14 @@ func descriptorDataFromContext(stepCtx executor.StepContext) (*DescriptorData, e
 			return nil, err
 		}
 		return &DescriptorData{PrimaryText: command}, nil
+	case "data.get":
+		descriptor, err := dataGetDescriptor(stepCtx)
+		if err != nil {
+			return nil, err
+		}
+		return &DescriptorData{
+			PrimaryText: descriptor,
+		}, nil
 	case "assert":
 		primary, err := resolvedDescriptorValue(stepCtx, stepCtx.Step.Fields["assert"])
 		if err != nil {
@@ -378,6 +386,18 @@ func shellCommand(stepCtx executor.StepContext) (string, error) {
 	default:
 		return "", fmt.Errorf("command must be a string or string array")
 	}
+}
+
+func dataGetDescriptor(stepCtx executor.StepContext) (string, error) {
+	fileRaw, ok := stepCtx.Step.Fields["file"]
+	if !ok {
+		return "", fmt.Errorf("file is required")
+	}
+	filePath, err := stepCtx.Runtime.ResolveString(fileRaw)
+	if err != nil {
+		return "", fmt.Errorf("file: %w", err)
+	}
+	return filePath, nil
 }
 
 func resolvedDescriptorValue(stepCtx executor.StepContext, value any) (string, error) {

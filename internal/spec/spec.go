@@ -3,7 +3,6 @@ package spec
 import (
 	"bytes"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"gopkg.in/yaml.v3"
@@ -65,9 +64,9 @@ func Load(path string) (Loaded, error) {
 		return Loaded{}, fmt.Errorf("resolve spec path: %w", err)
 	}
 
-	data, err := os.ReadFile(absPath)
+	data, err := compose(absPath)
 	if err != nil {
-		return Loaded{}, fmt.Errorf("read spec: %w", err)
+		return Loaded{}, err
 	}
 
 	document, err := Decode(data)

@@ -52,7 +52,7 @@ Do not double-count the same movement across phases or items.
 
 ## Changes (enhancements)
 
-`CFP_delta` is implementation effort of the enhancement.
+`CFP` is implementation effort of the enhancement.
 Estimate enhancement delta from before and after process maps:
 - Added movement: `+1`.
 - Deleted movement: `+1` in change effort.
@@ -61,7 +61,7 @@ Estimate enhancement delta from before and after process maps:
 
 ## Map CFP to roadmap reasoning
 
-When a roadmap item needs `Reasoning: low|medium|high|xhigh`, map by `CFP_delta`:
+When a roadmap item needs `Reasoning: low|medium|high|xhigh`, map by `CFP`:
 
 | CFP_delta | Reasoning |
 |-----------|-----------|

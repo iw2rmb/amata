@@ -336,6 +336,12 @@ flows:
               - sh
               - -lc
               - echo hi
+      - for_each: [one, two]
+        as: item
+        steps:
+          - expr: $.item
+      - git.commit: "feat: done"
+        body: "details"
   next:
     steps:
       - type: expr
@@ -434,5 +440,204 @@ flows:
 	}
 	if got := secondWhen["expr"]; got != `not ctx.prev.value["hasItem"]` {
 		t.Fatalf("step 5 case 1 when.expr = %#v, want negated hasItem expression", got)
+	}
+
+	if got := mainSteps[7].Type; got != "for_each" {
+		t.Fatalf("step 7 type = %q, want for_each", got)
+	}
+	if got := mainSteps[7].Fields["as"]; got != "item" {
+		t.Fatalf("step 7 as = %#v, want item", got)
+	}
+	if items, ok := mainSteps[7].Fields["items"].([]any); !ok || len(items) != 2 {
+		t.Fatalf("step 7 items = %#v, want 2 items", mainSteps[7].Fields["items"])
+	}
+
+	if got := mainSteps[8].Type; got != "git.commit" {
+		t.Fatalf("step 8 type = %q, want git.commit", got)
+	}
+	if got := mainSteps[8].Fields["message"]; got != "feat: done" {
+		t.Fatalf("step 8 message = %#v, want feat: done", got)
+	}
+	if got := mainSteps[8].Fields["body"]; got != "details" {
+		t.Fatalf("step 8 body = %#v, want details", got)
+	}
+}
+
+func TestLoadResolvesIncludeTags(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	specPath := filepath.Join(tempDir, "workflow.yaml")
+	flowsDir := filepath.Join(tempDir, "flows")
+	if err := os.MkdirAll(flowsDir, 0o755); err != nil {
+		t.Fatalf("mkdir flows: %v", err)
+	}
+
+	root := `
+version: amata/v1
+name: sample
+entry: main
+flows:
+  post:
+    steps:
+      - expr: '"post"'
+  main: !include ./flows/implementation-loop.yaml#/flows/main
+  review: !include ./flows/item-review-loop.yaml#/flows/review
+  helper: !include ./flows/common.yaml#/flows/helper
+`
+	implFlow := `
+flows:
+  main:
+    steps:
+      - call: review
+      - call: post
+`
+	reviewFlow := `
+flows:
+  review:
+    steps:
+      - call: helper
+`
+	commonFlow := `
+flows:
+  helper:
+    steps:
+      - expr: '"helper"'
+`
+
+	if err := os.WriteFile(specPath, []byte(root), 0o644); err != nil {
+		t.Fatalf("write root spec: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(flowsDir, "implementation-loop.yaml"), []byte(implFlow), 0o644); err != nil {
+		t.Fatalf("write implementation flow: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(flowsDir, "item-review-loop.yaml"), []byte(reviewFlow), 0o644); err != nil {
+		t.Fatalf("write review flow: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(flowsDir, "common.yaml"), []byte(commonFlow), 0o644); err != nil {
+		t.Fatalf("write common flow: %v", err)
+	}
+
+	loaded, err := spec.Load(specPath)
+	if err != nil {
+		t.Fatalf("load spec: %v", err)
+	}
+
+	if _, ok := loaded.Spec.Flows["main"]; !ok {
+		t.Fatalf("flows[main] missing")
+	}
+	if _, ok := loaded.Spec.Flows["review"]; !ok {
+		t.Fatalf("flows[review] missing")
+	}
+	if _, ok := loaded.Spec.Flows["helper"]; !ok {
+		t.Fatalf("flows[helper] missing")
+	}
+	if _, ok := loaded.Spec.Flows["post"]; !ok {
+		t.Fatalf("flows[post] missing")
+	}
+}
+
+func TestLoadRejectsIncludeErrors(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name            string
+		files           map[string]string
+		wantErrContains string
+	}{
+		{
+			name: "include cycles",
+			files: map[string]string{
+				"workflow.yaml": `
+version: amata/v1
+name: sample
+entry: main
+flows:
+  main: !include ./a.yaml#/flows/from_a
+`,
+				"a.yaml": `
+flows:
+  from_a: !include ./b.yaml#/flows/from_b
+`,
+				"b.yaml": `
+flows:
+  from_b: !include ./a.yaml#/flows/from_a
+`,
+			},
+			wantErrContains: "spec include cycle detected",
+		},
+		{
+			name: "invalid include fragment",
+			files: map[string]string{
+				"workflow.yaml": `
+version: amata/v1
+name: sample
+entry: main
+flows:
+  main: !include ./flows/main.yaml#flows/main
+`,
+				"flows/main.yaml": `
+flows:
+  main:
+    steps:
+      - expr: '"ok"'
+`,
+			},
+			wantErrContains: "!include fragment must start with /",
+		},
+		{
+			name: "duplicate flow keys after includes",
+			files: map[string]string{
+				"workflow.yaml": `
+version: amata/v1
+name: sample
+entry: main
+flows:
+  duplicate: !include ./flows/a.yaml#/flows/duplicate
+  duplicate: !include ./flows/b.yaml#/flows/duplicate
+  main:
+    steps:
+      - call: duplicate
+`,
+				"flows/a.yaml": `
+flows:
+  duplicate:
+    steps:
+      - expr: '"a"'
+`,
+				"flows/b.yaml": `
+flows:
+  duplicate:
+    steps:
+      - expr: '"b"'
+`,
+			},
+			wantErrContains: "mapping key",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			tempDir := t.TempDir()
+			for name, content := range tc.files {
+				path := filepath.Join(tempDir, name)
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					t.Fatalf("mkdir for %s: %v", name, err)
+				}
+				if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+					t.Fatalf("write %s: %v", name, err)
+				}
+			}
+
+			_, err := spec.Load(filepath.Join(tempDir, "workflow.yaml"))
+			if err == nil {
+				t.Fatalf("expected error")
+			}
+			if !strings.Contains(err.Error(), tc.wantErrContains) {
+				t.Fatalf("error = %q, want %q", err, tc.wantErrContains)
+			}
+		})
 	}
 }

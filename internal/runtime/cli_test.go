@@ -40,23 +40,34 @@ func TestRunCLIInterruptHelperProcess(t *testing.T) {
 	os.Exit(0)
 }
 
-func TestRunCLINoArgsReturnsUsage(t *testing.T) {
-	err := runtime.RunCLI(nil, nil, nil)
-	if err == nil {
-		t.Fatalf("run cli succeeded, want usage error")
+func TestRunCLIErrorCases(t *testing.T) {
+	testCases := []struct {
+		name            string
+		args            []string
+		wantErrContains string
+	}{
+		{
+			name:            "no args returns usage",
+			args:            nil,
+			wantErrContains: "usage:",
+		},
+		{
+			name:            "unknown flag",
+			args:            []string{"run", "--bogus"},
+			wantErrContains: `unknown flag "--bogus"`,
+		},
 	}
-	if !strings.Contains(err.Error(), "usage:") {
-		t.Fatalf("run cli error = %q, want usage text", err)
-	}
-}
 
-func TestRunCLIUnknownFlag(t *testing.T) {
-	err := runtime.RunCLI([]string{"run", "--bogus"}, nil, nil)
-	if err == nil {
-		t.Fatalf("run cli succeeded, want unknown flag error")
-	}
-	if !strings.Contains(err.Error(), `unknown flag "--bogus"`) {
-		t.Fatalf("run cli error = %q, want unknown flag message", err)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := runtime.RunCLI(tc.args, nil, nil)
+			if err == nil {
+				t.Fatalf("run cli succeeded, want error")
+			}
+			if !strings.Contains(err.Error(), tc.wantErrContains) {
+				t.Fatalf("run cli error = %q, want %q", err, tc.wantErrContains)
+			}
+		})
 	}
 }
 
@@ -522,6 +533,72 @@ flows:
 	}
 	if !strings.Contains(err.Error(), `param "unknown" is not declared in spec.params`) {
 		t.Fatalf("run cli error = %q, want undeclared param message", err)
+	}
+}
+
+func TestValidateCLICases(t *testing.T) {
+	testCases := []struct {
+		name            string
+		specBody        string
+		args            []string
+		wantErr         bool
+		wantErrContains string
+	}{
+		{
+			name: "succeeds for valid spec",
+			specBody: `
+version: amata/v1
+name: sample
+entry: main
+flows:
+  main: {}
+`,
+		},
+		{
+			name: "fails for invalid spec",
+			specBody: `
+version: amata/v1
+name: sample
+flows:
+  main: {}
+`,
+			wantErr:         true,
+			wantErrContains: "entry is required",
+		},
+		{
+			name:            "requires exactly one spec path",
+			args:            []string{"validate"},
+			wantErr:         true,
+			wantErrContains: "validate requires exactly one spec path",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			args := tc.args
+			if args == nil {
+				specDir := t.TempDir()
+				specPath := filepath.Join(specDir, "workflow.yaml")
+				if err := os.WriteFile(specPath, []byte(tc.specBody), 0o644); err != nil {
+					t.Fatalf("write spec: %v", err)
+				}
+				args = []string{"validate", specPath}
+			}
+
+			err := runtime.RunCLI(args, nil, nil)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("validate cli succeeded, want error")
+				}
+				if !strings.Contains(err.Error(), tc.wantErrContains) {
+					t.Fatalf("validate cli error = %q, want %q", err, tc.wantErrContains)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("validate cli: %v", err)
+				}
+			}
+		})
 	}
 }
 

@@ -193,103 +193,87 @@ func TestProviderStreamsStdoutWhileRunning(t *testing.T) {
 	}
 }
 
-func TestProviderPreservesPartialOutputOnCancellation(t *testing.T) {
+func TestProviderPreservesPartialOutputOnFailure(t *testing.T) {
 	t.Parallel()
 
-	artifactDir := t.TempDir()
-	stdoutPath := filepath.Join(artifactDir, "stdout.txt")
-	stderrPath := filepath.Join(artifactDir, "stderr.txt")
-	stdoutFile, err := os.Create(stdoutPath)
-	if err != nil {
-		t.Fatalf("create stdout file: %v", err)
-	}
-	defer stdoutFile.Close()
-	stderrFile, err := os.Create(stderrPath)
-	if err != nil {
-		t.Fatalf("create stderr file: %v", err)
-	}
-	defer stderrFile.Close()
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	prov := provider{
-		run: func(_ context.Context, _ []string, _ string, _ []string, _ []byte, stdout, stderr io.Writer) error {
-			if _, err := stdout.Write([]byte("partial stdout\n")); err != nil {
-				t.Errorf("write stdout: %v", err)
-			}
-			if _, err := stderr.Write([]byte("partial stderr\n")); err != nil {
-				t.Errorf("write stderr: %v", err)
-			}
-			cancel()
-			return errors.New("signal: killed")
+	testCases := []struct {
+		name       string
+		cancel     bool
+		runErr     string
+		wantStdout string
+		wantStderr string
+	}{
+		{
+			name:       "cancellation",
+			cancel:     true,
+			runErr:     "signal: killed",
+			wantStdout: "partial stdout\n",
+			wantStderr: "partial stderr\n",
+		},
+		{
+			name:       "non-zero exit",
+			cancel:     false,
+			runErr:     "exit status 1",
+			wantStdout: "partial output\n",
+			wantStderr: "error detail\n",
 		},
 	}
 
-	_, execErr := prov.Execute(ctx, agent.Request{
-		Prompt:       "test",
-		Model:        "gpt-5.4",
-		CWD:          "/repo",
-		ArtifactDir:  artifactDir,
-		StdoutWriter: stdoutFile,
-		StderrWriter: stderrFile,
-	})
-	if execErr == nil {
-		t.Fatalf("expected execute error on cancellation")
-	}
-	if execErr.Code != "agent_failed" {
-		t.Fatalf("error code = %q, want agent_failed", execErr.Code)
-	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	testutil.AssertFileContents(t, stdoutPath, "partial stdout\n")
-	testutil.AssertFileContents(t, stderrPath, "partial stderr\n")
-}
-
-func TestProviderPreservesPartialOutputOnNonZeroExit(t *testing.T) {
-	t.Parallel()
-
-	artifactDir := t.TempDir()
-	stdoutPath := filepath.Join(artifactDir, "stdout.txt")
-	stderrPath := filepath.Join(artifactDir, "stderr.txt")
-	stdoutFile, err := os.Create(stdoutPath)
-	if err != nil {
-		t.Fatalf("create stdout file: %v", err)
-	}
-	defer stdoutFile.Close()
-	stderrFile, err := os.Create(stderrPath)
-	if err != nil {
-		t.Fatalf("create stderr file: %v", err)
-	}
-	defer stderrFile.Close()
-
-	prov := provider{
-		run: func(_ context.Context, _ []string, _ string, _ []string, _ []byte, stdout, stderr io.Writer) error {
-			if _, err := stdout.Write([]byte("partial output\n")); err != nil {
-				t.Errorf("write stdout: %v", err)
+			artifactDir := t.TempDir()
+			stdoutPath := filepath.Join(artifactDir, "stdout.txt")
+			stderrPath := filepath.Join(artifactDir, "stderr.txt")
+			stdoutFile, err := os.Create(stdoutPath)
+			if err != nil {
+				t.Fatalf("create stdout file: %v", err)
 			}
-			if _, err := stderr.Write([]byte("error detail\n")); err != nil {
-				t.Errorf("write stderr: %v", err)
+			defer stdoutFile.Close()
+			stderrFile, err := os.Create(stderrPath)
+			if err != nil {
+				t.Fatalf("create stderr file: %v", err)
 			}
-			return errors.New("exit status 1")
-		},
-	}
+			defer stderrFile.Close()
 
-	_, execErr := prov.Execute(context.Background(), agent.Request{
-		Prompt:       "test",
-		Model:        "gpt-5.4",
-		CWD:          "/repo",
-		ArtifactDir:  artifactDir,
-		StdoutWriter: stdoutFile,
-		StderrWriter: stderrFile,
-	})
-	if execErr == nil {
-		t.Fatalf("expected execute error on non-zero exit")
-	}
-	if execErr.Code != "agent_failed" {
-		t.Fatalf("error code = %q, want agent_failed", execErr.Code)
-	}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
-	testutil.AssertFileContents(t, stdoutPath, "partial output\n")
-	testutil.AssertFileContents(t, stderrPath, "error detail\n")
+			prov := provider{
+				run: func(_ context.Context, _ []string, _ string, _ []string, _ []byte, stdout, stderr io.Writer) error {
+					if _, err := stdout.Write([]byte(tc.wantStdout)); err != nil {
+						t.Errorf("write stdout: %v", err)
+					}
+					if _, err := stderr.Write([]byte(tc.wantStderr)); err != nil {
+						t.Errorf("write stderr: %v", err)
+					}
+					if tc.cancel {
+						cancel()
+					}
+					return errors.New(tc.runErr)
+				},
+			}
+
+			_, execErr := prov.Execute(ctx, agent.Request{
+				Prompt:       "test",
+				Model:        "gpt-5.4",
+				CWD:          "/repo",
+				ArtifactDir:  artifactDir,
+				StdoutWriter: stdoutFile,
+				StderrWriter: stderrFile,
+			})
+			if execErr == nil {
+				t.Fatalf("expected execute error")
+			}
+			if execErr.Code != "agent_failed" {
+				t.Fatalf("error code = %q, want agent_failed", execErr.Code)
+			}
+
+			testutil.AssertFileContents(t, stdoutPath, tc.wantStdout)
+			testutil.AssertFileContents(t, stderrPath, tc.wantStderr)
+		})
+	}
 }
 
 var containsArgPair = testutil.ContainsArgPair

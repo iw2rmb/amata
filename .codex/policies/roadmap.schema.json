@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "roadmap.schema.json",
+  "title": "Roadmap",
+  "description": "Schema to compose roadmap",
+  "$comment": "Before composing, inspect corresponding codebase and docs. Apply [COSMIC](.codex/policies/estimating-effort.md) for decomposition granularity at the functional-process level. Use it to size and split work; do not copy COSMIC theory text into the subject roadmap. Keep wording plain, precise, short, and direct.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "title",
+    "scope",
+    "documentation",
+    "done",
+    "gaps",
+    "items",
+    "policy",
+    "schema"
+  ],
+  "properties": {
+    "policy": {
+      "type": "string",
+      "default": ".codex/policies/composing-roadmaps.md",
+      "$comment": "Composing Roadmaps Policy. Do not change."
+    },
+    "schema": {
+      "type": "string",
+      "default": ".codex/policies/roadmap.schema.json",
+      "$comment": "Roadmap JSON schema"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "$comment": "Top-level roadmap title."
+    },
+    "scope": {
+      "type": "string",
+      "minLength": 1,
+      "$comment": "One short statement of boundary and intended outcome."
+    },
+    "documentation": {
+      "type": "array",
+      "minItems": 1,
+      "$comment": "Relevant docs references for the roadmap subject.",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "anyOf": [
+          {
+            "format": "uri"
+          },
+          {
+            "pattern": "^(\\.|\\.\\.|~|/|[A-Za-z]:\\\\|[A-Za-z0-9._-]+/).+"
+          }
+        ]
+      }
+    },
+    "done": {
+      "$ref": "./step.roadmap.schema.json#/$defs/done"
+    },
+    "gaps": {
+      "$ref": "./common.roadmap.schema.json#/$defs/gaps"
+    },
+    "items": {
+      "$comment": "Sequential serie of implementation steps to achieve scope of the roadmap. Must represent smallest independently shippable and verifiable units possible.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "./step.roadmap.schema.json#/$defs/item"
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "done": {
+            "const": true
+          }
+        },
+        "required": [
+          "done"
+        ]
+      },
+      "then": {
+        "properties": {
+          "items": {
+            "items": {
+              "type": "object",
+              "required": [
+                "done"
+              ],
+              "properties": {
+                "done": {
+                  "const": true
+                }
+              }
+            }
+          },
+          "gaps": {
+            "not": {
+              "contains": {
+                "type": "object",
+                "not": {
+                  "required": [
+                    "commit"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

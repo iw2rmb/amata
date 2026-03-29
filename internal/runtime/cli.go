@@ -74,7 +74,11 @@ func newRootCommand(stdout io.Writer, stderr io.Writer, options cliOptions) *cob
 	command.SetOut(writerOrDiscard(stdout))
 	command.SetErr(writerOrDiscard(stderr))
 	command.SetFlagErrorFunc(flagErrorFunc)
-	command.AddCommand(newRunCommand(stderr, options), newResumeCommand(stderr, options))
+	command.AddCommand(
+		newRunCommand(stderr, options),
+		newResumeCommand(stderr, options),
+		newValidateCommand(),
+	)
 	return command
 }
 
@@ -153,6 +157,28 @@ func newResumeCommand(stderr io.Writer, options cliOptions) *cobra.Command {
 				}
 			}()
 			return resumeCommand(cmd.Context(), args[0], cmd.OutOrStdout(), sink)
+		},
+	}
+
+	command.SetFlagErrorFunc(flagErrorFunc)
+	return command
+}
+
+func newValidateCommand() *cobra.Command {
+	command := &cobra.Command{
+		Use:           "validate <spec.yaml>",
+		Short:         "Validate a workflow spec without running it",
+		SilenceErrors: true,
+		SilenceUsage:  true,
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) != 1 {
+				return fmt.Errorf("validate requires exactly one spec path\n\n%s", usageText())
+			}
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_, err := spec.Load(args[0])
+			return err
 		},
 	}
 
@@ -354,5 +380,6 @@ func usageText() string {
 usage:
   amata run <spec.yaml> [--workspace <dir>] [--set key=value ...] [--run-id <id>]
   amata resume <run-id>
+  amata validate <spec.yaml>
 `)
 }

@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$default": "message",
+  "$default": "file",
   "type": "object",
   "properties": {
     "id": {
       "type": "string"
     },
     "type": {
-      "const": "git.commit"
+      "const": "data.get"
     },
     "when": true,
     "expect": true,
@@ -17,30 +17,23 @@
     "stall": {
       "$ref": "common.stall.amata.schema.json"
     },
-    "message": {
+    "file": {
       "$ref": "common.string-or-expr.amata.schema.json"
     },
-    "body": {
+    "format": {
       "$ref": "common.string-or-expr.amata.schema.json"
     },
+    "query": {
+      "$ref": "common.string-or-expr.amata.schema.json"
+    },
+    "default": true,
     "cwd": {
       "$ref": "common.string-or-expr.amata.schema.json"
-    },
-    "exclude_paths": {
-      "type": "array",
-      "items": {
-        "$ref": "common.string-or-expr.amata.schema.json"
-      }
     }
   },
   "required": [
     "type",
-    "message"
+    "file"
   ],
-  "additionalProperties": false,
-  "$defs": {
-    "defaultValue": {
-      "$ref": "git.commit.value.amata.schema.json"
-    }
-  }
+  "additionalProperties": false
 }

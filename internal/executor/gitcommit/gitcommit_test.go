@@ -18,174 +18,148 @@ import (
 	"github.com/iw2rmb/amata/internal/workspace"
 )
 
-func TestExecutorAddsWorkspaceStateDirToExclusions(t *testing.T) {
+func TestExecutorFakeServiceCases(t *testing.T) {
 	t.Parallel()
 
-	service := &fakeCommitService{
-		snapshot: gitadapter.Snapshot{
-			IsRepo: true,
-			Root:   "/repo",
-			Files:  []string{"engine.txt"},
-		},
-		commitResult: gitadapter.CommitResult{
-			Committed: true,
-			Commit:    "abc123",
-			Paths:     []string{"engine.txt"},
-			Metadata: &gitadapter.CommitMetadata{
-				ShortCommit:      "abc123",
-				ChangedFileCount: 1,
-				Insertions:       5,
-				Deletions:        2,
-				FileStats: []gitadapter.CommitFileStat{
-					{Path: "engine.txt", Insertions: 5, Deletions: 2},
+	testCases := []struct {
+		name         string
+		service      *fakeCommitService
+		fields       map[string]any
+		wantOptions  gitadapter.CommitOptions
+		wantValue    map[string]any
+	}{
+		{
+			name: "adds workspace state dir to exclusions",
+			service: &fakeCommitService{
+				snapshot: gitadapter.Snapshot{
+					IsRepo: true,
+					Root:   "/repo",
+					Files:  []string{"engine.txt"},
+				},
+				commitResult: gitadapter.CommitResult{
+					Committed: true,
+					Commit:    "abc123",
+					Paths:     []string{"engine.txt"},
+					Metadata: &gitadapter.CommitMetadata{
+						ShortCommit:      "abc123",
+						ChangedFileCount: 1,
+						Insertions:       5,
+						Deletions:        2,
+						FileStats: []gitadapter.CommitFileStat{
+							{Path: "engine.txt", Insertions: 5, Deletions: 2},
+						},
+					},
 				},
 			},
-		},
-	}
-
-	result := gitcommit.NewWithService(service).Execute(context.Background(), executor.StepContext{
-		Workspace: workspace.Config{
-			Root:     "/repo",
-			StateDir: "/repo/.amata",
-		},
-		StepIndex: 1,
-		Step: spec.Step{
-			Type: "git.commit",
-			Fields: map[string]any{
+			fields: map[string]any{
 				"message": "engine: commit",
 				"exclude_paths": []any{
 					"logs",
 				},
 			},
-		},
-		Runtime: exprruntime.NewRuntime(map[string]any{}),
-	})
-
-	if result.Status != state.StepStatusSucceeded {
-		t.Fatalf("result.Status = %q, want %q", result.Status, state.StepStatusSucceeded)
-	}
-
-	wantValue := map[string]any{
-		"committed": true,
-		"commit":    "abc123",
-		"paths":     []string{"engine.txt"},
-		"repoRoot":  "/repo",
-		"metadata": map[string]any{
-			"shortCommit":      "abc123",
-			"changedFileCount": 1,
-			"insertions":       5,
-			"deletions":        2,
-			"files": []any{
-				map[string]any{
-					"path":       "engine.txt",
-					"insertions": 5,
-					"deletions":  2,
+			wantOptions: gitadapter.CommitOptions{
+				Message:      "engine: commit",
+				ExcludePaths: []string{"logs", "/repo/.amata"},
+			},
+			wantValue: map[string]any{
+				"committed": true,
+				"commit":    "abc123",
+				"paths":     []string{"engine.txt"},
+				"repoRoot":  "/repo",
+				"metadata": map[string]any{
+					"shortCommit":      "abc123",
+					"changedFileCount": 1,
+					"insertions":       5,
+					"deletions":        2,
+					"files": []any{
+						map[string]any{
+							"path":       "engine.txt",
+							"insertions": 5,
+							"deletions":  2,
+						},
+					},
 				},
 			},
 		},
-	}
-	if !reflect.DeepEqual(result.Value, wantValue) {
-		t.Fatalf("result.Value = %#v, want %#v", result.Value, wantValue)
-	}
-
-	wantOptions := gitadapter.CommitOptions{
-		Message:      "engine: commit",
-		ExcludePaths: []string{"logs", "/repo/.amata"},
-	}
-	if !reflect.DeepEqual(service.commitOptions, wantOptions) {
-		t.Fatalf("service.commitOptions = %#v, want %#v", service.commitOptions, wantOptions)
-	}
-}
-
-func TestExecutorPassesBodyIntoCommitOptions(t *testing.T) {
-	t.Parallel()
-
-	service := &fakeCommitService{
-		snapshot: gitadapter.Snapshot{
-			IsRepo: true,
-			Root:   "/repo",
-			Files:  []string{"engine.txt"},
-		},
-		commitResult: gitadapter.CommitResult{
-			Committed: true,
-			Commit:    "abc123",
-			Paths:     []string{"engine.txt"},
-		},
-	}
-
-	result := gitcommit.NewWithService(service).Execute(context.Background(), executor.StepContext{
-		Workspace: workspace.Config{
-			Root:     "/repo",
-			StateDir: "/repo/.amata",
-		},
-		StepIndex: 1,
-		Step: spec.Step{
-			Type: "git.commit",
-			Fields: map[string]any{
+		{
+			name: "passes body into commit options",
+			service: &fakeCommitService{
+				snapshot: gitadapter.Snapshot{
+					IsRepo: true,
+					Root:   "/repo",
+					Files:  []string{"engine.txt"},
+				},
+				commitResult: gitadapter.CommitResult{
+					Committed: true,
+					Commit:    "abc123",
+					Paths:     []string{"engine.txt"},
+				},
+			},
+			fields: map[string]any{
 				"message": "engine: commit",
 				"body":    "line one\n\nline two",
 			},
+			wantOptions: gitadapter.CommitOptions{
+				Message:      "engine: commit",
+				Body:         "line one\n\nline two",
+				ExcludePaths: []string{"/repo/.amata"},
+			},
 		},
-		Runtime: exprruntime.NewRuntime(map[string]any{}),
-	})
-
-	if result.Status != state.StepStatusSucceeded {
-		t.Fatalf("result.Status = %q, want %q", result.Status, state.StepStatusSucceeded)
-	}
-
-	wantOptions := gitadapter.CommitOptions{
-		Message:      "engine: commit",
-		Body:         "line one\n\nline two",
-		ExcludePaths: []string{"/repo/.amata"},
-	}
-	if !reflect.DeepEqual(service.commitOptions, wantOptions) {
-		t.Fatalf("service.commitOptions = %#v, want %#v", service.commitOptions, wantOptions)
-	}
-}
-
-func TestExecutorAllowsEmptyBody(t *testing.T) {
-	t.Parallel()
-
-	service := &fakeCommitService{
-		snapshot: gitadapter.Snapshot{
-			IsRepo: true,
-			Root:   "/repo",
-			Files:  []string{"engine.txt"},
-		},
-		commitResult: gitadapter.CommitResult{
-			Committed: true,
-			Commit:    "abc123",
-			Paths:     []string{"engine.txt"},
-		},
-	}
-
-	result := gitcommit.NewWithService(service).Execute(context.Background(), executor.StepContext{
-		Workspace: workspace.Config{
-			Root:     "/repo",
-			StateDir: "/repo/.amata",
-		},
-		StepIndex: 2,
-		Step: spec.Step{
-			Type: "git.commit",
-			Fields: map[string]any{
+		{
+			name: "allows empty body",
+			service: &fakeCommitService{
+				snapshot: gitadapter.Snapshot{
+					IsRepo: true,
+					Root:   "/repo",
+					Files:  []string{"engine.txt"},
+				},
+				commitResult: gitadapter.CommitResult{
+					Committed: true,
+					Commit:    "abc123",
+					Paths:     []string{"engine.txt"},
+				},
+			},
+			fields: map[string]any{
 				"message": "engine: commit",
 				"body":    "   ",
 			},
+			wantOptions: gitadapter.CommitOptions{
+				Message:      "engine: commit",
+				Body:         "   ",
+				ExcludePaths: []string{"/repo/.amata"},
+			},
 		},
-		Runtime: exprruntime.NewRuntime(map[string]any{}),
-	})
-
-	if result.Status != state.StepStatusSucceeded {
-		t.Fatalf("result.Status = %q, want %q", result.Status, state.StepStatusSucceeded)
 	}
 
-	wantOptions := gitadapter.CommitOptions{
-		Message:      "engine: commit",
-		Body:         "   ",
-		ExcludePaths: []string{"/repo/.amata"},
-	}
-	if !reflect.DeepEqual(service.commitOptions, wantOptions) {
-		t.Fatalf("service.commitOptions = %#v, want %#v", service.commitOptions, wantOptions)
+	for i, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := gitcommit.NewWithService(tc.service).Execute(context.Background(), executor.StepContext{
+				Workspace: workspace.Config{
+					Root:     "/repo",
+					StateDir: "/repo/.amata",
+				},
+				StepIndex: i + 1,
+				Step: spec.Step{
+					Type:   "git.commit",
+					Fields: tc.fields,
+				},
+				Runtime: exprruntime.NewRuntime(map[string]any{}),
+			})
+
+			if result.Status != state.StepStatusSucceeded {
+				t.Fatalf("result.Status = %q, want %q", result.Status, state.StepStatusSucceeded)
+			}
+			if !reflect.DeepEqual(tc.service.commitOptions, tc.wantOptions) {
+				t.Fatalf("service.commitOptions = %#v, want %#v", tc.service.commitOptions, tc.wantOptions)
+			}
+			if tc.wantValue != nil {
+				if !reflect.DeepEqual(result.Value, tc.wantValue) {
+					t.Fatalf("result.Value = %#v, want %#v", result.Value, tc.wantValue)
+				}
+			}
+		})
 	}
 }
 

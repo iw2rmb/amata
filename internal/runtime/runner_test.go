@@ -133,7 +133,7 @@ func TestBuiltinRegistration(t *testing.T) {
 	t.Parallel()
 
 	registry := builtinRegistry()
-	for _, name := range []string{"shell", "expr", "assert", "codex", "claude", "crush", "git.inspect", "git.commit"} {
+	for _, name := range []string{"shell", "expr", "assert", "data.get", "codex", "claude", "crush", "git.inspect", "git.commit"} {
 		if _, ok := registry.Lookup(name); !ok {
 			t.Errorf("builtin executor %q is not registered", name)
 		}
