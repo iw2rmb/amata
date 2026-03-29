@@ -1,6 +1,7 @@
 package progress
 
 import (
+	"fmt"
 	"strings"
 
 	glamour "charm.land/glamour/v2"
@@ -17,7 +18,7 @@ const (
 func renderAgentPromptDetails(step Step, descriptor StepDescriptor, options renderStepOptions) []string {
 	data := cloneDescriptorData(step.Descriptor)
 	if data == nil || len(data.DetailText) == 0 {
-		return descriptor.DetailLines
+		return appendAgentLastActionDetails(descriptor.DetailLines, options.agentOutput)
 	}
 
 	rendered, err := renderAgentPromptMarkdown(data.DetailText[0], agentPromptWordWrap(options))
@@ -25,14 +26,48 @@ func renderAgentPromptDetails(step Step, descriptor StepDescriptor, options rend
 		return descriptor.DetailLines
 	}
 	if options.styles.colorize {
-		return rendered
+		return appendAgentLastActionDetails(rendered, options.agentOutput)
 	}
 
 	plain := make([]string, 0, len(rendered))
 	for _, line := range rendered {
 		plain = append(plain, strings.TrimRight(charmansi.Strip(line), " "))
 	}
-	return plain
+	return appendAgentLastActionDetails(plain, options.agentOutput)
+}
+
+func appendAgentLastActionDetails(lines []string, summary *agentOutputSummary) []string {
+	if summary == nil || summary.LastAction == nil {
+		return lines
+	}
+
+	last := summary.LastAction
+	eventType := strings.TrimSpace(last.EventType)
+	if eventType == "" {
+		eventType = "event"
+	}
+	action := fmt.Sprintf(
+		"%s %s Out: %s In: %s Cached: %s",
+		formatAgentEventElapsed(last.Elapsed),
+		eventType,
+		formatTokenCount(last.Tokens.Out),
+		formatTokenCount(last.Tokens.In),
+		formatTokenCount(last.Tokens.Cached),
+	)
+
+	content := strings.TrimSpace(last.Content)
+	if content == "" {
+		content = "(no content)"
+	}
+	if last.Italic {
+		content = "*" + content + "*"
+	}
+
+	details := append([]string{}, lines...)
+	details = append(details, "")
+	details = append(details, action)
+	details = append(details, content)
+	return details
 }
 
 func renderAgentPromptMarkdown(markdown string, wrap int) ([]string, error) {

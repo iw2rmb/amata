@@ -301,6 +301,7 @@ type renderStepOptions struct {
 	now         time.Time
 	width       int
 	styles      streamStyles
+	agentOutput *agentOutputSummary
 }
 
 func blockForEvent(event Event, settings streamRenderSettings, styles streamStyles) string {
@@ -380,6 +381,12 @@ func renderStepBlock(step Step, options renderStepOptions) string {
 		Now:         options.now,
 		DetailWidth: detailWidth(options.width, options.styles),
 	})
+	if isAgentStepType(step.Type) {
+		if summary, ok := summarizeAgentStepOutput(step); ok {
+			options.agentOutput = &summary
+			descriptor.PrimaryText = formatAgentTokenSummary(descriptor.PrimaryText, summary.Totals)
+		}
+	}
 
 	headlinePrefix := strings.TrimSpace(strings.Join([]string{
 		renderStatusToken(step, options.statusToken, options.styles),
