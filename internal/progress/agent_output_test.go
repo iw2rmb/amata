@@ -78,7 +78,7 @@ func TestAgentOutputRenderBlock(t *testing.T) {
 				"codex gpt-5.4:high | 🢁30 🢃120 🢃🢃110",
 			},
 			wantNotContain: []string{
-				"Bash | 🢁3 🢃12 🢃🢃11",
+				"Shell | 🢁3 🢃12 🢃🢃11",
 				"pwd",
 			},
 		},
@@ -99,7 +99,7 @@ func TestAgentOutputRenderBlock(t *testing.T) {
 				"codex gpt-5.4:high | 🢁0 🢃11.5k 🢃🢃0",
 			},
 			wantNotContain: []string{
-				"Bash | 🢁0 🢃11.5k 🢃🢃0",
+				"Shell | 🢁0 🢃11.5k 🢃🢃0",
 				"/bin/zsh -lc 'pwd'",
 			},
 		},
@@ -134,7 +134,7 @@ func TestAgentOutputRenderBlock(t *testing.T) {
 				"codex gpt-5.3-codex:low | 🢁595 🢃31.5k 🢃🢃4.9k",
 			},
 			wantNotContain: []string{
-				"Bash | 🢁0 🢃0 🢃🢃0",
+				"Shell | 🢁0 🢃0 🢃🢃0",
 				`/bin/zsh -lc "pwd"`,
 			},
 		},
@@ -195,13 +195,15 @@ func TestAgentOutputRenderBlock(t *testing.T) {
 	}
 }
 
-func TestRenderRunningAgentShowsLastActionBelowPrompt(t *testing.T) {
+func TestRenderRunningCodexShowsPromptThinkingShellBlocks(t *testing.T) {
 	t.Parallel()
 
 	tempDir := t.TempDir()
 	stdoutPath := filepath.Join(tempDir, "stdout.txt")
 	content := strings.Join([]string{
-		`{"timestamp":"2026-03-29T10:00:00Z","type":"item.started","item":{"id":"item_2","type":"command_execution","command":"/bin/zsh -lc \"pwd\"","status":"in_progress"}}`,
+		`{"timestamp":"2026-03-29T10:00:20Z","type":"item.started","item":{"id":"item_2","type":"command_execution","command":"/bin/zsh -lc \"echo first\"","status":"in_progress"}}`,
+		`{"timestamp":"2026-03-29T10:00:30Z","type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"{\"$thinking\":\"Plan command execution\"}"}}`,
+		`{"timestamp":"2026-03-29T10:00:40Z","type":"item.started","item":{"id":"item_3","type":"command_execution","command":"/bin/zsh -lc \"pwd\"","status":"in_progress"}}`,
 		`{"timestamp":"2026-03-29T10:03:00Z","type":"turn.completed","usage":{"input_tokens":31506,"cached_input_tokens":4864,"output_tokens":595}}`,
 	}, "\n")
 	if err := os.WriteFile(stdoutPath, []byte(content), 0o644); err != nil {
@@ -219,6 +221,7 @@ func TestRenderRunningAgentShowsLastActionBelowPrompt(t *testing.T) {
 			StartedAt: startedAt,
 			Artifacts: Artifacts{
 				Stdout: stdoutPath,
+				Files:  map[string]string{"prompt": filepath.Join(tempDir, "prompt.md")},
 			},
 			Descriptor: &DescriptorData{
 				PrimaryText: "gpt-5.3-codex:low",
@@ -234,13 +237,13 @@ func TestRenderRunningAgentShowsLastActionBelowPrompt(t *testing.T) {
 	if !strings.Contains(block, "codex gpt-5.3-codex:low | 🢁595 🢃31.5k 🢃🢃4.9k") {
 		t.Fatalf("block = %q, want token summary while running", block)
 	}
-	if !strings.Contains(block, "Bash") {
-		t.Fatalf("block = %q, want running tool line", block)
+	if !strings.Contains(block, "[P]rompt") {
+		t.Fatalf("block = %q, want collapsed prompt line", block)
 	}
-	if strings.Contains(block, "Bash | 🢁0 🢃0 🢃🢃0") {
-		t.Fatalf("block = %q, should not render empty token triplet", block)
+	if !strings.Contains(block, "[T]hinking Plan command execution") {
+		t.Fatalf("block = %q, want collapsed thinking line", block)
 	}
-	if !strings.Contains(block, `/bin/zsh -lc "pwd"`) {
-		t.Fatalf("block = %q, want last action content while running", block)
+	if !strings.Contains(block, `[S]hell /bin/zsh -lc "pwd"`) {
+		t.Fatalf("block = %q, want collapsed shell line", block)
 	}
 }

@@ -27,6 +27,7 @@ type DescriptorData struct {
 	PrimaryText         string   `json:"primary_text,omitempty"`
 	DetailText          []string `json:"detail_text,omitempty"`
 	FinalSummaryDetails []string `json:"final_summary_details,omitempty"`
+	WorkspaceRoot       string   `json:"workspace_root,omitempty"`
 }
 
 type StepDescriptor struct {
@@ -79,11 +80,17 @@ func StepFromContext(stepCtx executor.StepContext) (Step, error) {
 		stepDir := executor.StepArtifactDir(stepCtx.RunDir, stepCtx.StepIndex, stepCtx.Step.ID, stepCtx.ExecutionLabel)
 		step.Artifacts.Stdout = filepath.Join(stepDir, "stdout.txt")
 		step.Artifacts.Stderr = filepath.Join(stepDir, "stderr.txt")
+		step.Artifacts.Files = map[string]string{
+			"prompt": filepath.Join(stepDir, "prompt.md"),
+		}
 	}
 
 	data, err := descriptorDataFromContext(stepCtx)
 	if err != nil {
 		return Step{}, err
+	}
+	if data != nil {
+		data.WorkspaceRoot = stepCtx.Workspace.Root
 	}
 	step.Descriptor = data
 	return step, nil
@@ -95,6 +102,9 @@ func StepFromResultWithContext(flowName string, stepCtx executor.StepContext, re
 	if err != nil {
 		return Step{}, err
 	}
+	if data != nil {
+		data.WorkspaceRoot = stepCtx.Workspace.Root
+	}
 	step.Descriptor = data
 	return step, nil
 }
@@ -105,7 +115,8 @@ func cloneDescriptorData(data *DescriptorData) *DescriptorData {
 	}
 
 	cloned := &DescriptorData{
-		PrimaryText: data.PrimaryText,
+		PrimaryText:   data.PrimaryText,
+		WorkspaceRoot: data.WorkspaceRoot,
 	}
 	if len(data.DetailText) > 0 {
 		cloned.DetailText = append([]string(nil), data.DetailText...)

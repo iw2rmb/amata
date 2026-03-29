@@ -7,8 +7,10 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/iw2rmb/amata/internal/progress"
 	"github.com/iw2rmb/amata/internal/spec"
@@ -34,6 +36,9 @@ func WithProgressSink(sink progress.Sink) CLIOption {
 func RunCLI(args []string, stdout io.Writer, stderr io.Writer, options ...CLIOption) error {
 	command := newRootCommand(stdout, stderr, buildCLIOptions(options))
 	command.SetArgs(args)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	command.SetContext(ctx)
 
 	if err := command.Execute(); err != nil {
 		if len(args) > 0 && isUnknownCommandError(err) {

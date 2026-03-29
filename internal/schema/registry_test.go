@@ -186,6 +186,49 @@ func TestProviderDocumentIgnoresUnusedUnsupportedWorkflowSchemas(t *testing.T) {
 	}
 }
 
+func TestEnsureCodexThinkingFieldAddsPropertyAndRequired(t *testing.T) {
+	t.Parallel()
+
+	document := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"approved": map[string]any{"type": "boolean"},
+		},
+		"required": []any{"approved"},
+	}
+
+	augmented := schema.EnsureCodexThinkingField(document)
+	properties, ok := augmented["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("properties = %#v, want map", augmented["properties"])
+	}
+	thinking, ok := properties["$thinking"].(map[string]any)
+	if !ok {
+		t.Fatalf("$thinking = %#v, want map", properties["$thinking"])
+	}
+	if thinking["type"] != "string" {
+		t.Fatalf("$thinking.type = %#v, want string", thinking["type"])
+	}
+	if thinking["$comment"] != "Thinking (reasoning) notes" {
+		t.Fatalf("$thinking.$comment = %#v", thinking["$comment"])
+	}
+
+	required, ok := augmented["required"].([]any)
+	if !ok {
+		t.Fatalf("required = %#v, want []any", augmented["required"])
+	}
+	found := false
+	for _, item := range required {
+		if text, ok := item.(string); ok && text == "$thinking" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("required = %#v, want $thinking", required)
+	}
+}
+
 func TestRegistryCompileFailsForMissingWorkflowOwnedRef(t *testing.T) {
 	t.Parallel()
 

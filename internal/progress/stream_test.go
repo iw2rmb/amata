@@ -2,12 +2,16 @@ package progress
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	lipgloss "charm.land/lipgloss/v2"
 	"github.com/charmbracelet/bubbles/spinner"
+	tea "github.com/charmbracelet/bubbletea"
+	charmansi "github.com/charmbracelet/x/ansi"
 )
 
 func TestBlockForEventFormatsPlainText(t *testing.T) {
@@ -42,9 +46,9 @@ func TestBlockForEventFormatsPlainText(t *testing.T) {
 			want: strings.Join([]string{
 				"⏺ 00:05 codex gpt-5.4:high",
 				"  ",
-				"   Implement descriptor-repo with enough",
-				"   detail to wrap across multiple",
-				"   descriptor lines cleanly.",
+				"   [P]rompt prompt.md",
+				"   [T]hinking (none yet)",
+				"   [S]hell (none yet)",
 			}, "\n"),
 		},
 		{
@@ -65,7 +69,7 @@ func TestBlockForEventFormatsPlainText(t *testing.T) {
 			want: strings.Join([]string{
 				"⏺ 00:05 crush claude-sonnet-4-5",
 				"  ",
-				"   Implement the feature.",
+				"     Implement the feature.",
 			}, "\n"),
 		},
 		{
@@ -136,7 +140,7 @@ func TestStreamModelRendersSingleAnimatedSpinnerForDeepestActiveStep(t *testing.
 
 	now := time.Date(2026, time.March, 14, 10, 0, 5, 0, time.UTC)
 	model := streamModel{
-		spinner: spinner.New(spinner.WithSpinner(spinner.Line)),
+		spinner: spinner.New(spinner.WithSpinner(spinner.Dot)),
 		styles:  newStreamStyles(false),
 		settings: streamRenderSettings{
 			now: func() time.Time {
@@ -173,7 +177,7 @@ func TestStreamModelRendersSingleAnimatedSpinnerForDeepestActiveStep(t *testing.
 		t.Fatalf("view = %q, want static running parent line", view)
 	}
 
-	activeSpinnerPrefix := nextModel.spinner.View() + " 00:05 shell go test ./internal/runtime"
+	activeSpinnerPrefix := strings.TrimSpace(nextModel.spinner.View()) + " 00:05 shell go test ./internal/runtime"
 	if !strings.Contains(view, activeSpinnerPrefix) {
 		t.Fatalf("view = %q, want animated child line %q", view, activeSpinnerPrefix)
 	}
@@ -240,7 +244,7 @@ func TestStreamModelViewCollapsesDeepActiveStackToOuterAndLeaf(t *testing.T) {
 
 	now := time.Date(2026, time.March, 14, 10, 0, 5, 0, time.UTC)
 	model := streamModel{
-		spinner: spinner.New(spinner.WithSpinner(spinner.Line)),
+		spinner: spinner.New(spinner.WithSpinner(spinner.Dot)),
 		styles:  newStreamStyles(true),
 		settings: streamRenderSettings{
 			now: func() time.Time {
@@ -286,17 +290,109 @@ func TestStreamModelViewCollapsesDeepActiveStackToOuterAndLeaf(t *testing.T) {
 	}
 
 	view := model.View()
+	plainView := charmansi.Strip(view)
 	if !strings.Contains(view, "⏺ 00:10 "+model.styles.strong.Render("call")+" implement_loop") {
 		t.Fatalf("view = %q, want outermost active step", view)
 	}
-	if !strings.Contains(view, model.spinner.View()+" 00:02 "+model.styles.strong.Render("codex")+" gpt-5.4:medium") {
+	if !strings.Contains(view, strings.TrimSpace(model.spinner.View())+" 00:02 "+model.styles.strong.Render("codex")+" gpt-5.4:medium") {
 		t.Fatalf("view = %q, want deepest active step", view)
 	}
 	if strings.Contains(view, "switch 2 cases") {
 		t.Fatalf("view = %q, want intermediate active steps collapsed", view)
 	}
-	if got := countNonEmptyLines(view); got != 2 {
-		t.Fatalf("view = %q, want exactly two visible active lines", view)
+	for _, want := range []string{"[P]rompt", "[T]hinking (none yet)", "[S]hell (none yet)"} {
+		if !strings.Contains(plainView, want) {
+			t.Fatalf("view = %q, want codex collapsed detail %q", view, want)
+		}
+	}
+}
+
+func TestStreamModelKeyTogglesExpandRunningCodexSections(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	promptPath := filepath.Join(tempDir, "prompt.md")
+	if err := os.WriteFile(promptPath, []byte("Implement **feature**."), 0o644); err != nil {
+		t.Fatalf("write prompt: %v", err)
+	}
+
+	now := time.Date(2026, time.March, 14, 10, 0, 5, 0, time.UTC)
+	model := streamModel{
+		spinner: spinner.New(spinner.WithSpinner(spinner.Dot)),
+		styles:  newStreamStyles(false),
+		settings: streamRenderSettings{
+			now: func() time.Time {
+				return now
+			},
+			width: 120,
+		},
+		width: 120,
+		active: []Step{
+			{
+				Type:      "codex",
+				Status:    StepStatusRunning,
+				StartedAt: now.Add(-5 * time.Second),
+				Artifacts: Artifacts{
+					Files: map[string]string{"prompt": promptPath},
+				},
+				Descriptor: &DescriptorData{
+					PrimaryText: "gpt-5.4:high",
+				},
+			},
+		},
+	}
+
+	collapsed := model.View()
+	collapsedPlain := charmansi.Strip(collapsed)
+	for _, want := range []string{"[P]rompt", "[T]hinking (none yet)", "[S]hell (none yet)"} {
+		if !strings.Contains(collapsedPlain, want) {
+			t.Fatalf("collapsed view = %q, want %q", collapsed, want)
+		}
+	}
+
+	next, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	expandedPrompt := next.(streamModel).View()
+	if !strings.Contains(expandedPrompt, " [P]rompt") {
+		t.Fatalf("expanded prompt view = %q, want prompt header", expandedPrompt)
+	}
+	if !strings.Contains(charmansi.Strip(expandedPrompt), "Implement feature.") {
+		t.Fatalf("expanded prompt view = %q, want rendered prompt body", expandedPrompt)
+	}
+
+	next, _ = next.(streamModel).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	expandedThinking := next.(streamModel).View()
+	if !strings.Contains(expandedThinking, " [T]hinking") || !strings.Contains(expandedThinking, "(none yet)") {
+		t.Fatalf("expanded thinking view = %q, want thinking block", expandedThinking)
+	}
+
+	next, _ = next.(streamModel).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	expandedShell := next.(streamModel).View()
+	if !strings.Contains(expandedShell, " [S]hell") || !strings.Contains(expandedShell, "(none yet)") {
+		t.Fatalf("expanded shell view = %q, want shell block", expandedShell)
+	}
+}
+
+func TestStreamModelCtrlCReturnsQuitCommand(t *testing.T) {
+	t.Parallel()
+	originalInterrupt := interruptFn
+	interruptFn = func() {}
+	t.Cleanup(func() {
+		interruptFn = originalInterrupt
+	})
+
+	model := streamModel{
+		spinner: spinner.New(spinner.WithSpinner(spinner.Dot)),
+		styles:  newStreamStyles(false),
+		settings: streamRenderSettings{
+			now:   func() time.Time { return time.Now().UTC() },
+			width: 80,
+		},
+		width: 80,
+	}
+
+	_, cmd := model.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd == nil {
+		t.Fatalf("ctrl+c update cmd = nil, want quit command")
 	}
 }
 
@@ -307,7 +403,7 @@ func TestStreamModelKeepsFinishedHistoryVisibleAcrossLaterEvents(t *testing.T) {
 	finishedAt := startedAt.Add(5 * time.Second)
 	failedAt := finishedAt.Add(1 * time.Second)
 	model := streamModel{
-		spinner: spinner.New(spinner.WithSpinner(spinner.Line)),
+		spinner: spinner.New(spinner.WithSpinner(spinner.Dot)),
 		styles:  newStreamStyles(false),
 		settings: streamRenderSettings{
 			now: func() time.Time {
@@ -381,7 +477,7 @@ func TestStreamModelCollapsesNestedLoopScaffoldingInFinishedHistory(t *testing.T
 
 	now := time.Date(2026, time.March, 14, 10, 6, 0, 0, time.UTC)
 	model := streamModel{
-		spinner: spinner.New(spinner.WithSpinner(spinner.Line)),
+		spinner: spinner.New(spinner.WithSpinner(spinner.Dot)),
 		styles:  newStreamStyles(false),
 		settings: streamRenderSettings{
 			now: func() time.Time {
@@ -654,7 +750,7 @@ func TestRenderAgentPromptMarkdownAppliesPaddingAndWidth(t *testing.T) {
 	}
 }
 
-func TestRenderAgentPromptMarkdownColorizesBodyAndKeepsCodeWhite(t *testing.T) {
+func TestRenderAgentPromptMarkdownUsesDraculaStyle(t *testing.T) {
 	t.Parallel()
 
 	rendered, err := renderAgentPromptMarkdown("Paragraph\n\n```go\nfmt.Println(\"hi\")\n```", 40)
@@ -666,14 +762,50 @@ func TestRenderAgentPromptMarkdownColorizesBodyAndKeepsCodeWhite(t *testing.T) {
 	if !strings.Contains(joined, "\x1b[") {
 		t.Fatalf("rendered = %q, want ANSI styling", joined)
 	}
-	if !strings.Contains(joined, "[38;5;252mParagraph") {
-		t.Fatalf("rendered = %q, want dim white paragraph text", joined)
+	if !strings.Contains(charmansi.Strip(joined), "Paragraph") {
+		t.Fatalf("rendered = %q, want paragraph text", joined)
 	}
-	if !strings.Contains(joined, "[38;5;231mfmt") && !strings.Contains(joined, "[38;5;255mfmt") {
-		t.Fatalf("rendered = %q, want white code block text", joined)
+	if !strings.Contains(charmansi.Strip(joined), "fmt.Println(\"hi\")") {
+		t.Fatalf("rendered = %q, want code block text", joined)
 	}
 }
 
 func boolPointer(value bool) *bool {
 	return &value
+}
+
+func TestPromptPathDisplayPrefersShortestCandidate(t *testing.T) {
+	t.Parallel()
+
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		t.Skip("home directory unavailable")
+	}
+
+	workspaceRoot := filepath.Join(home, "workspace")
+	promptPath := filepath.Join(workspaceRoot, "flows", "prompt.md")
+
+	got := promptPathDisplay(promptPath, workspaceRoot)
+	want := filepath.ToSlash(filepath.Join("flows", "prompt.md"))
+	if got != want {
+		t.Fatalf("promptPathDisplay = %q, want %q", got, want)
+	}
+}
+
+func TestPromptPathDisplayFallsBackToHomeVariantWhenRelativeUnavailable(t *testing.T) {
+	t.Parallel()
+
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		t.Skip("home directory unavailable")
+	}
+
+	workspaceRoot := filepath.Join(home, "workspace")
+	promptPath := filepath.Join(home, "other-project", "prompt.md")
+
+	got := promptPathDisplay(promptPath, workspaceRoot)
+	want := filepath.ToSlash(filepath.Join("~", "other-project", "prompt.md"))
+	if got != want {
+		t.Fatalf("promptPathDisplay = %q, want %q", got, want)
+	}
 }

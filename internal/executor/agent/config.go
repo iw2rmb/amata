@@ -296,10 +296,20 @@ func buildStructuredSchema(stepCtx executor.StepContext, providerName string, st
 			return nil, "", "", err
 		}
 		if providerName == "codex" {
-			document, err = schema.ValidateProviderDocument(document)
+			validated, err := schema.ValidateProviderDocument(document)
 			if err != nil {
 				return nil, "", "", err
 			}
+			document = schema.EnsureCodexThinkingField(validated)
+			data, err := json.Marshal(document)
+			if err != nil {
+				return nil, "", "", err
+			}
+			schemaPath := filepath.Join(stepDir, "response-schema.json")
+			if err := os.WriteFile(schemaPath, data, 0o644); err != nil {
+				return nil, "", "", fmt.Errorf("write response schema artifact: %w", err)
+			}
+			return document, string(data), schemaPath, nil
 		}
 		return document, jsonText, sourcePath, nil
 	}
@@ -309,10 +319,11 @@ func buildStructuredSchema(stepCtx executor.StepContext, providerName string, st
 		return nil, "", "", err
 	}
 	if providerName == "codex" {
-		document, err = schema.ValidateProviderDocument(document)
+		validated, err := schema.ValidateProviderDocument(document)
 		if err != nil {
 			return nil, "", "", err
 		}
+		document = schema.EnsureCodexThinkingField(validated)
 	}
 
 	data, err := json.Marshal(document)

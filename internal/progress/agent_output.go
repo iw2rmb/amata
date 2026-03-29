@@ -26,9 +26,11 @@ type agentLastAction struct {
 }
 
 type agentOutputSummary struct {
-	Totals     agentTokenUsage
-	LastAction *agentLastAction
+	Totals      agentTokenUsage
+	LastAction  *agentLastAction
 	LastEventAt time.Time
+	Thinking    string
+	Shell       string
 }
 
 func summarizeAgentStepOutput(step Step) (agentOutputSummary, bool) {
@@ -262,6 +264,12 @@ func summarizeCodexJSONOutput(data []byte) (agentOutputSummary, bool) {
 			if okAt {
 				summary.LastEventAt = at
 			}
+			if strings.EqualFold(strings.TrimSpace(action.EventType), "Shell") {
+				summary.Shell = strings.TrimSpace(action.Content)
+			}
+		}
+		if thinking, ok := codexThinkingFromItemEntry(entry); ok {
+			summary.Thinking = thinking
 		}
 
 		if entryType == "event_msg" && payload != nil {
@@ -296,6 +304,9 @@ func summarizeCodexJSONOutput(data []byte) (agentOutputSummary, bool) {
 				if okAt {
 					summary.LastEventAt = at
 				}
+				if strings.EqualFold(strings.TrimSpace(action.EventType), "Shell") {
+					summary.Shell = strings.TrimSpace(action.Content)
+				}
 			}
 			continue
 		}
@@ -306,6 +317,9 @@ func summarizeCodexJSONOutput(data []byte) (agentOutputSummary, bool) {
 				hasAction = true
 				if okAt {
 					summary.LastEventAt = at
+				}
+				if strings.EqualFold(strings.TrimSpace(action.EventType), "Shell") {
+					summary.Shell = strings.TrimSpace(action.Content)
 				}
 			}
 		}
@@ -368,7 +382,7 @@ func summarizeCodexStderrOutput(data []byte) (agentOutputSummary, bool) {
 		if pendingTool != "" {
 			eventType := pendingTool
 			content := line
-			if pendingTool == "Bash" {
+			if pendingTool == "Shell" {
 				if index := strings.Index(content, " in "); index > 0 {
 					content = strings.TrimSpace(content[:index])
 				}
@@ -379,12 +393,15 @@ func summarizeCodexStderrOutput(data []byte) (agentOutputSummary, bool) {
 			}
 			pendingTool = ""
 			sawAction = true
+			if strings.EqualFold(eventType, "Shell") {
+				summary.Shell = strings.TrimSpace(content)
+			}
 			continue
 		}
 
 		switch strings.ToLower(line) {
 		case "exec":
-			pendingTool = "Bash"
+			pendingTool = "Shell"
 		case "read":
 			pendingTool = "Read"
 		case "write":
@@ -441,6 +458,9 @@ func codexActionFromEventMessage(payload map[string]any, at time.Time, okAt bool
 		if first, ok := parsed[0].(map[string]any); ok {
 			if name, ok := stringField(first, "name"); ok && strings.TrimSpace(name) != "" {
 				eventType = name
+			}
+			if strings.EqualFold(eventType, "Bash") || strings.EqualFold(eventType, "exec_command") {
+				eventType = "Shell"
 			}
 			if cmd, ok := stringField(first, "cmd"); ok && strings.TrimSpace(cmd) != "" {
 				content = cmd
@@ -546,9 +566,53 @@ func codexActionFromItemEntry(entry map[string]any, at time.Time, okAt bool, fir
 	}
 	return agentLastAction{
 		Elapsed:   elapsed,
-		EventType: "Bash",
+		EventType: "Shell",
 		Content:   command,
 	}, true
+}
+
+func codexThinkingFromItemEntry(entry map[string]any) (string, bool) {
+	item, _ := mapField(entry, "item")
+	if item == nil {
+		return "", false
+	}
+	itemType, _ := stringField(item, "type")
+	if itemType != "agent_message" {
+		return "", false
+	}
+	text, ok := mapOrStringJSONField(item, "text")
+	if !ok || text == nil {
+		return "", false
+	}
+	thinking, ok := stringField(text, "$thinking")
+	if !ok {
+		return "", false
+	}
+	thinking = strings.TrimSpace(thinking)
+	if thinking == "" {
+		return "", false
+	}
+	return thinking, true
+}
+
+func mapOrStringJSONField(source map[string]any, key string) (map[string]any, bool) {
+	textMap, _ := mapField(source, key)
+	if textMap != nil {
+		return textMap, true
+	}
+	rawText, ok := stringField(source, key)
+	if !ok {
+		return nil, false
+	}
+	rawText = strings.TrimSpace(rawText)
+	if rawText == "" {
+		return nil, false
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(rawText), &decoded); err != nil {
+		return nil, false
+	}
+	return decoded, true
 }
 
 func claudeEventDescription(event map[string]any) (string, string, bool) {
@@ -752,6 +816,9 @@ func toolEventTypeAndContent(name string, rawInput string) (string, string) {
 	if eventType == "" {
 		eventType = "tool_use"
 	}
+	if strings.EqualFold(eventType, "Bash") || strings.EqualFold(eventType, "exec_command") {
+		eventType = "Shell"
+	}
 
 	rawInput = strings.TrimSpace(rawInput)
 	if rawInput == "" {
@@ -775,7 +842,7 @@ func toolContent(eventType string, input map[string]any) string {
 		if pattern, ok := stringField(input, "pattern"); ok {
 			return pattern
 		}
-	case "Bash":
+	case "Bash", "Shell":
 		if command, ok := stringField(input, "command"); ok {
 			return command
 		}

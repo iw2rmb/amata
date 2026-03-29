@@ -98,6 +98,7 @@ func TestExecutorResolvesDefaultsTemplatesAndPersistsArtifacts(t *testing.T) {
 			if request.Structured == nil {
 				t.Fatalf("structured output request missing")
 			}
+			testutil.AssertFileContents(t, filepath.Join(request.ArtifactDir, "prompt.md"), "Implement fixture-repo.")
 
 			schemaFile, err := os.ReadFile(request.Structured.SchemaPath)
 			if err != nil {
@@ -119,6 +120,17 @@ func TestExecutorResolvesDefaultsTemplatesAndPersistsArtifacts(t *testing.T) {
 			}
 			if _, ok := defs["workflow:result"]; !ok {
 				t.Fatalf("schema artifact missing workflow:result definition: %s", string(schemaFile))
+			}
+			properties, ok := schemaDocument["properties"].(map[string]any)
+			if !ok {
+				t.Fatalf("schema artifact missing properties: %s", string(schemaFile))
+			}
+			if thinking, ok := properties["$thinking"].(map[string]any); !ok || thinking["type"] != "string" {
+				t.Fatalf("schema artifact missing $thinking string property: %s", string(schemaFile))
+			}
+			required, ok := schemaDocument["required"].([]any)
+			if !ok || !containsString(required, "$thinking") {
+				t.Fatalf("schema artifact missing required $thinking: %s", string(schemaFile))
 			}
 
 			return agent.Response{
@@ -251,7 +263,7 @@ func TestExecutorClaudeDefaultsStructuredSchemaWhenResponseSchemaMissing(t *test
 	}
 }
 
-func TestExecutorUsesSchemaFilePathForCodexStructuredOutput(t *testing.T) {
+func TestExecutorUsesAugmentedSchemaArtifactForCodexStructuredOutput(t *testing.T) {
 	t.Parallel()
 
 	step := spec.Step{
@@ -279,11 +291,15 @@ func TestExecutorUsesSchemaFilePathForCodexStructuredOutput(t *testing.T) {
 			if request.Structured == nil {
 				t.Fatalf("structured output request missing")
 			}
-			if request.Structured.SchemaPath != schemaPath {
-				t.Fatalf("schema path = %q, want %q", request.Structured.SchemaPath, schemaPath)
+			wantSchemaPath := filepath.Join(request.ArtifactDir, "response-schema.json")
+			if request.Structured.SchemaPath != wantSchemaPath {
+				t.Fatalf("schema path = %q, want %q", request.Structured.SchemaPath, wantSchemaPath)
 			}
 			if !strings.Contains(request.Structured.JSON, `"approved"`) {
 				t.Fatalf("schema json = %q, want schema file content", request.Structured.JSON)
+			}
+			if !strings.Contains(request.Structured.JSON, `"$thinking"`) {
+				t.Fatalf("schema json = %q, want codex $thinking field", request.Structured.JSON)
 			}
 			return agent.Response{
 				Value:      map[string]any{"approved": true},
@@ -819,4 +835,13 @@ func assertMetadata(t *testing.T, path string, want map[string]any) map[string]a
 		}
 	}
 	return got
+}
+
+func containsString(values []any, want string) bool {
+	for _, value := range values {
+		if text, ok := value.(string); ok && text == want {
+			return true
+		}
+	}
+	return false
 }

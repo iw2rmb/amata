@@ -79,6 +79,9 @@ func (e *Executor) Execute(ctx context.Context, stepCtx executor.StepContext) st
 	if requestErr != nil {
 		return executor.Failed(requestErr.Code, fmt.Sprintf("step %d: %s", stepCtx.StepIndex, requestErr.Message))
 	}
+	if err := initializePromptArtifact(stepDir, request.Prompt); err != nil {
+		return executor.Failed("artifact_capture_failed", fmt.Sprintf("step %d: initialize prompt artifact: %v", stepCtx.StepIndex, err))
+	}
 
 	capture, captureOpenErr := OpenStreamCapture(stepDir)
 	if captureOpenErr != nil {
@@ -164,7 +167,7 @@ func captureArtifacts(stepDir string, providerName string, request Request, resp
 	if response.Prompt != "" {
 		promptText = response.Prompt
 	}
-	promptPath := filepath.Join(stepDir, "prompt.txt")
+	promptPath := filepath.Join(stepDir, "prompt.md")
 	if err := os.WriteFile(promptPath, []byte(promptText), 0o644); err != nil {
 		return artifacts, err
 	}
@@ -188,6 +191,11 @@ func captureArtifacts(stepDir string, providerName string, request Request, resp
 
 	artifacts.Files = files
 	return artifacts, nil
+}
+
+func initializePromptArtifact(stepDir string, prompt string) error {
+	promptPath := filepath.Join(stepDir, "prompt.md")
+	return os.WriteFile(promptPath, []byte(prompt), 0o644)
 }
 
 func metadataDocument(providerName string, request Request, providerMetadata map[string]any) ([]byte, error) {

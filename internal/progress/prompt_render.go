@@ -2,18 +2,21 @@ package progress
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	glamour "charm.land/glamour/v2"
-	"charm.land/glamour/v2/ansi"
 	glamourstyles "charm.land/glamour/v2/styles"
+	lipgloss "charm.land/lipgloss/v2"
 	charmansi "github.com/charmbracelet/x/ansi"
 )
 
 const (
 	agentPromptMaxWidth    = 80
 	agentPromptLeftPadding = 1
+	codexRowMaxWidth       = 80
 )
 
 func renderAgentPromptDetails(step Step, descriptor StepDescriptor, options renderStepOptions) []string {
@@ -63,6 +66,87 @@ func renderAgentPromptDetails(step Step, descriptor StepDescriptor, options rend
 	)
 }
 
+func renderRunningCodexDetails(step Step, options renderStepOptions) []string {
+	summary := options.agentOutput
+	wrap := agentPromptWordWrap(options)
+
+	promptPath := ""
+	if step.Artifacts.Files != nil {
+		promptPath = strings.TrimSpace(step.Artifacts.Files["prompt"])
+	}
+	if promptPath == "" {
+		promptPath = "prompt.md"
+	}
+	displayPromptPath := promptPathDisplay(promptPath, workspaceRootForStep(step))
+
+	promptCollapsed := " [P]rompt " + renderAgentInlineText(displayPromptPath, wrap, options.styles.colorize)
+	thinkingText := "(none yet)"
+	shellText := "(none yet)"
+	if summary != nil {
+		if text := strings.TrimSpace(summary.Thinking); text != "" {
+			thinkingText = text
+		}
+		if text := strings.TrimSpace(summary.Shell); text != "" {
+			shellText = text
+		}
+	}
+
+	thinkingPrefix := " [T]hinking "
+	shellPrefix := " [S]hell "
+	thinkingCollapsed := thinkingPrefix + renderAgentInlineText(
+		truncateWithEllipsis(thinkingText, codexRowMaxWidth-lipgloss.Width(thinkingPrefix)),
+		wrap,
+		options.styles.colorize,
+	)
+	shellCollapsed := shellPrefix + renderAgentInlineText(
+		truncateWithEllipsis(shellText, codexRowMaxWidth-lipgloss.Width(shellPrefix)),
+		wrap,
+		options.styles.colorize,
+	)
+
+	lines := []string{""}
+	if options.promptExpanded {
+		lines = append(lines, " [P]rompt")
+		lines = append(lines, "")
+		renderedPrompt := renderAgentEventContentMarkdown(promptPathContent(step, promptPath), wrap, options.styles.colorize)
+		if len(renderedPrompt) == 0 {
+			lines = append(lines, "  "+promptPathContent(step, promptPath))
+		} else {
+			for _, line := range renderedPrompt {
+				lines = append(lines, "  "+line)
+			}
+		}
+		lines = append(lines, "")
+	} else {
+		lines = append(lines, promptCollapsed)
+	}
+
+	if options.thinkingExpanded {
+		lines = append(lines, " [T]hinking")
+		lines = append(lines, "")
+		expanded := renderAgentEventContentMarkdown("> "+thinkingText, wrap, options.styles.colorize)
+		for _, line := range expanded {
+			lines = append(lines, "  "+line)
+		}
+		lines = append(lines, "")
+	} else {
+		lines = append(lines, thinkingCollapsed)
+	}
+
+	if options.shellExpanded {
+		lines = append(lines, " [S]hell")
+		lines = append(lines, "")
+		expanded := renderAgentEventContentMarkdown(shellText, wrap, options.styles.colorize)
+		for _, line := range expanded {
+			lines = append(lines, "  "+line)
+		}
+		lines = append(lines, "")
+	} else {
+		lines = append(lines, shellCollapsed)
+	}
+	return lines
+}
+
 func appendAgentLastActionDetails(
 	step Step,
 	now time.Time,
@@ -108,11 +192,7 @@ func renderAgentEventContentMarkdown(content string, wrap int, colorize bool) []
 	if err != nil {
 		return []string{content}
 	}
-	// renderAgentPromptMarkdown prepends an empty line so prompt blocks start
-	// with vertical spacing; event content is already spaced by caller.
-	if len(rendered) > 0 && strings.TrimSpace(rendered[0]) == "" {
-		rendered = rendered[1:]
-	}
+	rendered = trimEmptyMarkdownEdges(rendered)
 	if colorize {
 		return rendered
 	}
@@ -123,9 +203,186 @@ func renderAgentEventContentMarkdown(content string, wrap int, colorize bool) []
 	return plain
 }
 
+func trimEmptyMarkdownEdges(lines []string) []string {
+	start := 0
+	for start < len(lines) && isVisiblyEmpty(lines[start]) {
+		start++
+	}
+	end := len(lines)
+	for end > start && isVisiblyEmpty(lines[end-1]) {
+		end--
+	}
+	if start >= end {
+		return []string{}
+	}
+	return lines[start:end]
+}
+
+func isVisiblyEmpty(line string) bool {
+	return strings.TrimSpace(charmansi.Strip(line)) == ""
+}
+
+func renderAgentInlineText(content string, wrap int, colorize bool) string {
+	renderer, err := glamour.NewTermRenderer(
+		glamour.WithStylePath(glamourstyles.DraculaStyle),
+		glamour.WithWordWrap(max(wrap, 1)),
+		glamour.WithPreservedNewLines(),
+	)
+	if err != nil {
+		return strings.TrimSpace(content)
+	}
+	rendered, err := renderer.Render(content)
+	if err != nil {
+		return strings.TrimSpace(content)
+	}
+	rendered = strings.TrimRight(rendered, "\n")
+	lines := strings.Split(rendered, "\n")
+	for _, line := range lines {
+		plain := strings.TrimSpace(charmansi.Strip(line))
+		if plain == "" {
+			continue
+		}
+		if colorize {
+			return strings.TrimSpace(line)
+		}
+		return plain
+	}
+	return strings.TrimSpace(content)
+}
+
+func truncateWithEllipsis(value string, maxWidth int) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return value
+	}
+	if maxWidth <= 0 {
+		return ""
+	}
+	if lipgloss.Width(value) <= maxWidth {
+		return value
+	}
+	if maxWidth <= 3 {
+		return strings.Repeat(".", maxWidth)
+	}
+	limit := maxWidth - 3
+	runes := []rune(value)
+	end := 0
+	for index := range runes {
+		candidate := string(runes[:index+1])
+		if lipgloss.Width(candidate) > limit {
+			break
+		}
+		end = index + 1
+	}
+	if end == 0 {
+		return "..."
+	}
+	return string(runes[:end]) + "..."
+}
+
+func promptPathContent(step Step, fallback string) string {
+	path := fallback
+	if step.Artifacts.Files != nil {
+		if current := strings.TrimSpace(step.Artifacts.Files["prompt"]); current != "" {
+			path = current
+		}
+	}
+	data, _, ok := readArtifactFile(path)
+	if !ok {
+		return path
+	}
+	text := strings.TrimRight(string(data), "\n")
+	if strings.TrimSpace(text) == "" {
+		return path
+	}
+	return text
+}
+
+func workspaceRootForStep(step Step) string {
+	if step.Descriptor == nil {
+		return ""
+	}
+	return strings.TrimSpace(step.Descriptor.WorkspaceRoot)
+}
+
+func promptPathDisplay(promptPath string, workspaceRoot string) string {
+	promptPath = strings.TrimSpace(promptPath)
+	if promptPath == "" {
+		return promptPath
+	}
+	if !filepath.IsAbs(promptPath) {
+		return filepath.ToSlash(filepath.Clean(promptPath))
+	}
+	candidates := []string{}
+	workspaceRoot = strings.TrimSpace(workspaceRoot)
+	if workspaceRoot != "" {
+		if relative, ok := relativeToWorkspace(promptPath, workspaceRoot); ok {
+			candidates = append(candidates, relative)
+		}
+	}
+	if homeVariant, ok := homeTildeVariant(promptPath); ok {
+		candidates = append(candidates, homeVariant)
+	}
+	if len(candidates) == 0 {
+		return promptPath
+	}
+	best := candidates[0]
+	for _, candidate := range candidates[1:] {
+		if lipgloss.Width(candidate) < lipgloss.Width(best) {
+			best = candidate
+		}
+	}
+	return best
+}
+
+func relativeToWorkspace(promptPath string, workspaceRoot string) (string, bool) {
+	absPrompt, err := filepath.Abs(promptPath)
+	if err != nil {
+		return "", false
+	}
+	absRoot, err := filepath.Abs(workspaceRoot)
+	if err != nil {
+		return "", false
+	}
+	relative, err := filepath.Rel(absRoot, absPrompt)
+	if err != nil || relative == "." {
+		return "", false
+	}
+	if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return filepath.Clean(relative), true
+}
+
+func homeTildeVariant(promptPath string) (string, bool) {
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return "", false
+	}
+	absPrompt, err := filepath.Abs(promptPath)
+	if err != nil {
+		return "", false
+	}
+	absHome, err := filepath.Abs(home)
+	if err != nil {
+		return "", false
+	}
+	relative, err := filepath.Rel(absHome, absPrompt)
+	if err != nil {
+		return "", false
+	}
+	if relative == "." {
+		return "~", true
+	}
+	if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return filepath.ToSlash(filepath.Join("~", relative)), true
+}
+
 func renderAgentPromptMarkdown(markdown string, wrap int) ([]string, error) {
 	renderer, err := glamour.NewTermRenderer(
-		glamour.WithStyles(agentPromptStyle()),
+		glamour.WithStylePath(glamourstyles.DraculaStyle),
 		glamour.WithWordWrap(max(wrap, 1)),
 		glamour.WithPreservedNewLines(),
 	)
@@ -145,7 +402,7 @@ func agentPromptWordWrap(options renderStepOptions) int {
 }
 
 func padAgentPromptLines(rendered string) []string {
-	rendered = strings.TrimRight(rendered, "\n")
+	rendered = strings.Trim(rendered, "\n")
 	if rendered == "" {
 		return nil
 	}
@@ -157,73 +414,4 @@ func padAgentPromptLines(rendered string) []string {
 		lines = append(lines, " "+line)
 	}
 	return lines
-}
-
-func agentPromptStyle() ansi.StyleConfig {
-	style := glamourstyles.ASCIIStyleConfig
-	white := "255"
-	dimWhite := "252"
-
-	style.Document.BlockPrefix = ""
-	style.Document.BlockSuffix = ""
-	style.Document.Margin = nil
-	style.CodeBlock.Margin = nil
-
-	style.Document.Color = &dimWhite
-	style.Paragraph.Color = &dimWhite
-	style.Text.Color = &dimWhite
-
-	style.Heading.Color = &dimWhite
-	style.H1.Color = &dimWhite
-	style.H2.Color = &dimWhite
-	style.H3.Color = &dimWhite
-	style.H4.Color = &dimWhite
-	style.H5.Color = &dimWhite
-	style.H6.Color = &dimWhite
-
-	style.Link.Color = &dimWhite
-	style.LinkText.Color = &dimWhite
-	style.Image.Color = &dimWhite
-	style.ImageText.Color = &dimWhite
-	style.Code.Color = &white
-	style.CodeBlock.Color = &white
-	style.CodeBlock.Chroma = monochromeChroma("#ffffff")
-
-	return style
-}
-
-func monochromeChroma(color string) *ansi.Chroma {
-	return &ansi.Chroma{
-		Text:                ansi.StylePrimitive{Color: &color},
-		Error:               ansi.StylePrimitive{Color: &color},
-		Comment:             ansi.StylePrimitive{Color: &color},
-		CommentPreproc:      ansi.StylePrimitive{Color: &color},
-		Keyword:             ansi.StylePrimitive{Color: &color},
-		KeywordReserved:     ansi.StylePrimitive{Color: &color},
-		KeywordNamespace:    ansi.StylePrimitive{Color: &color},
-		KeywordType:         ansi.StylePrimitive{Color: &color},
-		Operator:            ansi.StylePrimitive{Color: &color},
-		Punctuation:         ansi.StylePrimitive{Color: &color},
-		Name:                ansi.StylePrimitive{Color: &color},
-		NameBuiltin:         ansi.StylePrimitive{Color: &color},
-		NameTag:             ansi.StylePrimitive{Color: &color},
-		NameAttribute:       ansi.StylePrimitive{Color: &color},
-		NameClass:           ansi.StylePrimitive{Color: &color},
-		NameConstant:        ansi.StylePrimitive{Color: &color},
-		NameDecorator:       ansi.StylePrimitive{Color: &color},
-		NameException:       ansi.StylePrimitive{Color: &color},
-		NameFunction:        ansi.StylePrimitive{Color: &color},
-		NameOther:           ansi.StylePrimitive{Color: &color},
-		Literal:             ansi.StylePrimitive{Color: &color},
-		LiteralNumber:       ansi.StylePrimitive{Color: &color},
-		LiteralDate:         ansi.StylePrimitive{Color: &color},
-		LiteralString:       ansi.StylePrimitive{Color: &color},
-		LiteralStringEscape: ansi.StylePrimitive{Color: &color},
-		GenericDeleted:      ansi.StylePrimitive{Color: &color},
-		GenericEmph:         ansi.StylePrimitive{Color: &color},
-		GenericInserted:     ansi.StylePrimitive{Color: &color},
-		GenericStrong:       ansi.StylePrimitive{Color: &color},
-		GenericSubheading:   ansi.StylePrimitive{Color: &color},
-		Background:          ansi.StylePrimitive{Color: &color},
-	}
 }

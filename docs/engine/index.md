@@ -192,6 +192,7 @@ CLI stream split:
 - Both renderers suppress nested control-step scaffolding in the user-facing output. Recursive `call`/`switch`/`for_each` frames nested under another control step are omitted from rendered history, and nested descriptor-less `expr` steps are omitted alongside them.
 - For completed `git.commit` steps, the default renderer places `<shortCommit> <message>` on the headline and renders `+<ins> -<del> files: <n>` as the first detail line before per-file stats.
 - For `codex`, `claude`, and `crush` prompt details, the default renderer uses `glamour/v2` markdown rendering, adds one blank line of top padding plus one character of left padding inside the prompt block, caps prompt wrapping at 80 columns, uses dim white body text, and keeps code blocks white.
+- Running `codex` steps render collapsed Prompt/Thinking/Shell rows by default (`[P]rompt`, `[T]hinking`, `[S]hell`), each sourced from live artifacts/events and expandable in TTY mode via `p`, `t`, and `s`.
 
 Renderer metadata guarantees:
 - Every `step_started` and `step_finished` event includes `flow`, `index`, `type`, `status`, and step artifacts/value/error fields that match the live transition being reported.
@@ -311,8 +312,9 @@ Behavior:
 - `codex exec --json` is invoked with the rendered prompt on stdin.
 - When `response.schema` targets `value`, the executor accepts either an inline schema/ref or a path-like string to a `.json` schema file relative to the workflow file.
 - Inline Codex schemas are expanded into a provider-safe object schema artifact before `codex exec --output-schema`.
-- File-backed Codex schemas are passed through to `codex exec --output-schema` by absolute path instead of being copied into the prompt.
+- File-backed Codex schemas are normalized into a step-local provider schema artifact before `codex exec --output-schema`.
 - Raw provider stdout, stderr, the rendered prompt, the final transcript, and provider metadata persist as step artifacts.
+- Prompt artifact files are stored as `prompt.md`.
 - `stdout.txt` and `stderr.txt` are streamed to disk during execution so they are readable before the step completes.
 - Without `response.schema`, the step `value` is the raw final transcript text.
 

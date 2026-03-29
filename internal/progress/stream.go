@@ -3,6 +3,7 @@ package progress
 import (
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -45,12 +46,15 @@ type teaStreamRenderer struct {
 }
 
 type streamModel struct {
-	spinner  spinner.Model
-	styles   streamStyles
-	settings streamRenderSettings
-	history  []string
-	active   []Step
-	width    int
+	spinner          spinner.Model
+	styles           streamStyles
+	settings         streamRenderSettings
+	history          []string
+	active           []Step
+	width            int
+	promptExpanded   bool
+	thinkingExpanded bool
+	shellExpanded    bool
 }
 
 type streamStyles struct {
@@ -135,7 +139,7 @@ func (c *StreamController) Close() error {
 
 func newTeaStreamRenderer(writer io.Writer, settings streamRenderSettings) (*teaStreamRenderer, error) {
 	model := streamModel{
-		spinner:  spinner.New(spinner.WithSpinner(spinner.Line)),
+		spinner:  spinner.New(spinner.WithSpinner(spinner.Dot)),
 		styles:   newStreamStyles(true),
 		settings: settings,
 		history:  []string{},
@@ -145,7 +149,6 @@ func newTeaStreamRenderer(writer io.Writer, settings streamRenderSettings) (*tea
 
 	program := tea.NewProgram(
 		model,
-		tea.WithInput(nil),
 		tea.WithOutput(writer),
 		tea.WithoutSignalHandler(),
 	)
@@ -202,6 +205,20 @@ func (m streamModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.width = typed.Width
 		}
 		return m, nil
+	case tea.KeyMsg:
+		if typed.Type == tea.KeyCtrlC {
+			interruptFn()
+			return m, tea.Quit
+		}
+		switch strings.ToLower(strings.TrimSpace(typed.String())) {
+		case "p":
+			m.promptExpanded = !m.promptExpanded
+		case "t":
+			m.thinkingExpanded = !m.thinkingExpanded
+		case "s":
+			m.shellExpanded = !m.shellExpanded
+		}
+		return m, nil
 	case progressEventMsg:
 		return m.applyEvent(typed.event)
 	default:
@@ -219,10 +236,13 @@ func (m streamModel) View() string {
 			statusToken = m.spinner.View()
 		}
 		blocks = append(blocks, renderStepBlock(step, renderStepOptions{
-			statusToken: statusToken,
-			now:         m.settings.now(),
-			width:       resolvedWidth(m.width),
-			styles:      m.styles,
+			statusToken:      statusToken,
+			now:              m.settings.now(),
+			width:            resolvedWidth(m.width),
+			styles:           m.styles,
+			promptExpanded:   m.promptExpanded,
+			thinkingExpanded: m.thinkingExpanded,
+			shellExpanded:    m.shellExpanded,
 		}))
 	}
 	if len(blocks) == 0 {
@@ -297,11 +317,14 @@ func newStreamStyles(colorize bool) streamStyles {
 }
 
 type renderStepOptions struct {
-	statusToken string
-	now         time.Time
-	width       int
-	styles      streamStyles
-	agentOutput *agentOutputSummary
+	statusToken      string
+	now              time.Time
+	width            int
+	styles           streamStyles
+	agentOutput      *agentOutputSummary
+	promptExpanded   bool
+	thinkingExpanded bool
+	shellExpanded    bool
 }
 
 func blockForEvent(event Event, settings streamRenderSettings, styles streamStyles) string {
@@ -465,6 +488,9 @@ func renderStepTypeWord(stepType string, styles streamStyles) styledWord {
 
 func renderStepDetails(step Step, descriptor StepDescriptor, options renderStepOptions) []string {
 	if isAgentStepType(step.Type) {
+		if step.Type == "codex" && step.Status == StepStatusRunning {
+			return renderRunningCodexDetails(step, options)
+		}
 		return renderAgentPromptDetails(step, descriptor, options)
 	}
 	if step.Type != "git.commit" {
@@ -703,6 +729,10 @@ func statusTokenForStep(step Step) string {
 }
 
 func renderStatusToken(step Step, token string, styles streamStyles) string {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		token = "⏺"
+	}
 	if !styles.colorize {
 		return token
 	}
@@ -746,6 +776,16 @@ func writerFD(writer io.Writer) (int, bool) {
 func currentUTC() time.Time {
 	return time.Now().UTC()
 }
+
+func interruptSelf() {
+	process, err := os.FindProcess(os.Getpid())
+	if err != nil {
+		return
+	}
+	_ = process.Signal(os.Interrupt)
+}
+
+var interruptFn = interruptSelf
 
 func renderProgressBlocks(blocks []string) string {
 	if len(blocks) == 0 {
