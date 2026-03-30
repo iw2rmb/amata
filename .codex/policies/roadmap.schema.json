@@ -77,18 +77,14 @@
             "const": true
           }
         },
-        "required": [
-          "done"
-        ]
+        "required": ["done"]
       },
       "then": {
         "properties": {
           "items": {
             "items": {
               "type": "object",
-              "required": [
-                "done"
-              ],
+              "required": ["done"],
               "properties": {
                 "done": {
                   "const": true
@@ -101,9 +97,7 @@
               "contains": {
                 "type": "object",
                 "not": {
-                  "required": [
-                    "commit"
-                  ]
+                  "required": ["commit"]
                 }
               }
             }

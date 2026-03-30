@@ -10,12 +10,7 @@
     },
     "reasoning": {
       "type": "string",
-      "enum": [
-        "low",
-        "medium",
-        "high",
-        "xhigh"
-      ],
+      "enum": ["low", "medium", "high", "xhigh"],
       "$comment": "Estimated by COSMIC FP (COSMIC Functional Points, CFP) implementation effort tier."
     },
     "item": {
@@ -47,7 +42,8 @@
         "label": {
           "type": "string",
           "pattern": "^[0-9]+(?:\\.[0-9]+)*$",
-          "$comment": "Roadmap numbering label, e.g. 1.5a is not allowed by template, 1.5 is allowed."
+          "$comment": "Roadmap numbering label, e.g. 1.5a is not allowed by template, 1.5 is allowed.",
+          "minLength": 1
         },
         "summary": {
           "type": "string",
@@ -56,10 +52,7 @@
         },
         "classification": {
           "type": "string",
-          "enum": [
-            "determined",
-            "assumption-bound"
-          ],
+          "enum": ["determined", "assumption-bound"],
           "$comment": "`determined`: all involved components/classes/functions/structs are known. `assumption-bound`: unresolved unknowns remain."
         },
         "components": {
@@ -113,14 +106,10 @@
                 "const": "assumption-bound"
               }
             },
-            "required": [
-              "classification"
-            ]
+            "required": ["classification"]
           },
           "then": {
-            "required": [
-              "assumptions"
-            ]
+            "required": ["assumptions"]
           }
         },
         {
@@ -130,15 +119,11 @@
                 "const": "determined"
               }
             },
-            "required": [
-              "classification"
-            ]
+            "required": ["classification"]
           },
           "then": {
             "not": {
-              "required": [
-                "assumptions"
-              ]
+              "required": ["assumptions"]
             }
           }
         },
@@ -149,23 +134,17 @@
                 "const": true
               }
             },
-            "required": [
-              "done"
-            ]
+            "required": ["done"]
           },
           "then": {
-            "required": [
-              "commit"
-            ],
+            "required": ["commit"],
             "properties": {
               "gaps": {
                 "not": {
                   "contains": {
                     "type": "object",
                     "not": {
-                      "required": [
-                        "commit"
-                      ]
+                      "required": ["commit"]
                     }
                   }
                 }
@@ -181,9 +160,7 @@
                 "maximum": 3
               }
             },
-            "required": [
-              "cfp"
-            ]
+            "required": ["cfp"]
           },
           "then": {
             "properties": {
@@ -201,9 +178,7 @@
                 "maximum": 8
               }
             },
-            "required": [
-              "cfp"
-            ]
+            "required": ["cfp"]
           },
           "then": {
             "properties": {
@@ -221,9 +196,7 @@
                 "maximum": 16
               }
             },
-            "required": [
-              "cfp"
-            ]
+            "required": ["cfp"]
           },
           "then": {
             "properties": {
@@ -240,9 +213,7 @@
                 "minimum": 17
               }
             },
-            "required": [
-              "cfp"
-            ]
+            "required": ["cfp"]
           },
           "then": {
             "properties": {
