@@ -156,6 +156,16 @@ func summarizeClaudeOutput(data []byte) (agentOutputSummary, bool) {
 		if eventType == "" && content == "" {
 			continue
 		}
+		if strings.EqualFold(eventType, "thinking") {
+			if text := strings.TrimSpace(content); text != "" {
+				summary.Thinking = text
+			}
+		}
+		if strings.EqualFold(eventType, "Shell") {
+			if text := strings.TrimSpace(content); text != "" {
+				summary.Shell = text
+			}
+		}
 
 		elapsed := time.Duration(0)
 		if hasFirstAt && okAt {
@@ -616,9 +626,14 @@ func mapOrStringJSONField(source map[string]any, key string) (map[string]any, bo
 }
 
 func claudeEventDescription(event map[string]any) (string, string, bool) {
+	eventType, _ := stringField(event, "type")
+	if eventType == "stream_event" {
+		nested, _ := mapField(event, "event")
+		return claudeStreamEventDescription(nested)
+	}
+
 	content, ok := claudeContentBlocks(event)
 	if !ok || len(content) == 0 {
-		eventType, _ := stringField(event, "type")
 		if eventType == "result" {
 			if stopReason, ok := stringField(event, "stop_reason"); ok && strings.TrimSpace(stopReason) != "" {
 				return "result", stopReason, false
@@ -638,7 +653,7 @@ func claudeEventDescription(event map[string]any) (string, string, bool) {
 		switch contentType {
 		case "tool_use":
 			name, _ := stringField(current, "name")
-			eventType := strings.TrimSpace(name)
+			eventType := normalizeAgentEventType(strings.TrimSpace(name))
 			if eventType == "" {
 				eventType = "tool_use"
 			}
@@ -668,6 +683,62 @@ func claudeEventDescription(event map[string]any) (string, string, bool) {
 		}
 	}
 	return bestType, bestContent, bestItalic
+}
+
+func claudeStreamEventDescription(event map[string]any) (string, string, bool) {
+	if event == nil {
+		return "", "", false
+	}
+
+	eventType, _ := stringField(event, "type")
+	switch eventType {
+	case "content_block_start":
+		contentBlock, _ := mapField(event, "content_block")
+		if contentBlock == nil {
+			return "", "", false
+		}
+		blockType, _ := stringField(contentBlock, "type")
+		switch blockType {
+		case "thinking":
+			thinking, _ := stringField(contentBlock, "thinking")
+			thinking = strings.TrimSpace(thinking)
+			if thinking == "" {
+				return "", "", false
+			}
+			return "thinking", thinking, true
+		case "tool_use":
+			name, _ := stringField(contentBlock, "name")
+			normalized := normalizeAgentEventType(name)
+			if !strings.EqualFold(normalized, "Shell") {
+				return "", "", false
+			}
+			input, _ := mapField(contentBlock, "input")
+			content := strings.TrimSpace(toolContent(normalized, input))
+			if content == "" {
+				return "", "", false
+			}
+			return normalized, content, false
+		default:
+			return "", "", false
+		}
+	case "content_block_delta":
+		delta, _ := mapField(event, "delta")
+		if delta == nil {
+			return "", "", false
+		}
+		deltaType, _ := stringField(delta, "type")
+		if deltaType != "thinking_delta" {
+			return "", "", false
+		}
+		thinking, _ := stringField(delta, "thinking")
+		thinking = strings.TrimSpace(thinking)
+		if thinking == "" {
+			return "", "", false
+		}
+		return "thinking", thinking, true
+	default:
+		return "", "", false
+	}
 }
 
 func claudeContentBlocks(event map[string]any) ([]any, bool) {
@@ -812,12 +883,9 @@ func findAllNestedFields(value any, key string) []any {
 }
 
 func toolEventTypeAndContent(name string, rawInput string) (string, string) {
-	eventType := strings.TrimSpace(name)
+	eventType := normalizeAgentEventType(name)
 	if eventType == "" {
 		eventType = "tool_use"
-	}
-	if strings.EqualFold(eventType, "Bash") || strings.EqualFold(eventType, "exec_command") {
-		eventType = "Shell"
 	}
 
 	rawInput = strings.TrimSpace(rawInput)
@@ -830,6 +898,14 @@ func toolEventTypeAndContent(name string, rawInput string) (string, string) {
 		return eventType, rawInput
 	}
 	return eventType, toolContent(eventType, input)
+}
+
+func normalizeAgentEventType(eventType string) string {
+	eventType = strings.TrimSpace(eventType)
+	if strings.EqualFold(eventType, "Bash") || strings.EqualFold(eventType, "exec_command") {
+		return "Shell"
+	}
+	return eventType
 }
 
 func toolContent(eventType string, input map[string]any) string {

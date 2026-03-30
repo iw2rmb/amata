@@ -16,7 +16,7 @@ import (
 const (
 	agentPromptMaxWidth    = 80
 	agentPromptLeftPadding = 1
-	codexRowMaxWidth       = 80
+	agentRowMaxWidth       = 80
 )
 
 func renderAgentPromptDetails(step Step, descriptor StepDescriptor, options renderStepOptions) []string {
@@ -66,7 +66,7 @@ func renderAgentPromptDetails(step Step, descriptor StepDescriptor, options rend
 	)
 }
 
-func renderRunningCodexDetails(step Step, options renderStepOptions) []string {
+func renderRunningAgentDetails(step Step, options renderStepOptions) []string {
 	summary := options.agentOutput
 	wrap := agentPromptWordWrap(options)
 
@@ -94,12 +94,12 @@ func renderRunningCodexDetails(step Step, options renderStepOptions) []string {
 	thinkingPrefix := " [T]hinking "
 	shellPrefix := " [S]hell "
 	thinkingCollapsed := thinkingPrefix + renderAgentInlineText(
-		truncateWithEllipsis(thinkingText, codexRowMaxWidth-lipgloss.Width(thinkingPrefix)),
+		truncateWithEllipsis(thinkingText, agentRowMaxWidth-lipgloss.Width(thinkingPrefix)),
 		wrap,
 		options.styles.colorize,
 	)
 	shellCollapsed := shellPrefix + renderAgentInlineText(
-		truncateWithEllipsis(shellText, codexRowMaxWidth-lipgloss.Width(shellPrefix)),
+		truncateWithEllipsis(shellText, agentRowMaxWidth-lipgloss.Width(shellPrefix)),
 		wrap,
 		options.styles.colorize,
 	)

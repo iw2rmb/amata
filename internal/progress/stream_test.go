@@ -372,6 +372,71 @@ func TestStreamModelKeyTogglesExpandRunningCodexSections(t *testing.T) {
 	}
 }
 
+func TestStreamModelKeyTogglesExpandRunningClaudeSections(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	promptPath := filepath.Join(tempDir, "prompt.md")
+	if err := os.WriteFile(promptPath, []byte("Review **changes**."), 0o644); err != nil {
+		t.Fatalf("write prompt: %v", err)
+	}
+
+	now := time.Date(2026, time.March, 14, 10, 0, 5, 0, time.UTC)
+	model := streamModel{
+		spinner: spinner.New(spinner.WithSpinner(spinner.Dot)),
+		styles:  newStreamStyles(false),
+		settings: streamRenderSettings{
+			now: func() time.Time {
+				return now
+			},
+			width: 120,
+		},
+		width: 120,
+		active: []Step{
+			{
+				Type:      "claude",
+				Status:    StepStatusRunning,
+				StartedAt: now.Add(-5 * time.Second),
+				Artifacts: Artifacts{
+					Files: map[string]string{"prompt": promptPath},
+				},
+				Descriptor: &DescriptorData{
+					PrimaryText: "claude-sonnet-4-6:high",
+				},
+			},
+		},
+	}
+
+	collapsed := model.View()
+	collapsedPlain := charmansi.Strip(collapsed)
+	for _, want := range []string{"[P]rompt", "[T]hinking (none yet)", "[S]hell (none yet)"} {
+		if !strings.Contains(collapsedPlain, want) {
+			t.Fatalf("collapsed view = %q, want %q", collapsed, want)
+		}
+	}
+
+	next, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	expandedPrompt := next.(streamModel).View()
+	if !strings.Contains(expandedPrompt, " [P]rompt") {
+		t.Fatalf("expanded prompt view = %q, want prompt header", expandedPrompt)
+	}
+	if !strings.Contains(charmansi.Strip(expandedPrompt), "Review changes.") {
+		t.Fatalf("expanded prompt view = %q, want rendered prompt body", expandedPrompt)
+	}
+
+	next, _ = next.(streamModel).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	expandedThinking := next.(streamModel).View()
+	if !strings.Contains(expandedThinking, " [T]hinking") || !strings.Contains(expandedThinking, "(none yet)") {
+		t.Fatalf("expanded thinking view = %q, want thinking block", expandedThinking)
+	}
+
+	next, _ = next.(streamModel).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	expandedShell := next.(streamModel).View()
+	if !strings.Contains(expandedShell, " [S]hell") || !strings.Contains(expandedShell, "(none yet)") {
+		t.Fatalf("expanded shell view = %q, want shell block", expandedShell)
+	}
+}
+
 func TestStreamModelCtrlCReturnsQuitCommand(t *testing.T) {
 	t.Parallel()
 	originalInterrupt := interruptFn

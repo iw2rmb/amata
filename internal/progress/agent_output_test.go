@@ -247,3 +247,79 @@ func TestRenderRunningCodexShowsPromptThinkingShellBlocks(t *testing.T) {
 		t.Fatalf("block = %q, want collapsed shell line", block)
 	}
 }
+
+func TestRenderRunningClaudeShowsPromptThinkingShellBlocks(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	stdoutPath := filepath.Join(tempDir, "stdout.txt")
+	content := strings.Join([]string{
+		`{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Plan command execution"}}}`,
+		`{"type":"assistant","message":{"type":"message","content":[{"type":"tool_use","name":"Bash","input":{"command":"/bin/zsh -lc \"pwd\""}}]}}`,
+		`{"type":"result","usage":{"input_tokens":120,"cached_input_tokens":5,"output_tokens":20}}`,
+	}, "\n")
+	if err := os.WriteFile(stdoutPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write stdout: %v", err)
+	}
+
+	startedAt := time.Date(2026, time.March, 29, 10, 0, 0, 0, time.UTC)
+	now := startedAt.Add(9 * time.Second)
+
+	block := blockForEvent(Event{
+		Kind: EventStepStarted,
+		Step: &Step{
+			Type:      "claude",
+			Status:    StepStatusRunning,
+			StartedAt: startedAt,
+			Artifacts: Artifacts{
+				Stdout: stdoutPath,
+				Files:  map[string]string{"prompt": filepath.Join(tempDir, "prompt.md")},
+			},
+			Descriptor: &DescriptorData{
+				PrimaryText: "claude-sonnet-4-6:high",
+				DetailText:  []string{"Implement feature X."},
+			},
+		},
+		Snapshot: Snapshot{},
+	}, streamRenderSettings{
+		now:   func() time.Time { return now },
+		width: 120,
+	}, newStreamStyles(false))
+
+	if !strings.Contains(block, "claude claude-sonnet-4-6:high | 🢁20 🢃120 🢃🢃5") {
+		t.Fatalf("block = %q, want token summary while running", block)
+	}
+	if !strings.Contains(block, "[P]rompt") {
+		t.Fatalf("block = %q, want collapsed prompt line", block)
+	}
+	if !strings.Contains(block, "[T]hinking Plan command execution") {
+		t.Fatalf("block = %q, want collapsed thinking line", block)
+	}
+	if !strings.Contains(block, `[S]hell /bin/zsh -lc "pwd"`) {
+		t.Fatalf("block = %q, want collapsed shell line", block)
+	}
+}
+
+func TestSummarizeClaudeOutputFromStreamEvents(t *testing.T) {
+	t.Parallel()
+
+	data := strings.Join([]string{
+		`{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Plan"}}}`,
+		`{"type":"stream_event","event":{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","name":"Bash","input":{"command":"pwd"}}}}`,
+		`{"type":"result","usage":{"input_tokens":18,"cached_input_tokens":4,"output_tokens":7}}`,
+	}, "\n")
+
+	summary, ok := summarizeClaudeOutput([]byte(data))
+	if !ok {
+		t.Fatalf("ok = false, want true")
+	}
+	if summary.Thinking != "Plan" {
+		t.Fatalf("summary.Thinking = %q, want Plan", summary.Thinking)
+	}
+	if summary.Shell != "pwd" {
+		t.Fatalf("summary.Shell = %q, want pwd", summary.Shell)
+	}
+	if summary.Totals.In != 18 || summary.Totals.Cached != 4 || summary.Totals.Out != 7 {
+		t.Fatalf("summary.Totals = %#v, want in=18 cached=4 out=7", summary.Totals)
+	}
+}

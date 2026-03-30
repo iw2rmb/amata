@@ -488,8 +488,8 @@ func renderStepTypeWord(stepType string, styles streamStyles) styledWord {
 
 func renderStepDetails(step Step, descriptor StepDescriptor, options renderStepOptions) []string {
 	if isAgentStepType(step.Type) {
-		if step.Type == "codex" && step.Status == StepStatusRunning {
-			return renderRunningCodexDetails(step, options)
+		if step.Status == StepStatusRunning && (step.Type == "codex" || step.Type == "claude") {
+			return renderRunningAgentDetails(step, options)
 		}
 		return renderAgentPromptDetails(step, descriptor, options)
 	}
