@@ -20,7 +20,8 @@ const (
 )
 
 type responseResolver struct {
-	schemas *schema.Registry
+	schemas         *schema.Registry
+	workflowSchemas map[string]any
 }
 
 type responseConfig struct {
@@ -33,8 +34,11 @@ type responseSource struct {
 	artifact string
 }
 
-func newResponseResolver(schemas *schema.Registry) responseResolver {
-	return responseResolver{schemas: schemas}
+func newResponseResolver(schemas *schema.Registry, workflowSchemas map[string]any) responseResolver {
+	return responseResolver{
+		schemas:         schemas,
+		workflowSchemas: jsonutil.CloneMap(workflowSchemas),
+	}
 }
 
 func (r responseResolver) apply(stepIndex int, specPath string, step spec.Step, result state.StepResult) (state.StepResult, *state.Failure) {
@@ -60,7 +64,7 @@ func (r responseResolver) apply(stepIndex int, specPath string, step spec.Step, 
 		r.schemas = schema.NewRegistry(nil)
 	}
 
-	compiledSchema, err := resolveResponseSchema(cfg.schema, specPath)
+	compiledSchema, err := resolveResponseSchema(cfg, step, specPath, r.workflowSchemas)
 	if err != nil {
 		return result, responseFailure(responseCodeInvalidSchema, stepIndex, "response.schema is invalid", err)
 	}
@@ -76,20 +80,45 @@ func (r responseResolver) apply(stepIndex int, specPath string, step spec.Step, 
 	return result, nil
 }
 
-func resolveResponseSchema(rawSchema any, specPath string) (any, error) {
+func resolveResponseSchema(cfg responseConfig, step spec.Step, specPath string, workflowSchemas map[string]any) (any, error) {
+	rawSchema := cfg.schema
 	path, ok, err := schema.ResolveResponseSchemaPath(rawSchema, specPath)
 	if err != nil {
 		return nil, err
 	}
-	if !ok {
+	if !isCodexValueResponse(step, cfg.from) {
+		if ok {
+			document, _, err := schema.LoadResponseSchemaFile(path)
+			if err != nil {
+				return nil, err
+			}
+			return document, nil
+		}
 		return rawSchema, nil
 	}
 
-	document, _, err := schema.LoadResponseSchemaFile(path)
+	var document any
+	if ok {
+		document, _, err = schema.LoadResponseSchemaFile(path)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		document, err = schema.ProviderDocument(rawSchema, workflowSchemas)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	validated, err := schema.ValidateProviderDocument(document)
 	if err != nil {
 		return nil, err
 	}
-	return document, nil
+	return schema.EnsureCodexThinkingField(validated), nil
+}
+
+func isCodexValueResponse(step spec.Step, from responseSource) bool {
+	return step.ExecutorType() == "codex" && from.kind == "value"
 }
 
 func loadResponseConfig(step spec.Step) (responseConfig, bool, error) {

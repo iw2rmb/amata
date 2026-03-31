@@ -380,6 +380,136 @@ func TestRunnerResponseSchemaErrors(t *testing.T) {
 	}
 }
 
+func TestRunnerCodexResponseSchemaHandlesThinkingBySource(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name         string
+		response     map[string]any
+		result       state.StepResult
+		wantSelected string
+		wantThinking bool
+	}{
+		{
+			name: "value source includes thinking",
+			response: map[string]any{
+				"schema": map[string]any{"$ref": "#/schemas/selected_value"},
+			},
+			result: state.StepResult{
+				Status: state.StepStatusSucceeded,
+				Value: map[string]any{
+					"selected":  "value",
+					"$thinking": "reasoning notes",
+				},
+				Artifacts: executorapi.EmptyArtifacts(),
+			},
+			wantSelected: "value",
+			wantThinking: true,
+		},
+		{
+			name: "stdout source does not require thinking",
+			response: map[string]any{
+				"from":   "stdout",
+				"schema": map[string]any{"$ref": "#/schemas/selected_value"},
+			},
+			result: state.StepResult{
+				Status: state.StepStatusSucceeded,
+				Value:  map[string]any{"selected": "ignored"},
+				Artifacts: state.Artifacts{
+					Files: map[string]string{},
+				},
+			},
+			wantSelected: "stdout",
+			wantThinking: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			config := testConfig(t, spec.Document{
+				Version: spec.Version,
+				Name:    "sample",
+				Entry:   "main",
+				Schemas: map[string]any{
+					"selected_value": map[string]any{
+						"type":                 "object",
+						"required":             []any{"selected"},
+						"additionalProperties": false,
+						"properties": map[string]any{
+							"selected": "string",
+						},
+					},
+				},
+				Flows: map[string]spec.Flow{
+					"main": {
+						Steps: []spec.Step{
+							{
+								ID:   "resolve",
+								Type: "codex",
+								Fields: map[string]any{
+									"response": tc.response,
+								},
+							},
+							{
+								ID:   "after",
+								Type: "fake",
+							},
+						},
+					},
+				},
+			})
+			mustPersist(t, config)
+
+			testResult := cloneStepResult(tc.result)
+			if tc.name == "stdout source does not require thinking" {
+				testResult.Artifacts.Stdout = writeArtifactFixture(t, config.RunDir, "stdout.json", `{"selected":"stdout"}`)
+			}
+
+			calls := []string{}
+			registry := NewRegistry()
+			mustRegister(registry, "codex", func() executorapi.Executor {
+				return &fakeExecutor{
+					calls: &calls,
+					results: map[string]state.StepResult{
+						"resolve": testResult,
+					},
+				}
+			})
+			mustRegister(registry, "fake", func() executorapi.Executor {
+				return &fakeExecutor{
+					calls: &calls,
+					results: map[string]state.StepResult{
+						"after": {Status: state.StepStatusSucceeded},
+					},
+				}
+			})
+
+			snapshot, err := NewRunner(registry).Run(context.Background(), config)
+			if err != nil {
+				t.Fatalf("run: %v", err)
+			}
+
+			resolveValue, ok := snapshot.Steps[0].Value.(map[string]any)
+			if !ok {
+				t.Fatalf("resolve value = %#v, want map", snapshot.Steps[0].Value)
+			}
+			if got := resolveValue["selected"]; got != tc.wantSelected {
+				t.Fatalf("resolve selected = %#v, want %q", got, tc.wantSelected)
+			}
+			_, hasThinking := resolveValue["$thinking"]
+			if hasThinking != tc.wantThinking {
+				t.Fatalf("resolve thinking present = %v, want %v", hasThinking, tc.wantThinking)
+			}
+			if got, want := calls, []string{"resolve", "after"}; !reflect.DeepEqual(got, want) {
+				t.Fatalf("calls = %#v, want %#v", got, want)
+			}
+		})
+	}
+}
+
 func TestRunnerExpectDoesNotOverrideExecutionFailure(t *testing.T) {
 	t.Parallel()
 

@@ -13,6 +13,14 @@ Read and follow policies that correspond to the nature of the current task:
 Both in designing DD/roadmaps, and in development, **NO** backward compatibility is required, unless it explicitly stated by user.
 
 
+## Anti-Looping Rule
+
+When implementing or modifying code:
+- Read the relevant source files FIRST. Do not reason about file contents you haven't read.
+- If you catch yourself re-analyzing the same question, STOP thinking and take the next concrete action (read a file, write code, run a test).
+- Never try to resolve all ambiguity upfront. Implement your best understanding, run tests, and iterate.
+  
+
 ## Structured Output Runs
 
 When a run has a strict JSON schema response requirement:

@@ -66,7 +66,7 @@ func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state
 	if !ok {
 		return state.Snapshot{}, fmt.Errorf("entry flow %q is not defined", config.Spec.Entry)
 	}
-	responses := newResponseResolver(schema.NewRegistry(config.Spec.Schemas))
+	responses := newResponseResolver(schema.NewRegistry(config.Spec.Schemas), config.Spec.Schemas)
 	reporter := progress.NewReporter(config.RunID, r.progressSink)
 
 	store := state.NewStore(config.RunDir)
