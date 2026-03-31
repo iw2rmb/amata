@@ -2,13 +2,13 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "common.roadmap.schema.json",
   "title": "Roadmap Common Definitions",
-  "description": "Shared schema definitions for roadmap and step schemas.",
+  "description": "Shared schema definitions for roadmap and step schemas",
   "$defs": {
     "commit": {
       "type": "string",
       "maxLength": 8,
       "minLength": 7,
-      "$comment": "Commit SHA{0:7}."
+      "$comment": "Commit SHA{0:7}"
     },
     "gap": {
       "type": "object",
@@ -17,7 +17,7 @@
       "properties": {
         "description": {
           "type": "string",
-          "$comment": "Free-form explanation of the gap."
+          "$comment": "Gap to address: what and where to fix. Use precise, clean, short phrasing. Use relative path format for references within workspace."
         },
         "commit": {
           "$ref": "#/$defs/commit"
@@ -26,7 +26,7 @@
     },
     "gaps": {
       "type": "array",
-      "$comment": "Gaps, inconsistencies that were found during review.",
+      "$comment": "Gaps that were found on reviews",
       "default": [],
       "items": {
         "$ref": "#/$defs/gap"

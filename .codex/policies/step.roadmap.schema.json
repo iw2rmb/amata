@@ -6,7 +6,8 @@
   "$defs": {
     "done": {
       "type": "boolean",
-      "$comment": "Completed correctly and in full."
+      "default": false,
+      "$comment": "Do **NOT** edit. Is set `true` automatically after no new gaps identified on review."
     },
     "reasoning": {
       "type": "string",
