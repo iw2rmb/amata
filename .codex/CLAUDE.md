@@ -10,10 +10,14 @@ Both in designing DD/roadmaps, and in development, **NO** backward compatibility
 
 ## Anti-Looping Rule
 
-When implementing or modifying code:
+HARD RULE — your FIRST action on any task MUST be a tool call (Read, Glob, Grep, Bash).
+Do NOT reason about what files might contain or what a task "really means" before reading code.
+
 - Read the relevant source files FIRST. Do not reason about file contents you haven't read.
-- If you catch yourself re-analyzing the same question, STOP thinking and take the next concrete action (read a file, write code, run a test).
-- Never try to resolve all ambiguity upfront. Implement your best understanding, run tests, and iterate.
+- If a task mentions a file, function, or concept — read it immediately. Do not theorize.
+- If you catch yourself writing "I'm realizing", "Let me step back", "the question is really about", or re-analyzing the same topic — STOP thinking and call a tool.
+- Never try to resolve all ambiguity upfront. Take the most literal reading, start implementing, course-correct after seeing the code.
+- Maximum thinking before first tool call: ~500 tokens. If you haven't called a tool yet, you're looping.
   
 
 ## Structured Output Runs
