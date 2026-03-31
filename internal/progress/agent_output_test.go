@@ -323,3 +323,105 @@ func TestSummarizeClaudeOutputFromStreamEvents(t *testing.T) {
 		t.Fatalf("summary.Totals = %#v, want in=18 cached=4 out=7", summary.Totals)
 	}
 }
+
+func TestSummarizeClaudeOutputAccumulatesThinkingDeltas(t *testing.T) {
+	t.Parallel()
+
+	data := strings.Join([]string{
+		`{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Plan "}}}`,
+		`{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"command "}}}`,
+		`{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"execution"}}}`,
+		`{"type":"result","usage":{"input_tokens":10,"cached_input_tokens":2,"output_tokens":4}}`,
+	}, "\n")
+
+	summary, ok := summarizeClaudeOutput([]byte(data))
+	if !ok {
+		t.Fatalf("ok = false, want true")
+	}
+	if summary.Thinking != "Plan command execution" {
+		t.Fatalf("summary.Thinking = %q, want %q", summary.Thinking, "Plan command execution")
+	}
+}
+
+func TestSummarizeClaudeOutputFullThinkingClearsDeltaAccumulator(t *testing.T) {
+	t.Parallel()
+
+	data := strings.Join([]string{
+		`{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"partial "}}}`,
+		`{"type":"assistant","message":{"type":"message","role":"assistant","content":[{"type":"thinking","thinking":"Full reasoning text"}]}}`,
+		`{"type":"assistant","message":{"type":"message","content":[{"type":"tool_use","name":"Bash","input":{"command":"pwd"}}]}}`,
+		`{"type":"result","usage":{"input_tokens":12,"cached_input_tokens":1,"output_tokens":5}}`,
+	}, "\n")
+
+	summary, ok := summarizeClaudeOutput([]byte(data))
+	if !ok {
+		t.Fatalf("ok = false, want true")
+	}
+	if summary.Thinking != "Full reasoning text" {
+		t.Fatalf("summary.Thinking = %q, want %q", summary.Thinking, "Full reasoning text")
+	}
+}
+
+func TestSummarizeClaudeOutputDeltaAfterFullStartsFreshAccumulator(t *testing.T) {
+	t.Parallel()
+
+	data := strings.Join([]string{
+		`{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"old"}}}`,
+		`{"type":"assistant","message":{"type":"message","role":"assistant","content":[{"type":"thinking","thinking":"Use full text"}]}}`,
+		`{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"new "}}}`,
+		`{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"delta"}}}`,
+		`{"type":"result","usage":{"input_tokens":8,"cached_input_tokens":0,"output_tokens":3}}`,
+	}, "\n")
+
+	summary, ok := summarizeClaudeOutput([]byte(data))
+	if !ok {
+		t.Fatalf("ok = false, want true")
+	}
+	if summary.Thinking != "new delta" {
+		t.Fatalf("summary.Thinking = %q, want %q", summary.Thinking, "new delta")
+	}
+}
+
+func TestRenderRunningClaudeShowsAccumulatedThinkingDelta(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	stdoutPath := filepath.Join(tempDir, "stdout.txt")
+	content := strings.Join([]string{
+		`{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Plan "}}}`,
+		`{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"command execution"}}}`,
+		`{"type":"assistant","message":{"type":"message","content":[{"type":"tool_use","name":"Bash","input":{"command":"pwd"}}]}}`,
+		`{"type":"result","usage":{"input_tokens":18,"cached_input_tokens":4,"output_tokens":7}}`,
+	}, "\n")
+	if err := os.WriteFile(stdoutPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write stdout: %v", err)
+	}
+
+	startedAt := time.Date(2026, time.March, 29, 10, 0, 0, 0, time.UTC)
+	now := startedAt.Add(9 * time.Second)
+
+	block := blockForEvent(Event{
+		Kind: EventStepStarted,
+		Step: &Step{
+			Type:      "claude",
+			Status:    StepStatusRunning,
+			StartedAt: startedAt,
+			Artifacts: Artifacts{
+				Stdout: stdoutPath,
+				Files:  map[string]string{"prompt": filepath.Join(tempDir, "prompt.md")},
+			},
+			Descriptor: &DescriptorData{
+				PrimaryText: "claude-sonnet-4-6:high",
+				DetailText:  []string{"Implement feature X."},
+			},
+		},
+		Snapshot: Snapshot{},
+	}, streamRenderSettings{
+		now:   func() time.Time { return now },
+		width: 120,
+	}, newStreamStyles(false))
+
+	if !strings.Contains(block, "[T]hinking Plan command execution") {
+		t.Fatalf("block = %q, want accumulated collapsed thinking line", block)
+	}
+}

@@ -106,6 +106,8 @@ func summarizeClaudeOutput(data []byte) (agentOutputSummary, bool) {
 	var hasFirstAt bool
 	var sawTokens bool
 	var sawAction bool
+	var thinkingDelta string
+	var hasThinkingDelta bool
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -152,14 +154,26 @@ func summarizeClaudeOutput(data []byte) (agentOutputSummary, bool) {
 			}
 		}
 
+		if update, ok := claudeThinkingUpdateFromEvent(event); ok {
+			switch update.Mode {
+			case claudeThinkingModeDelta:
+				thinkingDelta += update.Text
+				hasThinkingDelta = true
+				summary.Thinking = thinkingDelta
+			case claudeThinkingModeFull:
+				thinkingDelta = ""
+				hasThinkingDelta = false
+				summary.Thinking = update.Text
+			}
+		}
+
 		eventType, content, italic := claudeEventDescription(event)
 		if eventType == "" && content == "" {
 			continue
 		}
-		if strings.EqualFold(eventType, "thinking") {
-			if text := strings.TrimSpace(content); text != "" {
-				summary.Thinking = text
-			}
+		if strings.EqualFold(eventType, "thinking") && hasThinkingDelta {
+			// Keep action content aligned with the currently displayed accumulated delta.
+			content = thinkingDelta
 		}
 		if strings.EqualFold(eventType, "Shell") {
 			if text := strings.TrimSpace(content); text != "" {
@@ -623,6 +637,91 @@ func mapOrStringJSONField(source map[string]any, key string) (map[string]any, bo
 		return nil, false
 	}
 	return decoded, true
+}
+
+type claudeThinkingMode string
+
+const (
+	claudeThinkingModeDelta claudeThinkingMode = "delta"
+	claudeThinkingModeFull  claudeThinkingMode = "full"
+)
+
+type claudeThinkingUpdate struct {
+	Mode claudeThinkingMode
+	Text string
+}
+
+func claudeThinkingUpdateFromEvent(event map[string]any) (claudeThinkingUpdate, bool) {
+	if event == nil {
+		return claudeThinkingUpdate{}, false
+	}
+
+	eventType, _ := stringField(event, "type")
+	if eventType == "stream_event" {
+		nested, _ := mapField(event, "event")
+		return claudeThinkingUpdateFromStreamEvent(nested)
+	}
+
+	content, ok := claudeContentBlocks(event)
+	if !ok || len(content) == 0 {
+		return claudeThinkingUpdate{}, false
+	}
+	for _, block := range content {
+		contentBlock, ok := block.(map[string]any)
+		if !ok {
+			continue
+		}
+		blockType, _ := stringField(contentBlock, "type")
+		if blockType != "thinking" {
+			continue
+		}
+		text, ok := stringField(contentBlock, "thinking")
+		if !ok {
+			continue
+		}
+		return claudeThinkingUpdate{Mode: claudeThinkingModeFull, Text: text}, true
+	}
+	return claudeThinkingUpdate{}, false
+}
+
+func claudeThinkingUpdateFromStreamEvent(event map[string]any) (claudeThinkingUpdate, bool) {
+	if event == nil {
+		return claudeThinkingUpdate{}, false
+	}
+
+	eventType, _ := stringField(event, "type")
+	switch eventType {
+	case "content_block_delta":
+		delta, _ := mapField(event, "delta")
+		if delta == nil {
+			return claudeThinkingUpdate{}, false
+		}
+		deltaType, _ := stringField(delta, "type")
+		if deltaType != "thinking_delta" {
+			return claudeThinkingUpdate{}, false
+		}
+		text, ok := stringField(delta, "thinking")
+		if !ok {
+			return claudeThinkingUpdate{}, false
+		}
+		return claudeThinkingUpdate{Mode: claudeThinkingModeDelta, Text: text}, true
+	case "content_block_start":
+		contentBlock, _ := mapField(event, "content_block")
+		if contentBlock == nil {
+			return claudeThinkingUpdate{}, false
+		}
+		blockType, _ := stringField(contentBlock, "type")
+		if blockType != "thinking" {
+			return claudeThinkingUpdate{}, false
+		}
+		text, ok := stringField(contentBlock, "thinking")
+		if !ok {
+			return claudeThinkingUpdate{}, false
+		}
+		return claudeThinkingUpdate{Mode: claudeThinkingModeFull, Text: text}, true
+	default:
+		return claudeThinkingUpdate{}, false
+	}
 }
 
 func claudeEventDescription(event map[string]any) (string, string, bool) {
