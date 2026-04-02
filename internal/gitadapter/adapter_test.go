@@ -118,9 +118,6 @@ func TestCommitExcludesAbsolutePrefixesAndKeepsExcludedStagedChanges(t *testing.
 	if result.Metadata.ShortCommit == "" {
 		t.Fatalf("result.Metadata.ShortCommit = empty, want short sha")
 	}
-	if result.Metadata.ChangedFileCount != 1 {
-		t.Fatalf("result.Metadata.ChangedFileCount = %d, want 1", result.Metadata.ChangedFileCount)
-	}
 	if result.Metadata.Insertions != 1 || result.Metadata.Deletions != 1 {
 		t.Fatalf("result.Metadata totals = +%d -%d, want +1 -1", result.Metadata.Insertions, result.Metadata.Deletions)
 	}
@@ -129,10 +126,10 @@ func TestCommitExcludesAbsolutePrefixesAndKeepsExcludedStagedChanges(t *testing.
 		t.Fatalf("result.Metadata.FileStats = %#v, want %#v", result.Metadata.FileStats, wantStats)
 	}
 
-	if got := runGit(t, repoDir, "show", "HEAD:engine.txt"); got != "engine change\n" {
+	if got := runGit(t, repoDir, "show", result.Commit+":engine.txt"); got != "engine change\n" {
 		t.Fatalf("HEAD engine.txt = %q, want committed content", got)
 	}
-	headFiles := strings.Fields(runGit(t, repoDir, "ls-tree", "--name-only", "-r", "HEAD"))
+	headFiles := strings.Fields(runGit(t, repoDir, "ls-tree", "--name-only", "-r", result.Commit))
 	if contains(headFiles, ".amata/runs/current.json") {
 		t.Fatalf("HEAD files = %#v, want excluded state file to remain absent", headFiles)
 	}
@@ -167,7 +164,7 @@ func TestCommitIncludesBodyInDescription(t *testing.T) {
 		t.Fatalf("result.Committed = false, want true")
 	}
 
-	got := strings.TrimRight(runGit(t, repoDir, "log", "-1", "--pretty=%B"), "\n")
+	got := strings.TrimRight(runGit(t, repoDir, "show", "-s", "--format=%B", result.Commit), "\n")
 	want := "engine: commit tracked changes\n\nline one\n\nline two"
 	if got != want {
 		t.Fatalf("commit message body = %q, want %q", got, want)
@@ -399,6 +396,10 @@ func initRepository(t *testing.T) string {
 	runGit(t, repoDir, "init")
 	runGit(t, repoDir, "config", "user.name", "Test User")
 	runGit(t, repoDir, "config", "user.email", "test@example.com")
+	if err := os.MkdirAll(filepath.Join(repoDir, ".githooks"), 0o755); err != nil {
+		t.Fatalf("create hooks dir: %v", err)
+	}
+	runGit(t, repoDir, "config", "core.hooksPath", ".githooks")
 
 	writeFile(t, filepath.Join(repoDir, "tracked.txt"), "base\n")
 	writeFile(t, filepath.Join(repoDir, "engine.txt"), "base\n")

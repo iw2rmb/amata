@@ -83,9 +83,14 @@ func (e *Executor) Execute(ctx context.Context, stepCtx executor.StepContext) st
 	})
 }
 
-func metadataValue(metadata *gitadapter.CommitMetadata) any {
+func metadataValue(metadata *gitadapter.CommitMetadata) map[string]any {
 	if metadata == nil {
-		return nil
+		return map[string]any{
+			"shortCommit": nil,
+			"insertions":  0,
+			"deletions":   0,
+			"files":       []any{},
+		}
 	}
 
 	files := make([]any, 0, len(metadata.FileStats))
@@ -98,11 +103,10 @@ func metadataValue(metadata *gitadapter.CommitMetadata) any {
 	}
 
 	return map[string]any{
-		"shortCommit":      metadata.ShortCommit,
-		"changedFileCount": metadata.ChangedFileCount,
-		"insertions":       metadata.Insertions,
-		"deletions":        metadata.Deletions,
-		"files":            files,
+		"shortCommit": metadata.ShortCommit,
+		"insertions":  metadata.Insertions,
+		"deletions":   metadata.Deletions,
+		"files":       files,
 	}
 }
 

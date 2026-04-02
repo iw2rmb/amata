@@ -236,7 +236,6 @@ func (gitCLI) commitMetadata(ctx context.Context, repoRoot string, commit string
 		FileStats:   fileStats,
 	}
 	for _, stat := range fileStats {
-		metadata.ChangedFileCount++
 		metadata.Insertions += stat.Insertions
 		metadata.Deletions += stat.Deletions
 	}

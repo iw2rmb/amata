@@ -41,6 +41,11 @@ func RunGit(t *testing.T, dir string, args ...string) string {
 
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=core.hooksPath",
+		"GIT_CONFIG_VALUE_0=/dev/null",
+	)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, string(output))
@@ -55,6 +60,10 @@ func InitGitRepo(t *testing.T, dir string) {
 	RunGit(t, dir, "init")
 	RunGit(t, dir, "config", "user.name", "Test User")
 	RunGit(t, dir, "config", "user.email", "test@example.com")
+	if err := os.MkdirAll(filepath.Join(dir, ".githooks"), 0o755); err != nil {
+		t.Fatalf("create hooks dir: %v", err)
+	}
+	RunGit(t, dir, "config", "core.hooksPath", ".githooks")
 }
 
 // ContainsArgPair returns true if args contains name immediately followed

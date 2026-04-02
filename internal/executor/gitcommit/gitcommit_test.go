@@ -22,11 +22,11 @@ func TestExecutorFakeServiceCases(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
-		name         string
-		service      *fakeCommitService
-		fields       map[string]any
-		wantOptions  gitadapter.CommitOptions
-		wantValue    map[string]any
+		name        string
+		service     *fakeCommitService
+		fields      map[string]any
+		wantOptions gitadapter.CommitOptions
+		wantValue   map[string]any
 	}{
 		{
 			name: "adds workspace state dir to exclusions",
@@ -41,10 +41,9 @@ func TestExecutorFakeServiceCases(t *testing.T) {
 					Commit:    "abc123",
 					Paths:     []string{"engine.txt"},
 					Metadata: &gitadapter.CommitMetadata{
-						ShortCommit:      "abc123",
-						ChangedFileCount: 1,
-						Insertions:       5,
-						Deletions:        2,
+						ShortCommit: "abc123",
+						Insertions:  5,
+						Deletions:   2,
 						FileStats: []gitadapter.CommitFileStat{
 							{Path: "engine.txt", Insertions: 5, Deletions: 2},
 						},
@@ -67,10 +66,9 @@ func TestExecutorFakeServiceCases(t *testing.T) {
 				"paths":     []string{"engine.txt"},
 				"repoRoot":  "/repo",
 				"metadata": map[string]any{
-					"shortCommit":      "abc123",
-					"changedFileCount": 1,
-					"insertions":       5,
-					"deletions":        2,
+					"shortCommit": "abc123",
+					"insertions":  5,
+					"deletions":   2,
 					"files": []any{
 						map[string]any{
 							"path":       "engine.txt",
@@ -217,15 +215,33 @@ func TestExecutorReturnsTypedNoOpWhenOnlyExcludedStateDirChanged(t *testing.T) {
 		t.Fatalf("result.Status = %q, want %q", result.Status, state.StepStatusSucceeded)
 	}
 
-	want := map[string]any{
-		"committed": false,
-		"commit":    nil,
-		"paths":     []string{},
-		"repoRoot":  repoDir,
-		"metadata":  nil,
+	value, ok := result.Value.(map[string]any)
+	if !ok {
+		t.Fatalf("result.Value type = %T, want map[string]any", result.Value)
 	}
-	if !reflect.DeepEqual(result.Value, want) {
-		t.Fatalf("result.Value = %#v, want %#v", result.Value, want)
+	if got := value["committed"]; got != false {
+		t.Fatalf("committed = %#v, want false", got)
+	}
+	if got := value["commit"]; got != nil {
+		t.Fatalf("commit = %#v, want nil", got)
+	}
+	if got := value["paths"]; !reflect.DeepEqual(got, []string{}) {
+		t.Fatalf("paths = %#v, want empty", got)
+	}
+	if got := value["metadata"]; !reflect.DeepEqual(got, map[string]any{
+		"shortCommit": nil,
+		"insertions":  0,
+		"deletions":   0,
+		"files":       []any{},
+	}) {
+		t.Fatalf("metadata = %#v, want empty metadata object", got)
+	}
+	gotRepoRoot, ok := value["repoRoot"].(string)
+	if !ok || gotRepoRoot == "" {
+		t.Fatalf("repoRoot = %#v, want non-empty string", value["repoRoot"])
+	}
+	if got, want := canonicalCommitPath(t, gotRepoRoot), canonicalCommitPath(t, repoDir); got != want {
+		t.Fatalf("repoRoot = %q, want %q", gotRepoRoot, repoDir)
 	}
 
 	staged := strings.Fields(runCommitGit(t, repoDir, "diff", "--cached", "--name-only"))
@@ -290,9 +306,6 @@ func TestExecutorCommitsUntrackedFilesAndPreservesExcludedPaths(t *testing.T) {
 	if metadata["shortCommit"] == "" {
 		t.Fatalf("metadata.shortCommit = %#v, want short sha", metadata["shortCommit"])
 	}
-	if metadata["changedFileCount"] != 2 {
-		t.Fatalf("metadata.changedFileCount = %#v, want 2", metadata["changedFileCount"])
-	}
 	if metadata["insertions"] != 2 || metadata["deletions"] != 1 {
 		t.Fatalf("metadata totals = +%#v -%#v, want +2 -1", metadata["insertions"], metadata["deletions"])
 	}
@@ -304,14 +317,14 @@ func TestExecutorCommitsUntrackedFilesAndPreservesExcludedPaths(t *testing.T) {
 		t.Fatalf("metadata.files = %#v, want %#v", got, wantStats)
 	}
 
-	if got := runCommitGit(t, repoDir, "show", "HEAD:engine.txt"); got != "engine change\n" {
+	if got := runCommitGit(t, repoDir, "show", commit+":engine.txt"); got != "engine change\n" {
 		t.Fatalf("HEAD engine.txt = %q, want committed content", got)
 	}
-	if got := runCommitGit(t, repoDir, "show", "HEAD:notes/todo.txt"); got != "draft\n" {
+	if got := runCommitGit(t, repoDir, "show", commit+":notes/todo.txt"); got != "draft\n" {
 		t.Fatalf("HEAD notes/todo.txt = %q, want committed content", got)
 	}
 
-	headFiles := strings.Fields(runCommitGit(t, repoDir, "ls-tree", "--name-only", "-r", "HEAD"))
+	headFiles := strings.Fields(runCommitGit(t, repoDir, "ls-tree", "--name-only", "-r", commit))
 	if containsCommitPath(headFiles, ".amata/runs/current.json") {
 		t.Fatalf("HEAD files = %#v, want excluded state file to remain absent", headFiles)
 	}
@@ -350,6 +363,10 @@ func initCommitRepository(t *testing.T) string {
 	runCommitGit(t, repoDir, "init")
 	runCommitGit(t, repoDir, "config", "user.name", "Test User")
 	runCommitGit(t, repoDir, "config", "user.email", "test@example.com")
+	if err := os.MkdirAll(filepath.Join(repoDir, ".githooks"), 0o755); err != nil {
+		t.Fatalf("create hooks dir: %v", err)
+	}
+	runCommitGit(t, repoDir, "config", "core.hooksPath", ".githooks")
 
 	writeCommitFile(t, filepath.Join(repoDir, "engine.txt"), "base\n")
 	runCommitGit(t, repoDir, "add", "engine.txt")
@@ -373,6 +390,11 @@ func runCommitGit(t *testing.T, repoDir string, args ...string) string {
 
 	cmd := exec.Command("git", args...)
 	cmd.Dir = repoDir
+	cmd.Env = append(os.Environ(),
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=core.hooksPath",
+		"GIT_CONFIG_VALUE_0=/dev/null",
+	)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, string(output))
@@ -387,4 +409,14 @@ func containsCommitPath(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func canonicalCommitPath(t *testing.T, value string) string {
+	t.Helper()
+
+	resolved, err := filepath.EvalSymlinks(value)
+	if err != nil {
+		return filepath.Clean(value)
+	}
+	return filepath.Clean(resolved)
 }

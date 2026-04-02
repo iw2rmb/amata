@@ -474,15 +474,17 @@ func gitCommitDescriptorFromResult(data *DescriptorData, value any) *DescriptorD
 	committed, _ := jsonutil.BoolField(value, "committed")
 	metadataValue, ok := jsonutil.MapField(value, "metadata")
 	if !committed || !ok {
-		data.PrimaryText = "no changes"
-		data.FinalSummaryDetails = []string{"no changes"}
+		data.PrimaryText = "no files changed"
+		data.DetailText = nil
+		data.FinalSummaryDetails = []string{"no files changed"}
 		return data
 	}
 
 	shortCommit, _ := jsonutil.StringField(metadataValue, "shortCommit")
-	changedFiles, _ := jsonutil.IntField(metadataValue, "changedFileCount")
 	insertions, _ := jsonutil.IntField(metadataValue, "insertions")
 	deletions, _ := jsonutil.IntField(metadataValue, "deletions")
+	files := fileStats(metadataValue)
+	changedFiles := len(files)
 
 	data.PrimaryText = fmt.Sprintf("%s files %d +%d -%d", shortCommit, changedFiles, insertions, deletions)
 	data.FinalSummaryDetails = []string{
@@ -490,7 +492,7 @@ func gitCommitDescriptorFromResult(data *DescriptorData, value any) *DescriptorD
 		fmt.Sprintf("files %d +%d -%d", changedFiles, insertions, deletions),
 	}
 
-	for _, file := range fileStats(metadataValue) {
+	for _, file := range files {
 		data.DetailText = append(data.DetailText, fmt.Sprintf("+%d -%d %s", file.Insertions, file.Deletions, file.Path))
 	}
 

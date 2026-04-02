@@ -27,10 +27,10 @@
       ],
       "properties": {
         "shortCommit": {
-          "type": "string"
-        },
-        "changedFileCount": {
-          "type": "integer"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "insertions": {
           "type": "integer"
@@ -64,7 +64,6 @@
       },
       "required": [
         "shortCommit",
-        "changedFileCount",
         "insertions",
         "deletions",
         "files"

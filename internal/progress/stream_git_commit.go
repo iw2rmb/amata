@@ -19,10 +19,10 @@ func gitCommitRenderData(step Step) (string, int, int, int, []commitFileDescript
 	}
 
 	shortCommit, _ := jsonutil.StringField(metadataValue, "shortCommit")
-	changedFiles, _ := jsonutil.IntField(metadataValue, "changedFileCount")
 	insertions, _ := jsonutil.IntField(metadataValue, "insertions")
 	deletions, _ := jsonutil.IntField(metadataValue, "deletions")
-	return shortCommit, changedFiles, insertions, deletions, fileStats(metadataValue), shortCommit != ""
+	files := fileStats(metadataValue)
+	return shortCommit, len(files), insertions, deletions, files, shortCommit != ""
 }
 
 func gitCommitMessage(step Step) string {

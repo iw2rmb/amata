@@ -332,10 +332,9 @@ func TestStepDescriptorShapes(t *testing.T) {
 						"commit":    "abc123def456",
 						"paths":     []string{"engine.txt", "notes/todo.txt"},
 						"metadata": map[string]any{
-							"shortCommit":      "abc123d",
-							"changedFileCount": 2,
-							"insertions":       7,
-							"deletions":        3,
+							"shortCommit": "abc123d",
+							"insertions":  7,
+							"deletions":   3,
 							"files": []any{
 								map[string]any{"path": "engine.txt", "insertions": 5, "deletions": 2},
 								map[string]any{"path": "notes/todo.txt", "insertions": 2, "deletions": 1},
@@ -359,6 +358,47 @@ func TestStepDescriptorShapes(t *testing.T) {
 				"+5 -2 engine.txt",
 				"+2 -1 notes/todo.txt",
 			},
+		},
+		{
+			name: "git.commit finished no-op",
+			step: func(t *testing.T) progress.Step {
+				t.Helper()
+
+				step, err := progress.StepFromResultWithContext("main", stepContext(spec.Document{}, spec.Step{
+					ID:   "commit-no-op",
+					Type: "git.commit",
+					Fields: map[string]any{
+						"message": "engine: persist structured commit summary",
+					},
+				}, nil), state.StepResult{
+					Index:  4,
+					ID:     "commit-no-op",
+					Type:   "git.commit",
+					Status: state.StepStatusSucceeded,
+					Value: map[string]any{
+						"committed": false,
+						"commit":    nil,
+						"paths":     []string{},
+						"metadata": map[string]any{
+							"shortCommit": nil,
+							"insertions":  0,
+							"deletions":   0,
+							"files":       []any{},
+						},
+					},
+				})
+				if err != nil {
+					t.Fatalf("StepFromResultWithContext: %v", err)
+				}
+				step.StartedAt = startedAt
+				step.FinishedAt = finishedAt
+				return step
+			},
+			wantStatus:      progress.StatusSymbolSucceeded,
+			wantType:        "git.commit",
+			wantPrimary:     "no files changed",
+			wantSummary:     []string{"no files changed"},
+			wantDetailLines: []string{},
 		},
 	}
 
@@ -417,12 +457,12 @@ func stepContext(document spec.Document, step spec.Step, params map[string]any) 
 	}
 
 	return executor.StepContext{
-		FlowName:  "main",
-		StepIndex: 0,
-		RunDir:    "/repo/.amata/runs/run-001",
-		Step:      step,
-		Spec:      document,
-		Workspace: workspaceConfig,
+		FlowName:       "main",
+		StepIndex:      0,
+		RunDir:         "/repo/.amata/runs/run-001",
+		Step:           step,
+		Spec:           document,
+		Workspace:      workspaceConfig,
 		ExecutionLabel: "seq-000001-a01",
 		Runtime: exprruntime.NewRuntime(map[string]any{
 			"ctx": map[string]any{

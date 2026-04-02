@@ -91,10 +91,9 @@ func TestBlockForEventFormatsPlainText(t *testing.T) {
 					},
 					Value: map[string]any{
 						"metadata": map[string]any{
-							"shortCommit":      "abc123d",
-							"changedFileCount": 2,
-							"insertions":       7,
-							"deletions":        3,
+							"shortCommit": "abc123d",
+							"insertions":  7,
+							"deletions":   3,
 							"files": []any{
 								map[string]any{"path": "engine.txt", "insertions": 5, "deletions": 2},
 								map[string]any{"path": "notes/todo.txt", "insertions": 2, "deletions": 1},
@@ -113,6 +112,32 @@ func TestBlockForEventFormatsPlainText(t *testing.T) {
 				"  +5 -2 engine.txt",
 				"  +2 -1 notes/todo.txt",
 			}, "\n"),
+		},
+		{
+			name: "git commit finished no-op",
+			event: Event{
+				Kind: EventStepFinished,
+				Step: &Step{
+					Type:       "git.commit",
+					Status:     StepStatusSucceeded,
+					StartedAt:  startedAt,
+					FinishedAt: finishedAt,
+					Descriptor: &DescriptorData{
+						PrimaryText:         "no files changed",
+						FinalSummaryDetails: []string{"no files changed"},
+					},
+					Value: map[string]any{
+						"metadata": map[string]any{
+							"shortCommit": nil,
+							"insertions":  0,
+							"deletions":   0,
+							"files":       []any{},
+						},
+					},
+				},
+			},
+			width: 80,
+			want:  "⏺ 00:05 git.commit no files changed",
 		},
 	}
 

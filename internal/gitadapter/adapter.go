@@ -37,11 +37,10 @@ type CommitFileStat struct {
 }
 
 type CommitMetadata struct {
-	ShortCommit      string
-	ChangedFileCount int
-	Insertions       int
-	Deletions        int
-	FileStats        []CommitFileStat
+	ShortCommit string
+	Insertions  int
+	Deletions   int
+	FileStats   []CommitFileStat
 }
 
 type CommitResult struct {
@@ -163,15 +162,11 @@ func normalizeExcludePrefix(repoRoot string, raw string) (string, bool, error) {
 	}
 
 	if filepath.IsAbs(raw) {
-		relative, err := filepath.Rel(repoRoot, raw)
+		relative, ok, err := relativePathWithinRepo(repoRoot, raw)
 		if err != nil {
 			return "", false, fmt.Errorf("normalize exclude path %q: %w", raw, err)
 		}
-		relative = filepath.ToSlash(relative)
-		if relative == "." {
-			return ".", true, nil
-		}
-		if relative == ".." || strings.HasPrefix(relative, "../") {
+		if !ok {
 			return "", false, nil
 		}
 		return normalizeRepoRelativePath(raw, relative)
@@ -190,6 +185,51 @@ func normalizeRepoRelativePath(raw string, value string) (string, bool, error) {
 	default:
 		return strings.TrimPrefix(cleaned, "./"), true, nil
 	}
+}
+
+func relativePathWithinRepo(repoRoot string, target string) (string, bool, error) {
+	repoRoots := []string{filepath.Clean(repoRoot)}
+	if resolvedRoot, ok := evalPath(repoRoot); ok && resolvedRoot != repoRoots[0] {
+		repoRoots = append(repoRoots, resolvedRoot)
+	}
+
+	targetPaths := []string{filepath.Clean(target)}
+	if resolvedTarget, ok := evalPath(target); ok && resolvedTarget != targetPaths[0] {
+		targetPaths = append(targetPaths, resolvedTarget)
+	}
+
+	var firstErr error
+	for _, root := range repoRoots {
+		for _, candidate := range targetPaths {
+			relative, err := filepath.Rel(root, candidate)
+			if err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+				continue
+			}
+			relative = filepath.ToSlash(relative)
+			if relative == "." {
+				return ".", true, nil
+			}
+			if relative == ".." || strings.HasPrefix(relative, "../") {
+				continue
+			}
+			return relative, true, nil
+		}
+	}
+	if firstErr != nil {
+		return "", false, firstErr
+	}
+	return "", false, nil
+}
+
+func evalPath(value string) (string, bool) {
+	resolved, err := filepath.EvalSymlinks(value)
+	if err != nil {
+		return "", false
+	}
+	return filepath.Clean(resolved), true
 }
 
 func isExcludedPath(file string, excludes []string) bool {

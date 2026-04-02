@@ -65,13 +65,17 @@ func TestExecutorSnapshotCases(t *testing.T) {
 			stepCtx: func(t *testing.T) executor.StepContext {
 				t.Helper()
 				rootDir := t.TempDir()
+				inspectDir := filepath.Join(rootDir, "missing-repo")
+				if err := os.MkdirAll(inspectDir, 0o755); err != nil {
+					t.Fatalf("create inspect directory: %v", err)
+				}
 				return executor.StepContext{
 					Workspace: workspace.Config{Root: rootDir},
 					StepIndex: 1,
 					Step: spec.Step{
 						Type: "git.inspect",
 						Fields: map[string]any{
-							"cwd": filepath.Join(rootDir, "missing-repo"),
+							"cwd": inspectDir,
 						},
 					},
 					Runtime: exprruntime.NewRuntime(map[string]any{}),
@@ -152,6 +156,10 @@ func initInspectRepository(t *testing.T) string {
 	runInspectGit(t, repoDir, "init")
 	runInspectGit(t, repoDir, "config", "user.name", "Test User")
 	runInspectGit(t, repoDir, "config", "user.email", "test@example.com")
+	if err := os.MkdirAll(filepath.Join(repoDir, ".githooks"), 0o755); err != nil {
+		t.Fatalf("create hooks dir: %v", err)
+	}
+	runInspectGit(t, repoDir, "config", "core.hooksPath", ".githooks")
 	writeInspectFile(t, filepath.Join(repoDir, "tracked.txt"), "base\n")
 	runInspectGit(t, repoDir, "add", "tracked.txt")
 	runInspectGit(t, repoDir, "commit", "-m", "init")
@@ -174,6 +182,11 @@ func runInspectGit(t *testing.T, repoDir string, args ...string) string {
 
 	cmd := exec.Command("git", args...)
 	cmd.Dir = repoDir
+	cmd.Env = append(os.Environ(),
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=core.hooksPath",
+		"GIT_CONFIG_VALUE_0=/dev/null",
+	)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, string(output))
