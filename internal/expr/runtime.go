@@ -14,6 +14,25 @@ type Runtime struct {
 	ctx map[string]any
 }
 
+type EvaluationError struct {
+	Expression string
+	Cause      error
+}
+
+func (e *EvaluationError) Error() string {
+	if e == nil {
+		return "expression is invalid"
+	}
+	return fmt.Sprintf("expression %q is invalid: %v", e.Expression, e.Cause)
+}
+
+func (e *EvaluationError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
+}
+
 func NewRuntime(ctx map[string]any) Runtime {
 	return Runtime{
 		ctx: jsonutil.CloneMap(ctx),
@@ -29,7 +48,10 @@ func (r Runtime) Eval(expression string) (any, error) {
 	expression = normalizeExpressionShorthand(expression)
 	value, err := starlark.Eval(&starlark.Thread{Name: "expr"}, "<expr>", expression, globals)
 	if err != nil {
-		return nil, err
+		return nil, &EvaluationError{
+			Expression: expression,
+			Cause:      err,
+		}
 	}
 
 	return fromStarlark(value)

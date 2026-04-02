@@ -42,8 +42,9 @@ const (
 )
 
 type Failure struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
+	Code    string         `json:"code"`
+	Message string         `json:"message"`
+	Details map[string]any `json:"details,omitempty"`
 }
 
 type Artifacts struct {
@@ -441,6 +442,9 @@ func CloneFailure(in *Failure) *Failure {
 	}
 
 	out := *in
+	if len(in.Details) > 0 {
+		out.Details = jsonutil.CloneMap(in.Details)
+	}
 	return &out
 }
 

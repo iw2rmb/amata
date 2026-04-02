@@ -1,7 +1,9 @@
 package expr
 
 import (
+	"errors"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -81,5 +83,31 @@ func TestRuntimeResolveShorthandAndEscape(t *testing.T) {
 				t.Fatalf("Resolve() = %#v, want %#v", got, testCase.want)
 			}
 		})
+	}
+}
+
+func TestRuntimeEvalReturnsExpressionErrorContext(t *testing.T) {
+	t.Parallel()
+
+	runtime := NewRuntime(map[string]any{
+		"ctx": map[string]any{
+			"items": []any{"ok", map[string]any{"bad": true}},
+		},
+	})
+
+	_, err := runtime.Eval(`"- " + ctx.items[1]`)
+	if err == nil {
+		t.Fatalf("Eval() error = nil, want expression failure")
+	}
+
+	var evaluationErr *EvaluationError
+	if !errors.As(err, &evaluationErr) {
+		t.Fatalf("Eval() error type = %T, want *EvaluationError", err)
+	}
+	if evaluationErr.Expression != `"- " + ctx.items[1]` {
+		t.Fatalf("EvaluationError.Expression = %q", evaluationErr.Expression)
+	}
+	if !strings.Contains(evaluationErr.Cause.Error(), "unknown binary op: string + object") {
+		t.Fatalf("EvaluationError.Cause = %q", evaluationErr.Cause.Error())
 	}
 }

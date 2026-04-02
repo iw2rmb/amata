@@ -3,6 +3,7 @@ package state_test
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -254,6 +255,44 @@ func TestStoreStepStartedDoesNotAdvanceFrame(t *testing.T) {
 	}
 	if got := snapshot.Frames[0].NextStep; got != 1 {
 		t.Fatalf("next step after record = %d, want 1", got)
+	}
+}
+
+func TestCloneFailureClonesDetails(t *testing.T) {
+	t.Parallel()
+
+	original := &state.Failure{
+		Code:    "invalid_agent",
+		Message: "prompt is invalid",
+		Details: map[string]any{
+			"field": "prompt",
+			"nested": map[string]any{
+				"path": "$.prev.value",
+			},
+		},
+	}
+
+	cloned := state.CloneFailure(original)
+	if cloned == nil {
+		t.Fatalf("CloneFailure() = nil")
+	}
+	if !reflect.DeepEqual(cloned, original) {
+		t.Fatalf("CloneFailure() = %#v, want %#v", cloned, original)
+	}
+
+	original.Details["field"] = "model"
+	originalNested := original.Details["nested"].(map[string]any)
+	originalNested["path"] = "$.params.model"
+
+	if got := cloned.Details["field"]; got != "prompt" {
+		t.Fatalf("cloned details field = %#v, want prompt", got)
+	}
+	clonedNested, ok := cloned.Details["nested"].(map[string]any)
+	if !ok {
+		t.Fatalf("cloned nested details type = %T, want map", cloned.Details["nested"])
+	}
+	if got := clonedNested["path"]; got != "$.prev.value" {
+		t.Fatalf("cloned nested path = %#v, want $.prev.value", got)
 	}
 }
 

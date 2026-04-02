@@ -55,6 +55,7 @@ type Response struct {
 type Error struct {
 	Code    string
 	Message string
+	Details map[string]any
 }
 
 type Executor struct {
@@ -77,7 +78,11 @@ func (e *Executor) Execute(ctx context.Context, stepCtx executor.StepContext) st
 
 	request, requestErr := loadRequest(stepCtx, e.provider.Name(), stepDir)
 	if requestErr != nil {
-		return executor.Failed(requestErr.Code, fmt.Sprintf("step %d: %s", stepCtx.StepIndex, requestErr.Message))
+		result := executor.Failed(requestErr.Code, requestErr.Message)
+		if result.Error != nil && len(requestErr.Details) > 0 {
+			result.Error.Details = jsonutil.CloneMap(requestErr.Details)
+		}
+		return result
 	}
 	if err := initializePromptArtifact(stepDir, request.Prompt); err != nil {
 		return executor.Failed("artifact_capture_failed", fmt.Sprintf("step %d: initialize prompt artifact: %v", stepCtx.StepIndex, err))
@@ -152,6 +157,7 @@ func (e *Executor) Execute(ctx context.Context, stepCtx executor.StepContext) st
 		result.Error = &state.Failure{
 			Code:    execErr.Code,
 			Message: fmt.Sprintf("step %d: %s", stepCtx.StepIndex, execErr.Message),
+			Details: jsonutil.CloneMap(execErr.Details),
 		}
 	}
 

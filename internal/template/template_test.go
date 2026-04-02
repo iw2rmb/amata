@@ -1,6 +1,8 @@
 package template
 
 import (
+	"errors"
+	"fmt"
 	"reflect"
 	"testing"
 )
@@ -67,5 +69,30 @@ func TestRenderReturnsRawValuesForWholeExpressions(t *testing.T) {
 				t.Fatalf("Render() = %#v, want %#v", got, testCase.want)
 			}
 		})
+	}
+}
+
+func TestRenderReturnsExpressionContextOnTemplateEvaluationError(t *testing.T) {
+	t.Parallel()
+
+	_, err := Render("prefix {{ ctx.items[0] }} suffix", func(expression string) (any, error) {
+		return nil, fmt.Errorf("unknown binary op: string + object")
+	})
+	if err == nil {
+		t.Fatalf("Render() error = nil, want expression failure")
+	}
+
+	var expressionErr *ExpressionError
+	if !errors.As(err, &expressionErr) {
+		t.Fatalf("Render() error type = %T, want *ExpressionError", err)
+	}
+	if expressionErr.Index != 0 {
+		t.Fatalf("ExpressionError.Index = %d, want 0", expressionErr.Index)
+	}
+	if expressionErr.Expression != "ctx.items[0]" {
+		t.Fatalf("ExpressionError.Expression = %q, want ctx.items[0]", expressionErr.Expression)
+	}
+	if got := expressionErr.Cause.Error(); got != "unknown binary op: string + object" {
+		t.Fatalf("ExpressionError.Cause = %q", got)
 	}
 }

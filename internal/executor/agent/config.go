@@ -2,14 +2,18 @@ package agent
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/iw2rmb/amata/internal/executor"
+	exprruntime "github.com/iw2rmb/amata/internal/expr"
 	"github.com/iw2rmb/amata/internal/jsonutil"
 	"github.com/iw2rmb/amata/internal/schema"
+	templateapi "github.com/iw2rmb/amata/internal/template"
 )
 
 type ResolvedStep struct {
@@ -62,27 +66,27 @@ func ResolveStep(stepCtx executor.StepContext, providerName string) (ResolvedSte
 
 	prompt, err := resolveRequiredString(stepCtx, selectValue(stepCtx.Step.Fields, providerDefaults, nil, "prompt"))
 	if err != nil {
-		return ResolvedStep{}, invalidFieldError("prompt", err)
+		return ResolvedStep{}, invalidFieldError(stepCtx, "prompt", err)
 	}
 
 	model, err := resolveRequiredString(stepCtx, selectValue(stepCtx.Step.Fields, providerDefaults, nil, "model"))
 	if err != nil {
-		return ResolvedStep{}, invalidFieldError("model", err)
+		return ResolvedStep{}, invalidFieldError(stepCtx, "model", err)
 	}
 
 	reasoning, err := resolveOptionalString(stepCtx, selectValue(stepCtx.Step.Fields, providerDefaults, nil, "reasoning"))
 	if err != nil {
-		return ResolvedStep{}, invalidFieldError("reasoning", err)
+		return ResolvedStep{}, invalidFieldError(stepCtx, "reasoning", err)
 	}
 
 	cwd, err := resolveCWD(stepCtx, selectValue(stepCtx.Step.Fields, providerDefaults, commonDefaults, "cwd"))
 	if err != nil {
-		return ResolvedStep{}, invalidFieldError("cwd", err)
+		return ResolvedStep{}, invalidFieldError(stepCtx, "cwd", err)
 	}
 
 	env, err := resolveEnv(stepCtx, commonDefaults["env"], providerDefaults["env"], stepCtx.Step.Fields["env"])
 	if err != nil {
-		return ResolvedStep{}, invalidFieldError("env", err)
+		return ResolvedStep{}, invalidFieldError(stepCtx, "env", err)
 	}
 
 	return ResolvedStep{
@@ -337,9 +341,67 @@ func buildStructuredSchema(stepCtx executor.StepContext, providerName string, st
 	return document, string(data), schemaPath, nil
 }
 
-func invalidFieldError(field string, err error) *Error {
+func invalidFieldError(stepCtx executor.StepContext, field string, err error) *Error {
+	details := map[string]any{
+		"field":     field,
+		"flow":      stepCtx.FlowName,
+		"stepIndex": stepCtx.StepIndex,
+		"stepType":  stepCtx.Step.ExecutorType(),
+	}
+	if stepCtx.Step.ID != "" {
+		details["stepID"] = stepCtx.Step.ID
+	}
+
+	rootCause := err
+	if exprErr := (*templateapi.ExpressionError)(nil); errors.As(err, &exprErr) {
+		details["expression"] = exprErr.Expression
+		details["expressionIndex"] = exprErr.Index + 1
+		rootCause = exprErr.Cause
+	}
+	if evalErr := (*exprruntime.EvaluationError)(nil); errors.As(rootCause, &evalErr) {
+		details["expression"] = evalErr.Expression
+		rootCause = evalErr.Cause
+	}
+	if rootCause == nil {
+		rootCause = err
+	}
+	details["cause"] = rootCause.Error()
+
+	locator := stepLocator(stepCtx)
+	message := fmt.Sprintf("%s is invalid at %s: %v", field, locator, rootCause)
+	if expression, ok := details["expression"].(string); ok && expression != "" {
+		message = fmt.Sprintf("%s is invalid at %s: expression %q failed: %v", field, locator, expression, rootCause)
+	}
+	if hint := failureHint(rootCause.Error()); hint != "" {
+		details["hint"] = hint
+		message = fmt.Sprintf("%s. hint: %s", message, hint)
+	}
+
 	return &Error{
 		Code:    "invalid_agent",
-		Message: fmt.Sprintf("%s is invalid: %v", field, err),
+		Message: message,
+		Details: details,
 	}
+}
+
+func stepLocator(stepCtx executor.StepContext) string {
+	parts := []string{}
+	if stepCtx.FlowName != "" {
+		parts = append(parts, fmt.Sprintf("flow %q", stepCtx.FlowName))
+	}
+	parts = append(parts, fmt.Sprintf("step %d", stepCtx.StepIndex))
+	if stepType := stepCtx.Step.ExecutorType(); stepType != "" {
+		parts = append(parts, fmt.Sprintf("executor %q", stepType))
+	}
+	if stepCtx.Step.ID != "" {
+		parts = append(parts, fmt.Sprintf("id %q", stepCtx.Step.ID))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func failureHint(cause string) string {
+	if strings.Contains(cause, "unknown binary op: string + object") {
+		return "expected string list items; in YAML arrays an unquoted ':' can create an object value"
+	}
+	return ""
 }

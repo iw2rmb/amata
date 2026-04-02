@@ -134,10 +134,14 @@ func failureContext(failure *state.Failure) any {
 	if failure == nil {
 		return nil
 	}
-	return map[string]any{
+	context := map[string]any{
 		"code":    failure.Code,
 		"message": failure.Message,
 	}
+	if len(failure.Details) > 0 {
+		context["details"] = jsonutil.CloneMap(failure.Details)
+	}
+	return context
 }
 
 func artifactsContext(artifacts state.Artifacts) map[string]any {

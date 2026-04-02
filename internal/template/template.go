@@ -9,6 +9,26 @@ import (
 
 type Evaluator func(expression string) (any, error)
 
+type ExpressionError struct {
+	Index      int
+	Expression string
+	Cause      error
+}
+
+func (e *ExpressionError) Error() string {
+	if e == nil {
+		return "template expression failed"
+	}
+	return fmt.Sprintf("template expression %d (%q) is invalid: %v", e.Index+1, e.Expression, e.Cause)
+}
+
+func (e *ExpressionError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
+}
+
 func Render(text string, eval Evaluator) (any, error) {
 	if !strings.Contains(text, "{{") {
 		return text, nil
@@ -19,10 +39,19 @@ func Render(text string, eval Evaluator) (any, error) {
 		return nil, err
 	}
 	if len(parts) == 1 && parts[0].expression {
-		return eval(parts[0].value)
+		value, err := eval(parts[0].value)
+		if err != nil {
+			return nil, &ExpressionError{
+				Index:      0,
+				Expression: parts[0].value,
+				Cause:      err,
+			}
+		}
+		return value, nil
 	}
 
 	var rendered strings.Builder
+	expressionIndex := 0
 	for _, part := range parts {
 		if !part.expression {
 			rendered.WriteString(part.value)
@@ -31,7 +60,11 @@ func Render(text string, eval Evaluator) (any, error) {
 
 		value, err := eval(part.value)
 		if err != nil {
-			return nil, err
+			return nil, &ExpressionError{
+				Index:      expressionIndex,
+				Expression: part.value,
+				Cause:      err,
+			}
 		}
 
 		text, err := stringify(value)
@@ -39,6 +72,7 @@ func Render(text string, eval Evaluator) (any, error) {
 			return nil, err
 		}
 		rendered.WriteString(text)
+		expressionIndex++
 	}
 
 	return rendered.String(), nil

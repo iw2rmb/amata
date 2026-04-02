@@ -356,6 +356,81 @@ func TestExecutorRejectsUnsupportedCodexStructuredSchemaKeyword(t *testing.T) {
 	}
 }
 
+func TestExecutorReportsPromptExpressionContextAndHint(t *testing.T) {
+	t.Parallel()
+
+	step := spec.Step{
+		ID:   "invalid-prompt",
+		Type: "claude",
+		Fields: map[string]any{
+			"prompt": "Implement:\n{{ '\\n'.join(['- ' + x for x in ctx.prev.value.item.implementation]) }}",
+		},
+	}
+
+	provider := &fakeProvider{
+		name: "claude",
+		execute: func(_ context.Context, _ agent.Request) (agent.Response, *agent.Error) {
+			t.Fatalf("provider should not be called when prompt resolution fails")
+			return agent.Response{}, nil
+		},
+	}
+
+	sc := newStepContext(t, step, withDocument(documentWithProviderDefaults("claude", "sonnet")))
+	sc.FlowName = "main_loop"
+	sc.StepIndex = 1
+	sc.Runtime = exprruntime.NewRuntime(map[string]any{
+		"ctx": map[string]any{
+			"workspace": map[string]any{
+				"root":      sc.Workspace.Root,
+				"state_dir": sc.Workspace.StateDir,
+			},
+			"params": map[string]any{},
+			"prev": map[string]any{
+				"value": map[string]any{
+					"item": map[string]any{
+						"implementation": []any{
+							"first",
+							map[string]any{"bad": true},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	result := agent.New(provider).Execute(context.Background(), sc)
+	assertFailedWithCode(t, result, "invalid_agent")
+
+	if got := result.Error.Message; !strings.Contains(got, `prompt is invalid at flow "main_loop", step 1, executor "claude", id "invalid-prompt"`) {
+		t.Fatalf("error message = %q", got)
+	}
+	if got := result.Error.Message; !strings.Contains(got, `unknown binary op: string + object`) {
+		t.Fatalf("error message = %q", got)
+	}
+	if got := result.Error.Message; !strings.Contains(got, "expected string list items") {
+		t.Fatalf("error message = %q", got)
+	}
+
+	if result.Error.Details["field"] != "prompt" {
+		t.Fatalf("error details field = %#v, want prompt", result.Error.Details["field"])
+	}
+	if result.Error.Details["flow"] != "main_loop" {
+		t.Fatalf("error details flow = %#v, want main_loop", result.Error.Details["flow"])
+	}
+	if result.Error.Details["stepIndex"] != 1 {
+		t.Fatalf("error details stepIndex = %#v, want 1", result.Error.Details["stepIndex"])
+	}
+	if result.Error.Details["stepType"] != "claude" {
+		t.Fatalf("error details stepType = %#v, want claude", result.Error.Details["stepType"])
+	}
+	if result.Error.Details["expressionIndex"] != 1 {
+		t.Fatalf("error details expressionIndex = %#v, want 1", result.Error.Details["expressionIndex"])
+	}
+	if !strings.Contains(result.Error.Details["cause"].(string), "unknown binary op: string + object") {
+		t.Fatalf("error details cause = %#v", result.Error.Details["cause"])
+	}
+}
+
 func TestExecutorPersistsProviderAdjustedPrompt(t *testing.T) {
 	t.Parallel()
 
