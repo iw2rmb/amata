@@ -440,6 +440,130 @@ func TestProviderPreservesPartialOutputOnError(t *testing.T) {
 	testutil.AssertFileContents(t, stderrPath, "error detail\n")
 }
 
+func TestResolveRunOutcome(t *testing.T) {
+	t.Parallel()
+
+	errStdoutClosed := errors.New("read |0: file already closed")
+	errStderrClosed := errors.New("read |0: file already closed")
+	errWait := errors.New("signal: killed")
+
+	testCases := []struct {
+		name       string
+		setup      func(t *testing.T) (context.Context, context.Context)
+		spec       command
+		result     commandResult
+		stdoutErr  error
+		stderrErr  error
+		waitErr    error
+		wantErr    error
+		wantResult commandResult
+	}{
+		{
+			name: "internal cancel with structured output ignores pipe errors",
+			setup: func(t *testing.T) (context.Context, context.Context) {
+				t.Helper()
+
+				ctx := context.Background()
+				runCtx, cancel := context.WithCancel(ctx)
+				cancel()
+				return ctx, runCtx
+			},
+			spec: command{
+				stopOnStructuredOutput: true,
+			},
+			result: commandResult{
+				hasStructuredOutput: true,
+				structuredOutput:    map[string]any{"approved": true},
+			},
+			stdoutErr: errStdoutClosed,
+			stderrErr: errStderrClosed,
+			waitErr:   errWait,
+			wantErr:   nil,
+			wantResult: commandResult{
+				hasStructuredOutput: true,
+				structuredOutput:    map[string]any{"approved": true},
+			},
+		},
+		{
+			name: "caller cancel does not convert pipe error to success",
+			setup: func(t *testing.T) (context.Context, context.Context) {
+				t.Helper()
+
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				runCtx, runCancel := context.WithCancel(ctx)
+				runCancel()
+				return ctx, runCtx
+			},
+			spec: command{
+				stopOnStructuredOutput: true,
+			},
+			result: commandResult{
+				hasStructuredOutput: true,
+			},
+			stdoutErr: errStdoutClosed,
+			wantErr:   errStdoutClosed,
+		},
+		{
+			name: "missing structured output keeps stdout error path",
+			setup: func(t *testing.T) (context.Context, context.Context) {
+				t.Helper()
+
+				ctx := context.Background()
+				runCtx, cancel := context.WithCancel(ctx)
+				cancel()
+				return ctx, runCtx
+			},
+			spec: command{
+				stopOnStructuredOutput: true,
+			},
+			result: commandResult{
+				hasStructuredOutput: false,
+			},
+			stdoutErr: errStdoutClosed,
+			wantErr:   errStdoutClosed,
+		},
+		{
+			name: "non-cancel path preserves stderr over wait precedence",
+			setup: func(t *testing.T) (context.Context, context.Context) {
+				t.Helper()
+
+				ctx := context.Background()
+				runCtx := context.Background()
+				return ctx, runCtx
+			},
+			spec: command{
+				stopOnStructuredOutput: false,
+			},
+			result: commandResult{
+				stdout: []byte("ok"),
+			},
+			stderrErr: errStderrClosed,
+			waitErr:   errWait,
+			wantErr:   errStderrClosed,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx, runCtx := tc.setup(t)
+			gotResult, gotErr := resolveRunOutcome(ctx, runCtx, tc.spec, tc.result, tc.stdoutErr, tc.stderrErr, tc.waitErr)
+			if !errors.Is(gotErr, tc.wantErr) {
+				t.Fatalf("error = %v, want %v", gotErr, tc.wantErr)
+			}
+			if gotResult.hasStructuredOutput != tc.wantResult.hasStructuredOutput {
+				t.Fatalf("hasStructuredOutput = %v, want %v", gotResult.hasStructuredOutput, tc.wantResult.hasStructuredOutput)
+			}
+			if tc.wantResult.structuredOutput != nil && gotResult.structuredOutput == nil {
+				t.Fatalf("structuredOutput = nil, want non-nil")
+			}
+		})
+	}
+}
+
 type fakeRunner func(context.Context, command) (commandResult, error)
 
 func (f fakeRunner) Run(ctx context.Context, spec command) (commandResult, error) {

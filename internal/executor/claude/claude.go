@@ -263,18 +263,33 @@ func (execRunner) Run(ctx context.Context, spec command) (commandResult, error) 
 	stdoutOutcomeResult := <-stdoutCh
 	stderrErr := <-stderrCh
 
-	if stdoutOutcomeResult.err != nil {
-		return commandResult{}, stdoutOutcomeResult.err
+	result := stdoutOutcomeResult.result
+	return resolveRunOutcome(ctx, runCtx, spec, result, stdoutOutcomeResult.err, stderrErr, waitErr)
+}
+
+func resolveRunOutcome(
+	ctx context.Context,
+	runCtx context.Context,
+	spec command,
+	result commandResult,
+	stdoutErr error,
+	stderrErr error,
+	waitErr error,
+) (commandResult, error) {
+	if spec.stopOnStructuredOutput &&
+		result.hasStructuredOutput &&
+		errors.Is(runCtx.Err(), context.Canceled) &&
+		ctx.Err() == nil {
+		return result, nil
+	}
+
+	if stdoutErr != nil {
+		return commandResult{}, stdoutErr
 	}
 	if stderrErr != nil {
 		return commandResult{}, stderrErr
 	}
-
-	result := stdoutOutcomeResult.result
 	if waitErr != nil {
-		if spec.stopOnStructuredOutput && result.hasStructuredOutput && errors.Is(runCtx.Err(), context.Canceled) {
-			return result, nil
-		}
 		return result, waitErr
 	}
 	return result, nil
