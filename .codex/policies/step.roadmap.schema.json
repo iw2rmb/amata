@@ -7,7 +7,7 @@
     "done": {
       "type": "boolean",
       "default": false,
-      "$comment": "Do **NOT** edit. Is set `true` automatically after no new gaps identified on review."
+      "$comment": "Do **NOT** edit it manually. It will be `true` automatically if no new gaps identified on review."
     },
     "reasoning": {
       "type": "string",
@@ -20,7 +20,7 @@
       "additionalProperties": false,
       "required": [
         "done",
-        "gaps",
+        "reviews",
         "label",
         "summary",
         "classification",
@@ -37,8 +37,8 @@
         "done": {
           "$ref": "#/$defs/done"
         },
-        "gaps": {
-          "$ref": "./common.roadmap.schema.json#/$defs/gaps"
+        "reviews": {
+          "$ref": "./common.roadmap.schema.json#/$defs/reviews"
         },
         "label": {
           "type": "string",
@@ -140,7 +140,7 @@
           "then": {
             "required": ["commit"],
             "properties": {
-              "gaps": {
+              "reviews": {
                 "not": {
                   "contains": {
                     "type": "object",

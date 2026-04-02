@@ -11,7 +11,7 @@
     "scope",
     "documentation",
     "done",
-    "gaps",
+    "reviews",
     "items",
     "policy",
     "schema"
@@ -57,8 +57,8 @@
     "done": {
       "$ref": "./step.roadmap.schema.json#/$defs/done"
     },
-    "gaps": {
-      "$ref": "./common.roadmap.schema.json#/$defs/gaps"
+    "reviews": {
+      "$ref": "./common.roadmap.schema.json#/$defs/reviews"
     },
     "items": {
       "$comment": "Sequential serie of implementation steps to achieve scope of the roadmap. Must represent smallest independently shippable and verifiable units possible.",
@@ -92,7 +92,7 @@
               }
             }
           },
-          "gaps": {
+          "reviews": {
             "not": {
               "contains": {
                 "type": "object",

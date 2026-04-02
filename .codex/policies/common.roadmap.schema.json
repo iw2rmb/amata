@@ -10,26 +10,32 @@
       "minLength": 7,
       "$comment": "Commit SHA{0:7}"
     },
-    "gap": {
+    "reviews": {
+      "type": "array",
+      "$comment": "Reviews results",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/review"
+      }
+    },
+    "review": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["description"],
+      "$comment": "",
       "properties": {
-        "description": {
-          "type": "string",
-          "$comment": "Gap to address: what and where to fix. Use precise, clean, short phrasing. Use relative path format for references within workspace."
+        "gaps": {
+          "type": "array",
+          "$comment": "Gaps that were found on review",
+          "default": [],
+          "minLength": 1,
+          "items": {
+            "type": "string",
+            "$comment": "Gap to address: what and where to fix. Use precise, clean, short phrasing. Use relative path format for references within workspace."
+          }
         },
         "commit": {
           "$ref": "#/$defs/commit"
         }
-      }
-    },
-    "gaps": {
-      "type": "array",
-      "$comment": "Gaps that were found on reviews",
-      "default": [],
-      "items": {
-        "$ref": "#/$defs/gap"
       }
     }
   }
