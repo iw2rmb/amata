@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "roadmap.schema.json",
   "title": "Roadmap",
-  "description": "Schema to compose roadmap",
+  "description": "Schema to compose a roadmap. Call `yamllint <roadmap-yaml-file>` for a sanity check.",
   "$comment": "Before composing, inspect corresponding codebase and docs. Apply [COSMIC](.codex/policies/estimating-effort.md) for decomposition granularity at the functional-process level. Use it to size and split work; do not copy COSMIC theory text into the subject roadmap. Keep wording plain, precise, short, and direct.",
   "type": "object",
   "additionalProperties": false,
@@ -82,6 +82,7 @@
       "then": {
         "properties": {
           "items": {
+            "type": "array",
             "items": {
               "type": "object",
               "required": ["done"],
@@ -93,6 +94,7 @@
             }
           },
           "reviews": {
+            "type": "array",
             "not": {
               "contains": {
                 "type": "object",
