@@ -10,7 +10,11 @@ Read and follow policies that correspond to the nature of the current task:
 - **Developing TUI**: `~/.codex/policies/developing-tui.md`
 - **Deciding on Architecture**: `~/.codex/policies/deciding-on-architecture.md`
 
-Both in designing DD/roadmaps, and in development, **NO** backward compatibility is required, unless it explicitly stated by user.
+
+## Baseline
+- Both in designing DD/roadmaps, and in development, **NO** backward compatibility is required, unless it explicitly stated by user.
+- Never add legacy-shape rejection guards or tests that enumerate previous contract states.
+- Contract acceptance must be defined by the current schema/contract only. If strict key rejection is needed, express it in the schema (for example `additionalProperties: false`), not via ad hoc legacy-specific validation code.
 
 
 ## Documentation Folders Structure
@@ -20,10 +24,3 @@ In every project, follow convetion:
 - `research/` — research docs (what are options and how cool feature can possibly be).
 - `roadmap/` — decomposed plans/implementation notes (in what order what to implement).
 - `docs/` — actual state docs (how it works right now).
-
-
-## contents.md
-
-Files `contents.md` in any folder contain meanignful one-liner summaries for every first-level git tracked entity in those folders.
-Read `contents.md` in a folder to have high-level understanding of the folder contents without need of reading every file in that folder.
-When performing broad search over project, run `git grep -i "{pattern}" -- "**/contents.md"` first, and use findings to narrow search over files contents.

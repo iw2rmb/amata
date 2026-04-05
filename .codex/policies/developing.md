@@ -23,8 +23,9 @@
 - Maintain one canonical test per behavior path.
 - Avoid duplicate tests that do not add new assertions.
 - Group tests by behavior domain (e.g., validation, orchestration).
-- In negative tests:
-  - Assert both failure result and absence of side effects.
+- Do not add legacy-specific negative validation tests that exist only to reject previous contract shapes.
+- Do not add legacy-specific rejection guards in runtime validation code.
+- Validate only against the current contract/schema. If strict rejection of unknown keys is required, encode it in schema, not in ad hoc code branches for old formats.
 - Use descriptive names encoding behavior and expected outcome.
 
 

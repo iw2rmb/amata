@@ -59,7 +59,7 @@
         "components": {
           "type": "array",
           "minItems": 1,
-          "$comment": "Closed, exhaustive file list for this item only: relative file paths only (no globs/directories). This list defines the edit boundary and must be disjoint across items (a file may appear in only one item). No docs here.",
+          "$comment": "Closed, exhaustive file list for this item only: relative file paths only (no globs/directories). This list defines the edit boundary and must be disjoint across items (a file may appear in only one item).",
           "uniqueItems": true,
           "items": {
             "type": "string",
