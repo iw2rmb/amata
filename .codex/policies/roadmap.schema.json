@@ -3,7 +3,7 @@
   "$id": "roadmap.schema.json",
   "title": "Roadmap",
   "description": "Schema to compose a roadmap. Call `yamllint <roadmap-yaml-file>` for a sanity check.",
-  "$comment": "Before composing, inspect corresponding codebase and docs. Apply [COSMIC](.codex/policies/estimating-effort.md) for decomposition granularity at the functional-process level. Use it to size and split work; do not copy COSMIC theory text into the subject roadmap. Keep wording plain, precise, short, and direct.",
+  "$comment": "Before composing, inspect corresponding codebase and docs. Apply [COSMIC](.codex/policies/estimating-effort.md) for decomposition granularity at the functional-process level. Use it to size and split work; do not copy COSMIC theory text into the subject roadmap. Keep wording plain, precise, short, and direct. Enclose strings in double quotes if they contain `:`",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -19,12 +19,12 @@
   "properties": {
     "policy": {
       "type": "string",
-      "default": ".codex/policies/composing-roadmaps.md",
+      "default": "~/.codex/policies/composing-roadmaps.md",
       "$comment": "Composing Roadmaps Policy. Do not change."
     },
     "schema": {
       "type": "string",
-      "default": ".codex/policies/roadmap.schema.json",
+      "default": "~/.codex/policies/roadmap.schema.json",
       "$comment": "Roadmap JSON schema"
     },
     "title": {
