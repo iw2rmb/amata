@@ -20,6 +20,13 @@ import (
 
 type CLIOption func(*cliOptions)
 
+type outputMode string
+
+const (
+	outputModeAuto  outputMode = "auto"
+	outputModeJSONL outputMode = "jsonl"
+)
+
 type cliOptions struct {
 	progressSink              progress.Sink
 	progressControllerFactory progressControllerFactory
@@ -91,6 +98,7 @@ func newRunCommand(stderr io.Writer, options cliOptions) *cobra.Command {
 	workspaceOverride := "."
 	var runID string
 	var rawOverrides []string
+	var out string
 
 	command := &cobra.Command{
 		Use:                "run <spec.yaml>",
@@ -109,7 +117,17 @@ func newRunCommand(stderr io.Writer, options cliOptions) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			sink, closeProgress, err := options.resolveProgress(stderr)
+			output, err := parseOutputMode(out)
+			if err != nil {
+				return err
+			}
+			progressWriter := stderr
+			runIDWriter := cmd.OutOrStdout()
+			if output == outputModeJSONL {
+				progressWriter = cmd.OutOrStdout()
+				runIDWriter = nil
+			}
+			sink, closeProgress, err := options.resolveProgress(progressWriter, output)
 			if err != nil {
 				return err
 			}
@@ -126,7 +144,7 @@ func newRunCommand(stderr io.Writer, options cliOptions) *cobra.Command {
 					ParamOverrides:    paramOverrides,
 					RunID:             runID,
 				},
-				cmd.OutOrStdout(),
+				runIDWriter,
 				sink,
 			)
 		},
@@ -134,12 +152,14 @@ func newRunCommand(stderr io.Writer, options cliOptions) *cobra.Command {
 
 	command.Flags().StringVar(&workspaceOverride, "workspace", ".", "Workspace root")
 	command.Flags().StringVar(&runID, "run-id", "", "Explicit run id")
+	command.Flags().StringVar(&out, "out", string(outputModeAuto), "Progress output mode: auto|jsonl")
 	command.Flags().StringArrayVar(&rawOverrides, "set", nil, "Override declared params with key=value")
 	command.SetFlagErrorFunc(flagErrorFunc)
 	return command
 }
 
 func newResumeCommand(stderr io.Writer, options cliOptions) *cobra.Command {
+	var out string
 	command := &cobra.Command{
 		Use:           "resume <run-id>",
 		Short:         "Resume a stored run",
@@ -152,7 +172,17 @@ func newResumeCommand(stderr io.Writer, options cliOptions) *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) (runErr error) {
-			sink, closeProgress, err := options.resolveProgress(stderr)
+			output, err := parseOutputMode(out)
+			if err != nil {
+				return err
+			}
+			progressWriter := stderr
+			runIDWriter := cmd.OutOrStdout()
+			if output == outputModeJSONL {
+				progressWriter = cmd.OutOrStdout()
+				runIDWriter = nil
+			}
+			sink, closeProgress, err := options.resolveProgress(progressWriter, output)
 			if err != nil {
 				return err
 			}
@@ -161,10 +191,11 @@ func newResumeCommand(stderr io.Writer, options cliOptions) *cobra.Command {
 					runErr = closeErr
 				}
 			}()
-			return resumeCommand(cmd.Context(), args[0], cmd.OutOrStdout(), sink)
+			return resumeCommand(cmd.Context(), args[0], runIDWriter, sink)
 		},
 	}
 
+	command.Flags().StringVar(&out, "out", string(outputModeAuto), "Progress output mode: auto|jsonl")
 	command.SetFlagErrorFunc(flagErrorFunc)
 	return command
 }
@@ -223,6 +254,17 @@ func isUnknownCommandError(err error) bool {
 	return strings.HasPrefix(err.Error(), "unknown command ")
 }
 
+func parseOutputMode(raw string) (outputMode, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", string(outputModeAuto):
+		return outputModeAuto, nil
+	case string(outputModeJSONL):
+		return outputModeJSONL, nil
+	default:
+		return "", fmt.Errorf("--out must be one of: auto, jsonl")
+	}
+}
+
 func buildParamOverrides(rawOverrides []string) (map[string]any, error) {
 	paramOverrides := map[string]any{}
 	for _, rawOverride := range rawOverrides {
@@ -235,16 +277,19 @@ func buildParamOverrides(rawOverrides []string) (map[string]any, error) {
 	return paramOverrides, nil
 }
 
-func (options cliOptions) resolveProgress(stderr io.Writer) (progress.Sink, io.Closer, error) {
+func (options cliOptions) resolveProgress(progressWriter io.Writer, output outputMode) (progress.Sink, io.Closer, error) {
 	if options.progressSink != nil {
 		return options.progressSink, noopCloser{}, nil
+	}
+	if output == outputModeJSONL {
+		return progress.NewJSONLController(progressWriter), noopCloser{}, nil
 	}
 
 	factory := options.progressControllerFactory
 	if factory == nil {
 		factory = newProgressController
 	}
-	return factory(stderr)
+	return factory(progressWriter)
 }
 
 func newProgressController(stderr io.Writer) (progress.Sink, io.Closer, error) {
@@ -383,8 +428,8 @@ func usageError() error {
 func usageText() string {
 	return strings.TrimSpace(`
 usage:
-  amata run <spec.yaml> [--workspace <dir>] [--set key=value ...] [--run-id <id>]
-  amata resume <run-id>
+  amata run <spec.yaml> [--workspace <dir>] [--set key=value ...] [--run-id <id>] [--out <auto|jsonl>]
+  amata resume <run-id> [--out <auto|jsonl>]
   amata validate <spec.yaml>
 `)
 }

@@ -7,8 +7,8 @@ This document describes the shipped `amata` engine behavior in this repository.
 `amata` is a local CLI runner with two commands:
 
 ```text
-amata run <spec.yaml> [--workspace <dir>] [--set key=value ...] [--run-id <id>]
-amata resume <run-id>
+amata run <spec.yaml> [--workspace <dir>] [--set key=value ...] [--run-id <id>] [--out <auto|jsonl>]
+amata resume <run-id> [--out <auto|jsonl>]
 amata validate <spec.yaml>
 ```
 
@@ -186,8 +186,11 @@ Stream contract:
 - Nested `switch`, `call`, and `for_each` execution is represented as stacked active steps in event snapshots. Child finishes arrive before the enclosing control step finish.
 
 CLI stream split:
-- `stdout` stays machine-readable and prints only the run id for both `run` and `resume`.
-- Live progress rendering writes to `stderr`.
+- `--out auto` keeps `stdout` machine-readable and prints only the run id for both `run` and `resume`.
+- `--out auto` writes live progress rendering to `stderr`.
+- `--out auto` (default) keeps renderer-based `stderr` output (TTY Bubble Tea, non-TTY plain text).
+- `--out jsonl` writes newline-delimited JSON `progress.Event` objects to `stdout` in emission order.
+- `--out jsonl` leaves `stderr` for command errors only.
 - The default CLI renderer uses Bubble Tea only when `stderr` is a TTY. Non-TTY `stderr` falls back to a plain line renderer with the same event order and descriptor data.
 - Both renderers suppress nested control-step scaffolding in the user-facing output. Recursive `call`/`switch`/`for_each` frames nested under another control step are omitted from rendered history, and nested descriptor-less `expr` steps are omitted alongside them.
 - For completed `git.commit` steps, the default renderer places `<shortCommit> <message>` on the headline and renders `+<ins> -<del> files: <n>` as the first detail line before per-file stats.
@@ -314,7 +317,7 @@ Behavior:
 - Inline Codex schemas are expanded into a provider-safe object schema artifact before `codex exec --output-schema`.
 - File-backed Codex schemas are normalized into a step-local provider schema artifact before `codex exec --output-schema`.
 - Raw provider stdout, stderr, the rendered prompt, the final transcript, and provider metadata persist as step artifacts.
-- Prompt artifact files are stored as `prompt.md`.
+- Prompt artifact files are stored under the `prompt` artifact name (markdown content).
 - `stdout.txt` and `stderr.txt` are streamed to disk during execution so they are readable before the step completes.
 - Without `response.schema`, the step `value` is the raw final transcript text.
 

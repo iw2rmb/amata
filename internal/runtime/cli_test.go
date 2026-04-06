@@ -2,6 +2,7 @@ package runtime_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -256,6 +257,87 @@ flows:
 	}
 	if len(events) == 0 {
 		t.Fatalf("events = %d, want progress callbacks", len(events))
+	}
+}
+
+func TestRunCLIOutJSONLWritesProgressEventsToStdout(t *testing.T) {
+	specDir := t.TempDir()
+	chdirForTest(t, specDir)
+	specPath := filepath.Join(specDir, "workflow.yaml")
+	specBody := `
+version: amata/v1
+name: sample
+entry: main
+flows:
+  main:
+    steps:
+      - id: step-1
+        expr: 1
+`
+	if err := os.WriteFile(specPath, []byte(specBody), 0o644); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if err := runtime.RunCLI(
+		[]string{"run", specPath, "--run-id", "run-jsonl", "--out", "jsonl"},
+		&stdout,
+		&stderr,
+	); err != nil {
+		t.Fatalf("run cli: %v", err)
+	}
+
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty for --out jsonl success path", stderr.String())
+	}
+
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	if len(lines) != 4 {
+		t.Fatalf("jsonl line count = %d, want 4", len(lines))
+	}
+
+	kinds := make([]progress.EventKind, 0, len(lines))
+	for _, line := range lines {
+		var event progress.Event
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			t.Fatalf("decode jsonl event %q: %v", line, err)
+		}
+		kinds = append(kinds, event.Kind)
+	}
+
+	wantKinds := []progress.EventKind{
+		progress.EventRunStarted,
+		progress.EventStepStarted,
+		progress.EventStepFinished,
+		progress.EventRunFinished,
+	}
+	if fmt.Sprintf("%v", kinds) != fmt.Sprintf("%v", wantKinds) {
+		t.Fatalf("event kinds = %v, want %v", kinds, wantKinds)
+	}
+}
+
+func TestRunCLIOutRejectsUnknownMode(t *testing.T) {
+	specDir := t.TempDir()
+	chdirForTest(t, specDir)
+	specPath := filepath.Join(specDir, "workflow.yaml")
+	specBody := `
+version: amata/v1
+name: sample
+entry: main
+flows:
+  main: {}
+`
+	if err := os.WriteFile(specPath, []byte(specBody), 0o644); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+
+	err := runtime.RunCLI([]string{"run", specPath, "--out", "bogus"}, nil, nil)
+	if err == nil {
+		t.Fatalf("run cli succeeded, want invalid --out error")
+	}
+	if !strings.Contains(err.Error(), "--out must be one of: auto, jsonl") {
+		t.Fatalf("run cli error = %q, want invalid --out message", err)
 	}
 }
 
