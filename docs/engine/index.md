@@ -183,6 +183,7 @@ Stream contract:
 - `run` emits `run_started`, then paired `step_started` and `step_finished` events for each executed control or executor step, then one terminal `run_finished`.
 - `resume` emits `run_resumed` instead of `run_started`, seeds `snapshot.active` with unfinished parent control steps reconstructed from durable frames, then continues with normal `step_finished`, `step_started`, and terminal `run_finished` events.
 - Every live event carries a full `snapshot` with `run_id`, current run `status`, `active` steps, completed `steps`, and terminal `failure` when present.
+- Failed `codex` and `claude` steps may include `step.error.details.provider_error` with normalized provider fields (`message`, `type`, `param`, `code`).
 - Nested `switch`, `call`, and `for_each` execution is represented as stacked active steps in event snapshots. Child finishes arrive before the enclosing control step finish.
 
 CLI stream split:
@@ -317,6 +318,7 @@ Behavior:
 - Inline Codex schemas are expanded into a provider-safe object schema artifact before `codex exec --output-schema`.
 - File-backed Codex schemas are normalized into a step-local provider schema artifact before `codex exec --output-schema`.
 - Raw provider stdout, stderr, the rendered prompt, the final transcript, and provider metadata persist as step artifacts.
+- Provider `type:error` stdout envelopes are normalized into `stderr` JSONL lines as `{"type":"error","error":{"message","type","param","code"}}`.
 - Prompt artifact files are stored under the `prompt` artifact name (markdown content).
 - `stdout.txt` and `stderr.txt` are streamed to disk during execution so they are readable before the step completes.
 - Without `response.schema`, the step `value` is the raw final transcript text.
@@ -339,6 +341,7 @@ Behavior:
 - Claude step execution always requests structured output. When `response.schema` is provided it is passed through as `--json-schema`; otherwise the executor injects a default schema:
   - `{"type":"object","additionalProperties":false,"required":["summary"],"properties":{"summary":{"type":"string","$comment":"One-liner summary"}}}`
 - Raw provider stdout, stderr, the rendered prompt, the final transcript, and provider metadata persist as step artifacts.
+- Provider `type:error` stdout envelopes are normalized into `stderr` JSONL lines as `{"type":"error","error":{"message","type","param","code"}}`.
 - `stdout.txt` and `stderr.txt` are streamed to disk during execution so they are readable before the step completes.
 - The step `value` is always resolved from structured output (`response.from` still controls downstream response resolution when explicitly set).
 

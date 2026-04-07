@@ -2,6 +2,7 @@ package claude
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -438,6 +439,87 @@ func TestProviderPreservesPartialOutputOnError(t *testing.T) {
 
 	testutil.AssertFileContents(t, stdoutPath, "partial output\n")
 	testutil.AssertFileContents(t, stderrPath, "error detail\n")
+}
+
+func TestProviderNormalizesProviderErrorIntoStderrAndDetails(t *testing.T) {
+	t.Parallel()
+
+	artifactDir := t.TempDir()
+	stdoutPath := filepath.Join(artifactDir, "stdout.txt")
+	stderrPath := filepath.Join(artifactDir, "stderr.txt")
+	stdoutFile, err := os.Create(stdoutPath)
+	if err != nil {
+		t.Fatalf("create stdout file: %v", err)
+	}
+	defer stdoutFile.Close()
+	stderrFile, err := os.Create(stderrPath)
+	if err != nil {
+		t.Fatalf("create stderr file: %v", err)
+	}
+	defer stderrFile.Close()
+
+	rawLine := `{"type":"error","message":"{\"error\":{\"message\":\"The encrypted content could not be verified.\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":\"invalid_encrypted_content\"}}"}`
+	prov := provider{
+		runner: fakeRunner(func(_ context.Context, spec command) (commandResult, error) {
+			if _, err := spec.stdoutWriter.Write([]byte(rawLine + "\n")); err != nil {
+				return commandResult{}, err
+			}
+			return commandResult{stdout: []byte(rawLine + "\n")}, errors.New("exit status 1")
+		}),
+		structuredOutputSupported: true,
+	}
+
+	_, execErr := prov.Execute(context.Background(), agent.Request{
+		Prompt:       "test",
+		Model:        "sonnet",
+		CWD:          "/repo",
+		StdoutWriter: stdoutFile,
+		StderrWriter: stderrFile,
+	})
+	if execErr == nil {
+		t.Fatalf("expected execute error")
+	}
+	if execErr.Code != "agent_failed" {
+		t.Fatalf("error code = %q, want agent_failed", execErr.Code)
+	}
+
+	providerError, ok := execErr.Details["provider_error"].(map[string]any)
+	if !ok {
+		t.Fatalf("provider_error = %#v, want map", execErr.Details["provider_error"])
+	}
+	if got := providerError["message"]; got != "The encrypted content could not be verified." {
+		t.Fatalf("provider_error.message = %#v", got)
+	}
+	if got := providerError["type"]; got != "invalid_request_error" {
+		t.Fatalf("provider_error.type = %#v", got)
+	}
+	if got := providerError["code"]; got != "invalid_encrypted_content" {
+		t.Fatalf("provider_error.code = %#v", got)
+	}
+
+	testutil.AssertFileContents(t, stdoutPath, rawLine+"\n")
+
+	stderrData, readErr := os.ReadFile(stderrPath)
+	if readErr != nil {
+		t.Fatalf("read stderr: %v", readErr)
+	}
+	var event map[string]any
+	if err := json.Unmarshal(stderrData, &event); err != nil {
+		t.Fatalf("decode normalized stderr event: %v", err)
+	}
+	if got, _ := event["type"].(string); got != "error" {
+		t.Fatalf("stderr type = %q, want error", got)
+	}
+	if _, hasMessage := event["message"]; hasMessage {
+		t.Fatalf("stderr event should not include raw message field: %#v", event)
+	}
+	errorPayload, ok := event["error"].(map[string]any)
+	if !ok {
+		t.Fatalf("stderr error payload = %#v, want map", event["error"])
+	}
+	if got := errorPayload["code"]; got != "invalid_encrypted_content" {
+		t.Fatalf("stderr error.code = %#v", got)
+	}
 }
 
 func TestResolveRunOutcome(t *testing.T) {

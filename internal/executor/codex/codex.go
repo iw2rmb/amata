@@ -37,6 +37,7 @@ func (provider) Name() string {
 
 func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Response, *agent.Error) {
 	outputPath := filepath.Join(request.ArtifactDir, "last-message.txt")
+	stdoutObserver := agent.NewProviderErrorObserver(request.StdoutWriter, request.StderrWriter)
 
 	args := []string{
 		"exec",
@@ -54,7 +55,11 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 	}
 	args = append(args, "-o", outputPath, "-")
 
-	runErr := p.run(ctx, args, request.CWD, agent.CommandEnv(request.Env), []byte(request.Prompt), request.StdoutWriter, request.StderrWriter)
+	runErr := p.run(ctx, args, request.CWD, agent.CommandEnv(request.Env), []byte(request.Prompt), stdoutObserver, request.StderrWriter)
+	if closeErr := stdoutObserver.Close(); runErr == nil && closeErr != nil {
+		runErr = closeErr
+	}
+	providerError := stdoutObserver.ProviderErrorDetails()
 
 	transcript, readErr := os.ReadFile(outputPath)
 
@@ -70,25 +75,25 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 	}
 
 	if runErr != nil {
-		return response, &agent.Error{
+		return response, attachProviderError(&agent.Error{
 			Code:    "agent_failed",
 			Message: fmt.Sprintf("codex exec failed: %v", runErr),
-		}
+		}, providerError)
 	}
 
 	if readErr != nil {
 		if os.IsNotExist(readErr) {
-			return invalidProviderOutput(response, "codex did not produce a final message")
+			return invalidProviderOutput(response, "codex did not produce a final message", providerError)
 		}
-		return invalidProviderOutput(response, fmt.Sprintf("read last message: %v", readErr))
+		return invalidProviderOutput(response, fmt.Sprintf("read last message: %v", readErr), providerError)
 	}
 	if len(transcript) == 0 {
-		return invalidProviderOutput(response, "codex did not produce a final message")
+		return invalidProviderOutput(response, "codex did not produce a final message", providerError)
 	}
 	if request.Structured != nil {
 		value, err := agent.ParseStructuredOutput(transcript)
 		if err != nil {
-			return invalidProviderOutput(response, fmt.Sprintf("codex output is invalid: %v", err))
+			return invalidProviderOutput(response, fmt.Sprintf("codex output is invalid: %v", err), providerError)
 		}
 		response.Value = value
 		response.HasValue = true
@@ -107,9 +112,22 @@ func execRun(ctx context.Context, args []string, dir string, env []string, stdin
 	return cmd.Run()
 }
 
-func invalidProviderOutput(response agent.Response, message string) (agent.Response, *agent.Error) {
-	return response, &agent.Error{
+func invalidProviderOutput(response agent.Response, message string, providerError map[string]any) (agent.Response, *agent.Error) {
+	return response, attachProviderError(&agent.Error{
 		Code:    "invalid_provider_output",
 		Message: message,
+	}, providerError)
+}
+
+func attachProviderError(err *agent.Error, providerError map[string]any) *agent.Error {
+	if err == nil || len(providerError) == 0 {
+		return err
 	}
+	details := map[string]any{}
+	for key, value := range err.Details {
+		details[key] = value
+	}
+	details["provider_error"] = providerError
+	err.Details = details
+	return err
 }

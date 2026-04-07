@@ -697,6 +697,50 @@ func TestExecutorNormalizesErrorCodes(t *testing.T) {
 	}
 }
 
+func TestExecutorPreservesProviderErrorDetailsWhenNormalizingCrashCode(t *testing.T) {
+	t.Parallel()
+
+	step := spec.Step{
+		ID:   "error-norm",
+		Type: "claude",
+		Fields: map[string]any{
+			"prompt": "do something",
+		},
+	}
+	sc := newStepContext(t, step, withDocument(documentWithProviderDefaults("claude", "sonnet")))
+
+	provider := &fakeProvider{
+		name: "claude",
+		execute: func(_ context.Context, _ agent.Request) (agent.Response, *agent.Error) {
+			return agent.Response{}, &agent.Error{
+				Code:    "agent_failed",
+				Message: "provider error",
+				Details: map[string]any{
+					"provider_error": map[string]any{
+						"message": "The encrypted content could not be verified.",
+						"type":    "invalid_request_error",
+						"param":   nil,
+						"code":    "invalid_encrypted_content",
+					},
+				},
+			}
+		},
+	}
+
+	result := agent.New(provider).Execute(context.Background(), sc)
+	assertFailedWithCode(t, result, "provider_crashed")
+	if result.Error == nil {
+		t.Fatalf("result error = nil")
+	}
+	providerError, ok := result.Error.Details["provider_error"].(map[string]any)
+	if !ok {
+		t.Fatalf("provider_error = %#v, want map", result.Error.Details["provider_error"])
+	}
+	if got := providerError["code"]; got != "invalid_encrypted_content" {
+		t.Fatalf("provider_error.code = %#v", got)
+	}
+}
+
 func TestExecutorResolvesDefaultsAndPersistsArtifactsForCrush(t *testing.T) {
 	t.Parallel()
 

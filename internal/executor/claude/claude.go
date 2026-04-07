@@ -33,6 +33,7 @@ type commandResult struct {
 	sessionID           string
 	structuredOutput    any
 	hasStructuredOutput bool
+	providerError       map[string]any
 }
 
 type provider struct {
@@ -81,15 +82,21 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 	}
 
 	runCommand := func(runArgs []string, runPrompt string) (commandResult, error) {
-		return p.runner.Run(ctx, command{
+		stdoutObserver := agent.NewProviderErrorObserver(request.StdoutWriter, request.StderrWriter)
+		result, runErr := p.runner.Run(ctx, command{
 			args:                   append([]string(nil), runArgs...),
 			dir:                    request.CWD,
 			env:                    agent.CommandEnv(request.Env),
 			stdin:                  []byte(runPrompt),
-			stdoutWriter:           request.StdoutWriter,
+			stdoutWriter:           stdoutObserver,
 			stderrWriter:           request.StderrWriter,
 			stopOnStructuredOutput: structuredOutputMode == "provider_schema",
 		})
+		if closeErr := stdoutObserver.Close(); runErr == nil && closeErr != nil {
+			runErr = closeErr
+		}
+		result.providerError = stdoutObserver.ProviderErrorDetails()
+		return result, runErr
 	}
 
 	result, runErr := runCommand(args, prompt)
@@ -105,10 +112,10 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 	}
 
 	if runErr != nil {
-		return response, &agent.Error{
+		return response, attachProviderError(&agent.Error{
 			Code:    "agent_failed",
 			Message: fmt.Sprintf("claude -p failed: %v", runErr),
-		}
+		}, result.providerError)
 	}
 
 	if structuredOutputMode == "provider_schema" {
@@ -144,16 +151,16 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 		response.Metadata["command"] = executor.CommandWithBinary("claude", args)
 		response.Metadata["structuredOutputAttempts"] = attempts
 		if freshErr != nil {
-			return response, &agent.Error{
+			return response, attachProviderError(&agent.Error{
 				Code:    "agent_failed",
 				Message: fmt.Sprintf("claude -p failed: %v", freshErr),
-			}
+			}, freshResult.providerError)
 		}
 		if !freshResult.hasStructuredOutput {
-			return response, &agent.Error{
+			return response, attachProviderError(&agent.Error{
 				Code:    "invalid_provider_output",
 				Message: "claude output is invalid: provider schema response envelope is missing structured_output",
-			}
+			}, freshResult.providerError)
 		}
 
 		response.Value = freshResult.structuredOutput
@@ -164,16 +171,29 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 	if structuredOutputMode == "prompt_fallback" {
 		value, err := agent.ParseStructuredOutput(result.stdout)
 		if err != nil {
-			return response, &agent.Error{
+			return response, attachProviderError(&agent.Error{
 				Code:    "invalid_provider_output",
 				Message: fmt.Sprintf("claude output is invalid: %v", err),
-			}
+			}, result.providerError)
 		}
 		response.Value = value
 		response.HasValue = true
 	}
 
 	return response, nil
+}
+
+func attachProviderError(err *agent.Error, providerError map[string]any) *agent.Error {
+	if err == nil || len(providerError) == 0 {
+		return err
+	}
+	details := map[string]any{}
+	for key, value := range err.Details {
+		details[key] = value
+	}
+	details["provider_error"] = providerError
+	err.Details = details
+	return err
 }
 
 func (execRunner) Run(ctx context.Context, spec command) (commandResult, error) {

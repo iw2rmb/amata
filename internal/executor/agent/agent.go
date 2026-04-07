@@ -112,7 +112,11 @@ func (e *Executor) Execute(ctx context.Context, stepCtx executor.StepContext) st
 	// process termination; callers must not depend on that provider-internal
 	// code leaking through.
 	if execErr != nil && execErr.Code == "agent_failed" {
-		execErr = &Error{Code: "provider_crashed", Message: execErr.Message}
+		execErr = &Error{
+			Code:    "provider_crashed",
+			Message: execErr.Message,
+			Details: jsonutil.CloneMap(execErr.Details),
+		}
 	}
 
 	writeErr := capture.Write(response.Stdout, response.Stderr)
