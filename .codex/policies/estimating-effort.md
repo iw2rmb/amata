@@ -59,6 +59,21 @@ Estimate enhancement delta from before and after process maps:
 - Modified movement: count as delete plus add (`+2`) unless the change is only naming with no boundary, data group, or movement-type change.
 
 
+## Underestimation checks
+
+Apply these checks before finalizing `CFP`:
+- Count per execution path, not per feature. If behavior is added to multiple stages, cycles, or modes, count each path unless it is the same functional process.
+- Count integration boundaries explicitly. Include contract validation, scheduling/orchestration, completion/reporting, and status handling when they cross boundaries.
+- Count required file or artifact inputs/outputs as boundary data movements.
+- Include change effort for required non-regression and deterministic-order verification when behavior is replicated across paths.
+
+Required final sanity check:
+- Did I count all execution paths?
+- Did I count all integration boundaries?
+- Did I count required data inputs/outputs?
+- Should this item be split before sizing?
+
+
 ## Map CFP to roadmap reasoning
 
 When a roadmap item needs `Reasoning: low|medium|high|xhigh`, map by `CFP`:

@@ -8,6 +8,19 @@ Read and follow policies that correspond to the nature of the current task:
 Both in designing DD/roadmaps, and in development, **NO** backward compatibility is required, unless it explicitly stated by user.
 
 
+## Roadmap Step Implementation
+
+This is disciplined execution, not design. The spec is the contract — execute it, don't reinterpret it.
+
+1. **Literal spec compliance.** Paths, names, values in the roadmap are exact. Do not abstract, wrap, or "improve" them.
+2. **Read before writing.** Read every file, function, and type you will touch. No guessing.
+3. **Exact scope.** Implement what is asked. No extra abstractions, no speculative helpers.
+4. **Reuse existing code.** Search before writing. If a helper exists — call it.
+5. **Table-driven tests.** Test the contract, not implementation details.
+6. **One domain per file.** Separate concerns into distinct files with clear names.
+7. **Verify against spec.** Build, test, then re-read every `implementation` and `verification` bullet. Done means all satisfied.
+
+
 ## Anti-Looping Rule
 
 HARD RULE — your FIRST action on any task MUST be a tool call (Read, Glob, Grep, Bash).
