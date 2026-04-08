@@ -1,6 +1,6 @@
 module github.com/iw2rmb/amata
 
-go 1.25.8
+go 1.25.9
 
 require (
 	charm.land/glamour/v2 v2.0.0
