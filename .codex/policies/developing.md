@@ -20,6 +20,8 @@
 ## Testing Guidelines
 
 - Use table-driven tests when inputs vary but structure is the same.
+- Before adding a new test function, scan the file for existing tests with the same arrange/act/assert shape.
+- If shape matches, add a new table row to the existing test instead of creating another near-duplicate test function.
 - Maintain one canonical test per behavior path.
 - Avoid duplicate tests that do not add new assertions.
 - Group tests by behavior domain (e.g., validation, orchestration).
@@ -27,6 +29,10 @@
 - Do not add legacy-specific rejection guards in runtime validation code.
 - Validate only against the current contract/schema. If strict rejection of unknown keys is required, encode it in schema, not in ad hoc code branches for old formats.
 - Use descriptive names encoding behavior and expected outcome.
+- Acceptance gate: if 2+ tests in the same file share setup/assertion structure, rewrite them into a single table-driven test before finalizing.
+- Exception: non-table tests are allowed only when behavior shape differs materially; include one short comment explaining why table-driven form is not appropriate.
+- Response contract: when adding or changing tests, report `table-driven: yes|no`; if `no`, include a one-line reason.
+- Optional CI warning recommendation: add a non-blocking check that flags repeated test setup/assertion patterns in the same file.
 
 
 ## Debugging and Fixing
