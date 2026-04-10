@@ -12,9 +12,16 @@
 
 - Split files exceeding ~500 LOC.
 - Split functions exceeding ~100 LOC.
-- Before implementing:
-  - Check for existing helpers.
-  - Check for similar logic and consolidate.
+
+
+## Reuse Gate (Mandatory)
+
+- First classify the change: new value in an existing dimension, or truly new dimension.
+- If inputs, outputs, and purpose match an existing mechanism, extend that mechanism.
+- Do not introduce a parallel implementation for the same concern.
+- If existing code is close but not exact, refactor/extract shared path first, then add behavior.
+- New implementation is allowed only for hard incompatibility (different contract/invariants), not
+convenience.
 
 
 ## Testing Guidelines
