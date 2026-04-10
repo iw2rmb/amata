@@ -22,6 +22,7 @@ const (
 	stallCancellationGraceWait = 1 * time.Second
 	stallCallReturnType        = "stall.call"
 	stallRerunAttemptsTotal    = "INF"
+	defaultCodexTPMRetryAfter  = 1 * time.Minute
 )
 
 type stallPolicy struct {
@@ -46,6 +47,13 @@ func (r *Runner) executeStep(
 	action, result := r.prepareStepAction(config, runtime, previous, stepIndex, step)
 	if result.Status != "" || action.pushFrame != nil {
 		return action, finalizeStatus(result)
+	}
+
+	tpmEnabled, failure := resolveCodexTPMEnabled(runtime, config.Spec.Defaults, stepIndex, step)
+	if failure != nil {
+		result.Status = state.StepStatusFailed
+		result.Error = failure
+		return stepAction{}, finalizeStatus(result)
 	}
 
 	factory, ok := r.registry.Lookup(result.Type)
@@ -75,6 +83,8 @@ func (r *Runner) executeStep(
 		return stepAction{}, finalizeStatus(result)
 	}
 
+	codexTPMRetried := false
+
 attemptLoop:
 	for attempt := 1; ; attempt++ {
 		stepCtx := executorapi.StepContext{
@@ -93,7 +103,13 @@ attemptLoop:
 
 		if policy == nil {
 			result = executeStepAttempt(ctx, stepExecutor, stepCtx, step)
-			return stepAction{}, r.finalizeStepResult(config, responses, snapshot.StepByRef, previous, bindings, step, result)
+			finalized := r.finalizeStepResult(config, responses, snapshot.StepByRef, previous, bindings, step, result)
+			if retry, aborted := r.maybeRetryCodexTPM(ctx, stepIndex, step, finalized, tpmEnabled, &codexTPMRetried); aborted.Status != "" {
+				return stepAction{}, aborted
+			} else if retry {
+				continue attemptLoop
+			}
+			return stepAction{}, finalized
 		}
 
 		attemptCtx, cancel := context.WithCancel(ctx)
@@ -114,7 +130,13 @@ attemptLoop:
 				timer.Stop()
 				probeTicker.Stop()
 				cancel()
-				return stepAction{}, r.finalizeStepResult(config, responses, snapshot.StepByRef, previous, bindings, step, result)
+				finalized := r.finalizeStepResult(config, responses, snapshot.StepByRef, previous, bindings, step, result)
+				if retry, aborted := r.maybeRetryCodexTPM(ctx, stepIndex, step, finalized, tpmEnabled, &codexTPMRetried); aborted.Status != "" {
+					return stepAction{}, aborted
+				} else if retry {
+					continue attemptLoop
+				}
+				return stepAction{}, finalized
 			case <-probeTicker.C:
 				if activityProbe.ObserveChanged() {
 					lastActivityAt = time.Now().UTC()
@@ -202,9 +224,137 @@ attemptLoop:
 						},
 					})
 				}
-				return stepAction{}, r.finalizeStepResult(config, responses, snapshot.StepByRef, previous, bindings, step, result)
+				finalized := r.finalizeStepResult(config, responses, snapshot.StepByRef, previous, bindings, step, result)
+				return stepAction{}, finalized
 			}
 		}
+	}
+}
+
+func resolveCodexTPMEnabled(runtime exprruntime.Runtime, defaults map[string]any, stepIndex int, step spec.Step) (bool, *state.Failure) {
+	if step.ExecutorType() != "codex" {
+		return false, nil
+	}
+
+	raw, ok := defaults["tpm"]
+	if !ok {
+		return false, nil
+	}
+
+	resolved, err := runtime.Resolve(raw)
+	if err != nil {
+		return false, &state.Failure{
+			Code:    "invalid_defaults",
+			Message: fmt.Sprintf("step %d defaults.tpm is invalid: %v", stepIndex, err),
+		}
+	}
+
+	switch value := resolved.(type) {
+	case int:
+		if value > 0 {
+			return true, nil
+		}
+	case int64:
+		if value > 0 {
+			return true, nil
+		}
+	case float64:
+		if value > 0 {
+			return true, nil
+		}
+	case string:
+		parsed, parseErr := strconv.ParseFloat(strings.TrimSpace(value), 64)
+		if parseErr == nil && parsed > 0 {
+			return true, nil
+		}
+	}
+
+	return false, &state.Failure{
+		Code:    "invalid_defaults",
+		Message: fmt.Sprintf("step %d defaults.tpm is invalid: must resolve to a positive number", stepIndex),
+	}
+}
+
+func (r *Runner) maybeRetryCodexTPM(
+	ctx context.Context,
+	stepIndex int,
+	step spec.Step,
+	result state.StepResult,
+	tpmEnabled bool,
+	alreadyRetried *bool,
+) (bool, state.StepResult) {
+	if step.ExecutorType() != "codex" || !tpmEnabled || alreadyRetried == nil || *alreadyRetried {
+		return false, state.StepResult{}
+	}
+	if !isRateLimitStepFailure(result) {
+		return false, state.StepResult{}
+	}
+
+	waitFn := r.retryWait
+	if waitFn == nil {
+		waitFn = waitWithContext
+	}
+	if err := waitFn(ctx, defaultCodexTPMRetryAfter); err != nil {
+		code := "canceled"
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			code = "deadline_exceeded"
+		}
+		return false, finalizeStatus(state.StepResult{
+			Index:  stepIndex,
+			ID:     step.ID,
+			Type:   step.ExecutorType(),
+			Status: state.StepStatusFailed,
+			Error: &state.Failure{
+				Code:    code,
+				Message: fmt.Sprintf("step %d canceled while waiting to retry after rate limit", stepIndex),
+			},
+		})
+	}
+
+	*alreadyRetried = true
+	return true, state.StepResult{}
+}
+
+func isRateLimitStepFailure(result state.StepResult) bool {
+	if result.Status != state.StepStatusFailed || result.Error == nil || len(result.Error.Details) == 0 {
+		return false
+	}
+	providerError, ok := result.Error.Details["provider_error"].(map[string]any)
+	if !ok {
+		return false
+	}
+
+	for _, key := range []string{"code", "type", "message"} {
+		value, _ := providerError[key].(string)
+		if isRateLimitText(value) {
+			return true
+		}
+	}
+	return false
+}
+
+func isRateLimitText(value string) bool {
+	text := strings.ToLower(strings.TrimSpace(value))
+	if text == "" {
+		return false
+	}
+	return strings.Contains(text, "429") ||
+		strings.Contains(text, "too many requests") ||
+		strings.Contains(text, "rate_limit") ||
+		strings.Contains(text, "ratelimit")
+}
+
+func waitWithContext(ctx context.Context, duration time.Duration) error {
+	if duration <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 

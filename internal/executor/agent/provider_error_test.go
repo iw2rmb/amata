@@ -45,6 +45,24 @@ func TestNormalizeProviderErrorLine(t *testing.T) {
 			line:        `{"type":"error","message":"not-json"}`,
 			wantMatched: true,
 			wantOK:      false,
+			wantDetails: map[string]any{
+				"message": "not-json",
+				"type":    "",
+				"param":   nil,
+				"code":    "",
+			},
+		},
+		{
+			name:        "error event with raw rate-limit message",
+			line:        `{"type":"error","message":"exceeded retry limit, last status: 429 Too Many Requests, request id: req_123"}`,
+			wantMatched: true,
+			wantOK:      false,
+			wantDetails: map[string]any{
+				"message": "exceeded retry limit, last status: 429 Too Many Requests, request id: req_123",
+				"type":    "",
+				"param":   nil,
+				"code":    "",
+			},
 		},
 		{
 			name:        "non-error event ignored",

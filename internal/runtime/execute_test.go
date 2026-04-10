@@ -490,3 +490,190 @@ func TestRunnerStallRerunDoesNotTriggerWhenStepKeepsEmittingOutput(t *testing.T)
 		t.Fatalf("attempts = %d, want 1", attempts)
 	}
 }
+
+func TestRunnerCodexTPMRetryOnRateLimit(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name            string
+		defaults        map[string]any
+		results         []state.StepResult
+		wantAttempts    int
+		wantSleepCalls  int
+		wantSuccess     bool
+		wantFailureCode string
+	}{
+		{
+			name: "retries once when defaults tpm is set and first failure is 429",
+			defaults: map[string]any{
+				"tpm": 60000,
+			},
+			results: []state.StepResult{
+				{
+					Status: state.StepStatusFailed,
+					Error: &state.Failure{
+						Code:    "provider_crashed",
+						Message: "codex failed",
+						Details: map[string]any{
+							"provider_error": map[string]any{
+								"message": "exceeded retry limit, last status: 429 Too Many Requests, request id: req_1",
+							},
+						},
+					},
+				},
+				{
+					Status: state.StepStatusSucceeded,
+					Value:  "ok",
+				},
+			},
+			wantAttempts:   2,
+			wantSleepCalls: 1,
+			wantSuccess:    true,
+		},
+		{
+			name: "fails when defaults tpm is invalid",
+			defaults: map[string]any{
+				"tpm": "bad",
+			},
+			results: []state.StepResult{
+				{
+					Status: state.StepStatusSucceeded,
+					Value:  "unused",
+				},
+			},
+			wantAttempts:    0,
+			wantSleepCalls:  0,
+			wantSuccess:     false,
+			wantFailureCode: "invalid_defaults",
+		},
+		{
+			name: "does not retry when defaults tpm is missing",
+			results: []state.StepResult{
+				{
+					Status: state.StepStatusFailed,
+					Error: &state.Failure{
+						Code:    "provider_crashed",
+						Message: "codex failed",
+						Details: map[string]any{
+							"provider_error": map[string]any{
+								"message": "exceeded retry limit, last status: 429 Too Many Requests, request id: req_2",
+							},
+						},
+					},
+				},
+			},
+			wantAttempts:    1,
+			wantSleepCalls:  0,
+			wantSuccess:     false,
+			wantFailureCode: "provider_crashed",
+		},
+		{
+			name: "retries at most once",
+			defaults: map[string]any{
+				"tpm": 60000,
+			},
+			results: []state.StepResult{
+				{
+					Status: state.StepStatusFailed,
+					Error: &state.Failure{
+						Code:    "provider_crashed",
+						Message: "codex failed",
+						Details: map[string]any{
+							"provider_error": map[string]any{
+								"message": "exceeded retry limit, last status: 429 Too Many Requests, request id: req_3",
+							},
+						},
+					},
+				},
+				{
+					Status: state.StepStatusFailed,
+					Error: &state.Failure{
+						Code:    "provider_crashed",
+						Message: "codex failed again",
+						Details: map[string]any{
+							"provider_error": map[string]any{
+								"message": "exceeded retry limit, last status: 429 Too Many Requests, request id: req_4",
+							},
+						},
+					},
+				},
+			},
+			wantAttempts:    2,
+			wantSleepCalls:  1,
+			wantSuccess:     false,
+			wantFailureCode: "provider_crashed",
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			config := testConfig(t, spec.Document{
+				Version:  spec.Version,
+				Name:     "sample",
+				Entry:    "main",
+				Defaults: tc.defaults,
+				Flows: map[string]spec.Flow{
+					"main": {
+						Steps: []spec.Step{
+							{ID: "codex-step", Type: "codex"},
+						},
+					},
+				},
+			})
+			mustPersist(t, config)
+
+			attempts := 0
+			registry := NewRegistry()
+			if err := registry.Register("codex", func() executorapi.Executor {
+				return &fakeExecutor{
+					calls: new([]string),
+					executeWithContext: func(_ context.Context, _ executorapi.StepContext) state.StepResult {
+						if attempts >= len(tc.results) {
+							t.Fatalf("unexpected attempt %d", attempts+1)
+						}
+						result := tc.results[attempts]
+						attempts++
+						return cloneStepResult(result)
+					},
+				}
+			}); err != nil {
+				t.Fatalf("register codex executor: %v", err)
+			}
+
+			sleepCalls := 0
+			var slept []time.Duration
+			waitFn := func(_ context.Context, duration time.Duration) error {
+				sleepCalls++
+				slept = append(slept, duration)
+				return nil
+			}
+
+			snapshot, err := NewRunner(registry, withRunnerRetryWait(waitFn)).Run(context.Background(), config)
+			if tc.wantSuccess {
+				if err != nil {
+					t.Fatalf("run: %v", err)
+				}
+				if snapshot.Status != state.RunStatusSucceeded {
+					t.Fatalf("snapshot status = %q, want succeeded", snapshot.Status)
+				}
+			} else {
+				assertRunFailed(t, err, tc.wantFailureCode)
+			}
+
+			if attempts != tc.wantAttempts {
+				t.Fatalf("attempts = %d, want %d", attempts, tc.wantAttempts)
+			}
+			if sleepCalls != tc.wantSleepCalls {
+				t.Fatalf("sleep calls = %d, want %d", sleepCalls, tc.wantSleepCalls)
+			}
+			for _, duration := range slept {
+				if duration != defaultCodexTPMRetryAfter {
+					t.Fatalf("retry sleep duration = %s, want %s", duration, defaultCodexTPMRetryAfter)
+				}
+			}
+		})
+	}
+}

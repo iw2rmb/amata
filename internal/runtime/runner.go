@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/iw2rmb/amata/internal/progress"
 	"github.com/iw2rmb/amata/internal/schema"
@@ -15,6 +16,7 @@ import (
 type Runner struct {
 	registry     *Registry
 	progressSink progress.Sink
+	retryWait    func(context.Context, time.Duration) error
 }
 
 type RunnerOption func(*Runner)
@@ -34,12 +36,21 @@ func WithRunnerProgressSink(sink progress.Sink) RunnerOption {
 	}
 }
 
+func withRunnerRetryWait(wait func(context.Context, time.Duration) error) RunnerOption {
+	return func(runner *Runner) {
+		runner.retryWait = wait
+	}
+}
+
 func NewRunner(registry *Registry, options ...RunnerOption) *Runner {
 	if registry == nil {
 		registry = builtinRegistry()
 	}
 
-	runner := &Runner{registry: registry}
+	runner := &Runner{
+		registry:  registry,
+		retryWait: waitWithContext,
+	}
 	for _, option := range options {
 		if option != nil {
 			option(runner)

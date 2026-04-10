@@ -121,7 +121,17 @@ func normalizeProviderErrorLine(line []byte) ([]byte, map[string]any, bool, bool
 
 	providerError := extractProviderError(event)
 	if providerError == nil {
-		return nil, nil, true, false
+		message, _ := event["message"].(string)
+		message = strings.TrimSpace(message)
+		if message == "" {
+			return nil, nil, true, false
+		}
+		return nil, map[string]any{
+			"message": message,
+			"type":    "",
+			"param":   nil,
+			"code":    "",
+		}, true, false
 	}
 
 	details := map[string]any{
