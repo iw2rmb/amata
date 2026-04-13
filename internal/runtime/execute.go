@@ -24,7 +24,6 @@ const (
 	stallCallReturnType        = "stall.call"
 	stallRerunAttemptsTotal    = "INF"
 	defaultCodexTPMRetryAfter  = 1 * time.Minute
-	codexTPMRetryPromptPrefix  = "> This is a retry call after hitting 429 error.\n> Inspect current diff to continue work rather than starting from the scratch.\n> Reduce tokens burn rate where possible. Including limiting number of lines to read  when using `rg` and avoiding files full scan.\n\n"
 )
 
 type stallPolicy struct {
@@ -34,8 +33,9 @@ type stallPolicy struct {
 }
 
 type codexTPMPolicy struct {
-	Enabled    bool
-	MaxRetries int
+	Enabled       bool
+	MaxRetries    int
+	RetryPreamble string
 }
 
 func (r *Runner) executeStep(
@@ -97,7 +97,7 @@ attemptLoop:
 	for attempt := 1; ; attempt++ {
 		promptPrefix := ""
 		if injectCodexTPMRetryPrompt {
-			promptPrefix = codexTPMRetryPromptPrefix
+			promptPrefix = tpmPolicy.RetryPreamble
 			injectCodexTPMRetryPrompt = false
 		}
 		stepCtx := executorapi.StepContext{
@@ -266,22 +266,22 @@ func resolveCodexTPMPolicy(runtime exprruntime.Runtime, defaults map[string]any,
 	}
 
 	retries := 1
+	retryPreamble := ""
 	switch value := resolved.(type) {
 	case map[string]any:
-		rateRaw, ok := value["rate"]
-		if !ok {
-			return codexTPMPolicy{}, &state.Failure{
-				Code:    "invalid_defaults",
-				Message: fmt.Sprintf("step %d defaults.tpm is invalid: rate is required", stepIndex),
+		rateSpecified := false
+		if rateRaw, ok := value["rate"]; ok {
+			rateSpecified = true
+			if _, ok := parsePositiveNumber(rateRaw); !ok {
+				return codexTPMPolicy{}, &state.Failure{
+					Code:    "invalid_defaults",
+					Message: fmt.Sprintf("step %d defaults.tpm is invalid: rate must resolve to a positive number", stepIndex),
+				}
 			}
 		}
-		if _, ok := parsePositiveNumber(rateRaw); !ok {
-			return codexTPMPolicy{}, &state.Failure{
-				Code:    "invalid_defaults",
-				Message: fmt.Sprintf("step %d defaults.tpm is invalid: rate must resolve to a positive number", stepIndex),
-			}
-		}
+		retriesSpecified := false
 		if retriesRaw, ok := value["retries"]; ok {
+			retriesSpecified = true
 			parsedRetries, ok := parseNonNegativeInt(retriesRaw)
 			if !ok {
 				return codexTPMPolicy{}, &state.Failure{
@@ -290,6 +290,22 @@ func resolveCodexTPMPolicy(runtime exprruntime.Runtime, defaults map[string]any,
 				}
 			}
 			retries = parsedRetries
+		}
+		if !rateSpecified && !retriesSpecified {
+			return codexTPMPolicy{}, &state.Failure{
+				Code:    "invalid_defaults",
+				Message: fmt.Sprintf("step %d defaults.tpm is invalid: rate or retries is required", stepIndex),
+			}
+		}
+		if retryPreambleRaw, ok := value["retry_preamble"]; ok {
+			parsedRetryPreamble, ok := retryPreambleRaw.(string)
+			if !ok {
+				return codexTPMPolicy{}, &state.Failure{
+					Code:    "invalid_defaults",
+					Message: fmt.Sprintf("step %d defaults.tpm is invalid: retry_preamble must resolve to a string", stepIndex),
+				}
+			}
+			retryPreamble = parsedRetryPreamble
 		}
 	default:
 		if _, ok := parsePositiveNumber(resolved); !ok {
@@ -301,8 +317,9 @@ func resolveCodexTPMPolicy(runtime exprruntime.Runtime, defaults map[string]any,
 	}
 
 	return codexTPMPolicy{
-		Enabled:    true,
-		MaxRetries: retries,
+		Enabled:       true,
+		MaxRetries:    retries,
+		RetryPreamble: retryPreamble,
 	}, nil
 }
 

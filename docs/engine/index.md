@@ -46,8 +46,10 @@ Current behavior:
 - Repeated `--set key=value` flags override declared `spec.params` entries for the launched run and persist inside the stored normalized spec.
 - `defaults` are parsed and persisted. Agent executors currently interpret `defaults.cwd`, `defaults.env`, and `defaults.executors.codex|claude|crush`. Stall policy defaults are read from `defaults.executors.<step-type>.stall` when a step omits `stall`.
 - `defaults.tpm` is optional and may be either a positive number or an object with `rate` and optional `retries`.
-- `defaults.tpm.rate` must resolve to a positive number.
+- `defaults.tpm.rate` is optional and when set must resolve to a positive number.
 - `defaults.tpm.retries` defaults to `1` and must resolve to a non-negative integer; it represents extra retries after the first attempt.
+- Object form requires at least one of `rate` or `retries`.
+- `defaults.tpm.retry_preamble` defaults to an empty string and must resolve to a string.
 - `schemas` provides workflow-local JSON Schema definitions for inline `response.schema` refs.
 - Built-in step definitions are validated at spec load time against embedded JSON Schema files shipped under `schemas/*.amata.schema.json`.
 - Shared step-schema fragments such as stall-policy and string-or-expression shapes are factored into separate embedded schema files under `schemas/`.
@@ -318,10 +320,7 @@ Behavior:
 - `cwd` falls back to `defaults.cwd`, then `workspace.root`.
 - `codex exec --json` is invoked with the rendered prompt on stdin.
 - When `defaults.tpm` is set and a codex attempt fails with provider rate-limit (`429`) details, the runner waits 60 seconds before each retry and retries up to `defaults.tpm.retries` extra attempts.
-- For each TPM retry attempt, the runner prepends this block to the codex prompt before the original prompt body:
-  - `> This is a retry call after hitting 429 error.`
-  - `> Inspect current diff to continue work rather than starting from the scratch.`
-  - > Reduce tokens burn rate where possible. Including limiting number of lines to read  when using `rg` and avoiding files full scan.
+- For each TPM retry attempt, if `defaults.tpm.retry_preamble` is non-empty, the runner prepends it to the codex prompt before the original prompt body.
 - When `response.schema` targets `value`, the executor accepts either an inline schema/ref or a path-like string to a `.json` schema file relative to the workflow file.
 - Inline Codex schemas are expanded into a provider-safe object schema artifact before `codex exec --output-schema`.
 - File-backed Codex schemas are normalized into a step-local provider schema artifact before `codex exec --output-schema`.

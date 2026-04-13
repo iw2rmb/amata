@@ -509,6 +509,7 @@ func TestRunnerCodexTPMRetryOnRateLimit(t *testing.T) {
 			},
 		}
 	}
+	configuredRetryPreamble := "> retry preamble\n\n"
 
 	testCases := []struct {
 		name               string
@@ -535,14 +536,15 @@ func TestRunnerCodexTPMRetryOnRateLimit(t *testing.T) {
 			wantAttempts:       2,
 			wantSleepCalls:     1,
 			wantSuccess:        true,
-			wantPromptPrefixes: []string{"", codexTPMRetryPromptPrefix},
+			wantPromptPrefixes: []string{"", ""},
 		},
 		{
 			name: "object form retries twice when retries is 2",
 			defaults: map[string]any{
 				"tpm": map[string]any{
-					"rate":    60000,
-					"retries": 2,
+					"rate":           60000,
+					"retries":        2,
+					"retry_preamble": configuredRetryPreamble,
 				},
 			},
 			results: []state.StepResult{
@@ -556,7 +558,7 @@ func TestRunnerCodexTPMRetryOnRateLimit(t *testing.T) {
 			wantAttempts:       3,
 			wantSleepCalls:     2,
 			wantSuccess:        true,
-			wantPromptPrefixes: []string{"", codexTPMRetryPromptPrefix, codexTPMRetryPromptPrefix},
+			wantPromptPrefixes: []string{"", configuredRetryPreamble, configuredRetryPreamble},
 		},
 		{
 			name: "object form with retries zero does not retry",
@@ -593,11 +595,29 @@ func TestRunnerCodexTPMRetryOnRateLimit(t *testing.T) {
 			wantPromptPrefixes: []string{},
 		},
 		{
-			name: "fails when defaults tpm object is missing rate",
+			name: "object form retries without rate is allowed",
 			defaults: map[string]any{
 				"tpm": map[string]any{
-					"retries": 1,
+					"retries": 2,
 				},
+			},
+			results: []state.StepResult{
+				rateLimitFailure("req_no_rate_1"),
+				rateLimitFailure("req_no_rate_2"),
+				{
+					Status: state.StepStatusSucceeded,
+					Value:  "ok",
+				},
+			},
+			wantAttempts:       3,
+			wantSleepCalls:     2,
+			wantSuccess:        true,
+			wantPromptPrefixes: []string{"", "", ""},
+		},
+		{
+			name: "fails when defaults tpm object is empty",
+			defaults: map[string]any{
+				"tpm": map[string]any{},
 			},
 			results:            []state.StepResult{{Status: state.StepStatusSucceeded, Value: "unused"}},
 			wantAttempts:       0,
@@ -612,6 +632,21 @@ func TestRunnerCodexTPMRetryOnRateLimit(t *testing.T) {
 				"tpm": map[string]any{
 					"rate":    60000,
 					"retries": -1,
+				},
+			},
+			results:            []state.StepResult{{Status: state.StepStatusSucceeded, Value: "unused"}},
+			wantAttempts:       0,
+			wantSleepCalls:     0,
+			wantSuccess:        false,
+			wantFailureCode:    "invalid_defaults",
+			wantPromptPrefixes: []string{},
+		},
+		{
+			name: "fails when defaults tpm object retry_preamble is invalid",
+			defaults: map[string]any{
+				"tpm": map[string]any{
+					"rate":           60000,
+					"retry_preamble": 123,
 				},
 			},
 			results:            []state.StepResult{{Status: state.StepStatusSucceeded, Value: "unused"}},
@@ -645,7 +680,7 @@ func TestRunnerCodexTPMRetryOnRateLimit(t *testing.T) {
 			wantSleepCalls:     1,
 			wantSuccess:        false,
 			wantFailureCode:    "provider_crashed",
-			wantPromptPrefixes: []string{"", codexTPMRetryPromptPrefix},
+			wantPromptPrefixes: []string{"", ""},
 		},
 	}
 
