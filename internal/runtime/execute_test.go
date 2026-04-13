@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -494,14 +495,30 @@ func TestRunnerStallRerunDoesNotTriggerWhenStepKeepsEmittingOutput(t *testing.T)
 func TestRunnerCodexTPMRetryOnRateLimit(t *testing.T) {
 	t.Parallel()
 
+	rateLimitFailure := func(requestID string) state.StepResult {
+		return state.StepResult{
+			Status: state.StepStatusFailed,
+			Error: &state.Failure{
+				Code:    "provider_crashed",
+				Message: "codex failed",
+				Details: map[string]any{
+					"provider_error": map[string]any{
+						"message": "exceeded retry limit, last status: 429 Too Many Requests, request id: " + requestID,
+					},
+				},
+			},
+		}
+	}
+
 	testCases := []struct {
-		name            string
-		defaults        map[string]any
-		results         []state.StepResult
-		wantAttempts    int
-		wantSleepCalls  int
-		wantSuccess     bool
-		wantFailureCode string
+		name               string
+		defaults           map[string]any
+		results            []state.StepResult
+		wantAttempts       int
+		wantSleepCalls     int
+		wantSuccess        bool
+		wantFailureCode    string
+		wantPromptPrefixes []string
 	}{
 		{
 			name: "retries once when defaults tpm is set and first failure is 429",
@@ -509,29 +526,57 @@ func TestRunnerCodexTPMRetryOnRateLimit(t *testing.T) {
 				"tpm": 60000,
 			},
 			results: []state.StepResult{
-				{
-					Status: state.StepStatusFailed,
-					Error: &state.Failure{
-						Code:    "provider_crashed",
-						Message: "codex failed",
-						Details: map[string]any{
-							"provider_error": map[string]any{
-								"message": "exceeded retry limit, last status: 429 Too Many Requests, request id: req_1",
-							},
-						},
-					},
-				},
+				rateLimitFailure("req_1"),
 				{
 					Status: state.StepStatusSucceeded,
 					Value:  "ok",
 				},
 			},
-			wantAttempts:   2,
-			wantSleepCalls: 1,
-			wantSuccess:    true,
+			wantAttempts:       2,
+			wantSleepCalls:     1,
+			wantSuccess:        true,
+			wantPromptPrefixes: []string{"", codexTPMRetryPromptPrefix},
 		},
 		{
-			name: "fails when defaults tpm is invalid",
+			name: "object form retries twice when retries is 2",
+			defaults: map[string]any{
+				"tpm": map[string]any{
+					"rate":    60000,
+					"retries": 2,
+				},
+			},
+			results: []state.StepResult{
+				rateLimitFailure("req_obj_1"),
+				rateLimitFailure("req_obj_2"),
+				{
+					Status: state.StepStatusSucceeded,
+					Value:  "ok",
+				},
+			},
+			wantAttempts:       3,
+			wantSleepCalls:     2,
+			wantSuccess:        true,
+			wantPromptPrefixes: []string{"", codexTPMRetryPromptPrefix, codexTPMRetryPromptPrefix},
+		},
+		{
+			name: "object form with retries zero does not retry",
+			defaults: map[string]any{
+				"tpm": map[string]any{
+					"rate":    60000,
+					"retries": 0,
+				},
+			},
+			results: []state.StepResult{
+				rateLimitFailure("req_obj_3"),
+			},
+			wantAttempts:       1,
+			wantSleepCalls:     0,
+			wantSuccess:        false,
+			wantFailureCode:    "provider_crashed",
+			wantPromptPrefixes: []string{""},
+		},
+		{
+			name: "fails when defaults tpm scalar is invalid",
 			defaults: map[string]any{
 				"tpm": "bad",
 			},
@@ -541,67 +586,66 @@ func TestRunnerCodexTPMRetryOnRateLimit(t *testing.T) {
 					Value:  "unused",
 				},
 			},
-			wantAttempts:    0,
-			wantSleepCalls:  0,
-			wantSuccess:     false,
-			wantFailureCode: "invalid_defaults",
+			wantAttempts:       0,
+			wantSleepCalls:     0,
+			wantSuccess:        false,
+			wantFailureCode:    "invalid_defaults",
+			wantPromptPrefixes: []string{},
+		},
+		{
+			name: "fails when defaults tpm object is missing rate",
+			defaults: map[string]any{
+				"tpm": map[string]any{
+					"retries": 1,
+				},
+			},
+			results:            []state.StepResult{{Status: state.StepStatusSucceeded, Value: "unused"}},
+			wantAttempts:       0,
+			wantSleepCalls:     0,
+			wantSuccess:        false,
+			wantFailureCode:    "invalid_defaults",
+			wantPromptPrefixes: []string{},
+		},
+		{
+			name: "fails when defaults tpm object retries is invalid",
+			defaults: map[string]any{
+				"tpm": map[string]any{
+					"rate":    60000,
+					"retries": -1,
+				},
+			},
+			results:            []state.StepResult{{Status: state.StepStatusSucceeded, Value: "unused"}},
+			wantAttempts:       0,
+			wantSleepCalls:     0,
+			wantSuccess:        false,
+			wantFailureCode:    "invalid_defaults",
+			wantPromptPrefixes: []string{},
 		},
 		{
 			name: "does not retry when defaults tpm is missing",
 			results: []state.StepResult{
-				{
-					Status: state.StepStatusFailed,
-					Error: &state.Failure{
-						Code:    "provider_crashed",
-						Message: "codex failed",
-						Details: map[string]any{
-							"provider_error": map[string]any{
-								"message": "exceeded retry limit, last status: 429 Too Many Requests, request id: req_2",
-							},
-						},
-					},
-				},
+				rateLimitFailure("req_2"),
 			},
-			wantAttempts:    1,
-			wantSleepCalls:  0,
-			wantSuccess:     false,
-			wantFailureCode: "provider_crashed",
+			wantAttempts:       1,
+			wantSleepCalls:     0,
+			wantSuccess:        false,
+			wantFailureCode:    "provider_crashed",
+			wantPromptPrefixes: []string{""},
 		},
 		{
-			name: "retries at most once",
+			name: "scalar tpm keeps default retries at one",
 			defaults: map[string]any{
 				"tpm": 60000,
 			},
 			results: []state.StepResult{
-				{
-					Status: state.StepStatusFailed,
-					Error: &state.Failure{
-						Code:    "provider_crashed",
-						Message: "codex failed",
-						Details: map[string]any{
-							"provider_error": map[string]any{
-								"message": "exceeded retry limit, last status: 429 Too Many Requests, request id: req_3",
-							},
-						},
-					},
-				},
-				{
-					Status: state.StepStatusFailed,
-					Error: &state.Failure{
-						Code:    "provider_crashed",
-						Message: "codex failed again",
-						Details: map[string]any{
-							"provider_error": map[string]any{
-								"message": "exceeded retry limit, last status: 429 Too Many Requests, request id: req_4",
-							},
-						},
-					},
-				},
+				rateLimitFailure("req_3"),
+				rateLimitFailure("req_4"),
 			},
-			wantAttempts:    2,
-			wantSleepCalls:  1,
-			wantSuccess:     false,
-			wantFailureCode: "provider_crashed",
+			wantAttempts:       2,
+			wantSleepCalls:     1,
+			wantSuccess:        false,
+			wantFailureCode:    "provider_crashed",
+			wantPromptPrefixes: []string{"", codexTPMRetryPromptPrefix},
 		},
 	}
 
@@ -626,14 +670,16 @@ func TestRunnerCodexTPMRetryOnRateLimit(t *testing.T) {
 			mustPersist(t, config)
 
 			attempts := 0
+			promptPrefixes := []string{}
 			registry := NewRegistry()
 			if err := registry.Register("codex", func() executorapi.Executor {
 				return &fakeExecutor{
 					calls: new([]string),
-					executeWithContext: func(_ context.Context, _ executorapi.StepContext) state.StepResult {
+					executeWithContext: func(_ context.Context, ctx executorapi.StepContext) state.StepResult {
 						if attempts >= len(tc.results) {
 							t.Fatalf("unexpected attempt %d", attempts+1)
 						}
+						promptPrefixes = append(promptPrefixes, ctx.PromptPrefix)
 						result := tc.results[attempts]
 						attempts++
 						return cloneStepResult(result)
@@ -673,6 +719,9 @@ func TestRunnerCodexTPMRetryOnRateLimit(t *testing.T) {
 				if duration != defaultCodexTPMRetryAfter {
 					t.Fatalf("retry sleep duration = %s, want %s", duration, defaultCodexTPMRetryAfter)
 				}
+			}
+			if !reflect.DeepEqual(promptPrefixes, tc.wantPromptPrefixes) {
+				t.Fatalf("prompt prefixes = %#v, want %#v", promptPrefixes, tc.wantPromptPrefixes)
 			}
 		})
 	}

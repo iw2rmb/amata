@@ -47,8 +47,13 @@ func loadRequest(stepCtx executor.StepContext, providerName string, stepDir stri
 		return Request{}, structuredErr
 	}
 
+	prompt := resolved.Prompt
+	if stepCtx.PromptPrefix != "" {
+		prompt = stepCtx.PromptPrefix + prompt
+	}
+
 	return Request{
-		Prompt:      resolved.Prompt,
+		Prompt:      prompt,
 		Model:       resolved.Model,
 		Reasoning:   resolved.Reasoning,
 		CWD:         resolved.CWD,

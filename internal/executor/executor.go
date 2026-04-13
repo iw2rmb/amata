@@ -28,6 +28,7 @@ type StepContext struct {
 	Previous       *state.StepResult
 	Runtime        exprruntime.Runtime
 	ExecutionLabel string
+	PromptPrefix   string
 }
 
 func ResolveCWD(stepCtx StepContext) (string, error) {

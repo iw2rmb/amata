@@ -465,6 +465,43 @@ func TestExecutorPersistsProviderAdjustedPrompt(t *testing.T) {
 	testutil.AssertFileContents(t, result.Artifacts.Files["prompt"], "Original prompt\n\nReturn only JSON.")
 }
 
+func TestExecutorPrependsStepContextPromptPrefix(t *testing.T) {
+	t.Parallel()
+
+	step := spec.Step{
+		ID:   "prompt-prefix",
+		Type: "codex",
+		Fields: map[string]any{
+			"prompt": "Original prompt",
+		},
+	}
+	prefix := "> retry header\n\n"
+
+	provider := &fakeProvider{
+		name: "codex",
+		execute: func(_ context.Context, request agent.Request) (agent.Response, *agent.Error) {
+			wantPrompt := prefix + "Original prompt"
+			if request.Prompt != wantPrompt {
+				t.Fatalf("prompt = %q, want %q", request.Prompt, wantPrompt)
+			}
+			testutil.AssertFileContents(t, filepath.Join(request.ArtifactDir, "prompt.md"), wantPrompt)
+			return agent.Response{
+				Transcript: []byte("done"),
+				Stdout:     []byte("done"),
+			}, nil
+		},
+	}
+
+	sc := newStepContext(t, step, withDocument(documentWithProviderDefaults("codex", "gpt-5.4")))
+	sc.PromptPrefix = prefix
+	result := agent.New(provider).Execute(context.Background(), sc)
+
+	if result.Status != state.StepStatusSucceeded {
+		t.Fatalf("result status = %q, error = %#v", result.Status, result.Error)
+	}
+	testutil.AssertFileContents(t, result.Artifacts.Files["prompt"], prefix+"Original prompt")
+}
+
 func TestExecutorReturnsInvalidProviderPayloadFailureAndPersistsArtifacts(t *testing.T) {
 	t.Parallel()
 
