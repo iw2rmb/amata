@@ -1,26 +1,25 @@
-# Short Polling + Download Contract
+# Short Polling Contract
 
 ## Summary
-Add two generic amata executors for external asynchronous work orchestration:
+Add a generic amata executor for external asynchronous work orchestration:
 - `polling.short` for request + short polling.
-- `download` for file retrieval.
 
 This document defines the contract only. Implementation details should stay in code/tests.
 
 ## Scope
 In scope:
-- Step contracts for `polling.short` and `download`.
-- Runtime invariants for timeout, resume, and failure behavior.
+- Step contract for `polling.short`.
+- Runtime invariants for timeout, resume, and failure behavior in `polling.short`.
 
 Out of scope:
 - Ploy-specific endpoint shapes.
 - Migration/heal business logic.
 
 ## Why This Is Needed
-Current amata has no built-in HTTP request/poll/download executors. Shell+curl works but is hard to validate, hard to resume safely, and duplicated across flows.
+Current amata has no built-in HTTP request/poll executor. Shell+curl works but is hard to validate, hard to resume safely, and duplicated across flows.
 
 ## Goals
-- Generic and reusable HTTP executors.
+- Generic and reusable polling executor.
 - Deterministic success/failure behavior.
 - Safe resume without replaying completed external operations.
 
@@ -29,12 +28,10 @@ Current amata has no built-in HTTP request/poll/download executors. Shell+curl w
 - Replacing `shell` for advanced custom network workflows.
 
 ## Current Baseline (Observed)
-- Built-ins do not include HTTP/poll/download executors: `../internal/runtime/builtins.go`.
-- `data.get` reads local files only: `../internal/executor/dataget/dataget.go`.
+- Built-ins do not include HTTP/poll executors: `../internal/runtime/builtins.go`.
 - Runtime resume re-enters unfinished steps; generic executors do not persist step-local progress by default: `../internal/runtime/runner.go`, `../internal/runtime/runner_progress.go`, `../internal/state/store.go`.
 
 ## Target Contract or Target Architecture
-### `polling.short`
 Canonical step shape:
 
 ```yaml
@@ -116,68 +113,32 @@ Deterministic failure codes:
 - `confirm_timeout`
 - `invalid_checkpoint`
 
-### `download`
-Canonical step shape:
-
-```yaml
-download:
-  url: "https://..."
-  path: "/out/file.log"      # required absolute or workspace-relative path
-  method: GET                 # optional, default GET
-  headers: {}                 # optional map
-  timeout: 5m                 # optional
-  mode: "0644"               # optional, default 0644
-  fail_if_exists: false       # optional, default false
-```
-
-Rules:
-- Fail on non-2xx response.
-- If `fail_if_exists=true` and target file already exists, fail without writing.
-- If `fail_if_exists=false`, replace existing target atomically.
-- Write file atomically in same parent directory (temp file + flush + rename).
-- Create parent directories when missing.
-- Clean up temp file on error paths.
-- Return metadata: `status`, `size_bytes`, `sha256`, `path`.
-
-Deterministic failure codes:
-- `invalid_download`
-- `download_failed`
-- `download_http_status`
-- `download_file_exists`
-- `download_write_failed`
-
 ## Implementation Notes
-- Register executors in `../internal/runtime/builtins.go`.
-- Add and register schemas:
+- Register executor in `../internal/runtime/builtins.go`.
+- Add and register schema:
   - `../schemas/polling.short.amata.schema.json`
-  - `../schemas/download.amata.schema.json`
   - `../internal/spec/step_schemas.go`
 - Keep platform-global `response` behavior unchanged.
 - Extend executor step context with durable `frame_id`.
 - Reuse shared HTTP helper for timeout/headers/body encoding.
 
 ## Milestones
-1. Schemas + registration.
-- Expected result: `amata validate` accepts both step types.
+1. Schema + registration.
+- Expected result: `amata validate` accepts `polling.short`.
 - Testable outcome: schema validation tests pass.
 
 2. `polling.short` executor.
 - Expected result: deterministic polling flow with checkpoint-based resume.
 - Testable outcome: tests cover success, timeout, unsuccessful terminal status, transport/status failures, decode behavior, resume without request replay, stale/malformed checkpoint behavior, terminal resume without extra HTTP.
 
-3. `download` executor.
-- Expected result: atomic write and metadata output.
-- Testable outcome: tests cover non-2xx handling, checksum/size, parent-dir creation, and temp cleanup.
-
 ## Acceptance Criteria
-- `polling.short` and `download` are generic and ploy-agnostic.
+- `polling.short` is generic and ploy-agnostic.
 - `polling.short` supports `confirm.url` templating from request response.
 - `polling.short` evaluates `done_when`/`success_when` deterministically.
 - `polling.short` resume does not replay `request` when checkpoint matches.
 - `polling.short` resume returns terminal checkpoint result without extra HTTP calls.
 - `polling.short` confirm timeout is consistent across resume.
-- `download` write is atomic and leaves no orphan temp file on known failures.
-- `amata validate` accepts both step types.
+- `amata validate` accepts `polling.short`.
 
 ## Risks
 - Weak `done_when`/`success_when` expressions can make workflows brittle.
@@ -186,7 +147,6 @@ Deterministic failure codes:
 
 ## References
 - `~/@iw2rmb/amata/internal/runtime/builtins.go`
-- `~/@iw2rmb/amata/internal/executor/dataget/dataget.go`
 - `~/@iw2rmb/amata/internal/runtime/runner.go`
 - `~/@iw2rmb/amata/internal/runtime/runner_progress.go`
 - `~/@iw2rmb/amata/internal/state/store.go`
