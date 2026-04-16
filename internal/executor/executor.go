@@ -19,6 +19,7 @@ type Factory func() Executor
 type StepContext struct {
 	RunID          string
 	RunDir         string
+	FrameID        string
 	SpecPath       string
 	Spec           spec.Document
 	Workspace      workspace.Config
@@ -29,6 +30,16 @@ type StepContext struct {
 	Runtime        exprruntime.Runtime
 	ExecutionLabel string
 	PromptPrefix   string
+}
+
+type CheckpointKey struct {
+	RunDir    string
+	FrameID   string
+	StepIndex int
+}
+
+type CheckpointCleaner interface {
+	CleanupCheckpoint(context.Context, CheckpointKey) error
 }
 
 func ResolveCWD(stepCtx StepContext) (string, error) {

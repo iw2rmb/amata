@@ -35,7 +35,7 @@ func (r *Runner) recordStepStartedEvent(
 	if err != nil {
 		return state.Snapshot{}, err
 	}
-	reporter.StepStarted(progressStep(config, flowName, stepIndex, step, executionLabel, previous, bindings, lookup))
+	reporter.StepStarted(progressStep(config, flowName, frameID, stepIndex, step, executionLabel, previous, bindings, lookup))
 	return snapshot, nil
 }
 
@@ -52,6 +52,7 @@ func (r *Runner) recordResultEvent(
 	kind state.EventKind,
 	result state.StepResult,
 	lookup func(*state.StepRef) *state.StepResult,
+	afterRecord func() error,
 ) (state.Snapshot, error) {
 	recorded := result
 	recorded.FrameID = frameID
@@ -63,7 +64,12 @@ func (r *Runner) recordResultEvent(
 	if err != nil {
 		return state.Snapshot{}, err
 	}
-	reporter.StepFinished(progressResultStep(config, flowName, step, previous, bindings, result, lookup))
+	if afterRecord != nil {
+		if err := afterRecord(); err != nil {
+			return snapshot, err
+		}
+	}
+	reporter.StepFinished(progressResultStep(config, flowName, frameID, step, previous, bindings, result, lookup))
 
 	if result.Status != state.StepStatusFailed {
 		return snapshot, nil
@@ -86,8 +92,8 @@ func (r *Runner) recordResultEvent(
 	}
 }
 
-func progressStep(config Config, flowName string, stepIndex int, step spec.Step, executionLabel string, previous *state.StepResult, bindings map[string]any, lookup func(*state.StepRef) *state.StepResult) progress.Step {
-	stepCtx := progressStepContext(config, flowName, stepIndex, step, executionLabel, previous, bindings, lookup)
+func progressStep(config Config, flowName string, frameID string, stepIndex int, step spec.Step, executionLabel string, previous *state.StepResult, bindings map[string]any, lookup func(*state.StepRef) *state.StepResult) progress.Step {
+	stepCtx := progressStepContext(config, flowName, frameID, stepIndex, step, executionLabel, previous, bindings, lookup)
 	progressStep, err := progress.StepFromContext(stepCtx)
 	if err == nil {
 		return progressStep
@@ -102,8 +108,8 @@ func progressStep(config Config, flowName string, stepIndex int, step spec.Step,
 	}
 }
 
-func progressResultStep(config Config, flowName string, step spec.Step, previous *state.StepResult, bindings map[string]any, result state.StepResult, lookup func(*state.StepRef) *state.StepResult) progress.Step {
-	stepCtx := progressStepContext(config, flowName, result.Index, step, "", previous, bindings, lookup)
+func progressResultStep(config Config, flowName string, frameID string, step spec.Step, previous *state.StepResult, bindings map[string]any, result state.StepResult, lookup func(*state.StepRef) *state.StepResult) progress.Step {
+	stepCtx := progressStepContext(config, flowName, frameID, result.Index, step, "", previous, bindings, lookup)
 	progressStep, err := progress.StepFromResultWithContext(flowName, stepCtx, result)
 	if err == nil {
 		return progressStep
@@ -111,18 +117,19 @@ func progressResultStep(config Config, flowName string, step spec.Step, previous
 	return progress.StepFromResult(flowName, result)
 }
 
-func progressStepContext(config Config, flowName string, stepIndex int, step spec.Step, executionLabel string, previous *state.StepResult, bindings map[string]any, lookup func(*state.StepRef) *state.StepResult) executorapi.StepContext {
+func progressStepContext(config Config, flowName string, frameID string, stepIndex int, step spec.Step, executionLabel string, previous *state.StepResult, bindings map[string]any, lookup func(*state.StepRef) *state.StepResult) executorapi.StepContext {
 	return executorapi.StepContext{
-		RunID:     config.RunID,
-		RunDir:    config.RunDir,
-		SpecPath:  config.SpecPath,
-		Spec:      config.Spec,
-		Workspace: config.Workspace,
-		FlowName:  flowName,
-		StepIndex: stepIndex,
-		Step:      step,
-		Previous:  previous,
-		Runtime:   newStepRuntime(config, previous, lookup, bindings),
+		RunID:          config.RunID,
+		RunDir:         config.RunDir,
+		FrameID:        frameID,
+		SpecPath:       config.SpecPath,
+		Spec:           config.Spec,
+		Workspace:      config.Workspace,
+		FlowName:       flowName,
+		StepIndex:      stepIndex,
+		Step:           step,
+		Previous:       previous,
+		Runtime:        newStepRuntime(config, previous, lookup, bindings),
 		ExecutionLabel: executionLabel,
 	}
 }
@@ -153,7 +160,7 @@ func resumeActiveProgressSteps(config Config, plan *flowPlan, snapshot state.Sna
 			continue
 		}
 
-		steps = append(steps, progressStep(config, parentFlowName, frame.Return.StepIndex, parentFlow.Steps[frame.Return.StepIndex], "", lookup(frame.Previous), snapshot.Frames[index-1].Bindings, lookup))
+		steps = append(steps, progressStep(config, parentFlowName, snapshot.Frames[index-1].ID, frame.Return.StepIndex, parentFlow.Steps[frame.Return.StepIndex], "", lookup(frame.Previous), snapshot.Frames[index-1].Bindings, lookup))
 	}
 
 	return steps

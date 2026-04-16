@@ -17,6 +17,7 @@ type Runner struct {
 	registry     *Registry
 	progressSink progress.Sink
 	retryWait    func(context.Context, time.Duration) error
+	cleanupQueue map[stepCleanupKey]func() error
 }
 
 type RunnerOption func(*Runner)
@@ -48,8 +49,9 @@ func NewRunner(registry *Registry, options ...RunnerOption) *Runner {
 	}
 
 	runner := &Runner{
-		registry:  registry,
-		retryWait: waitWithContext,
+		registry:     registry,
+		retryWait:    waitWithContext,
+		cleanupQueue: map[stepCleanupKey]func() error{},
 	}
 	for _, option := range options {
 		if option != nil {
@@ -69,6 +71,8 @@ func (r *Runner) Resume(ctx context.Context, config Config) (state.Snapshot, err
 }
 
 func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state.Snapshot, error) {
+	r.cleanupQueue = map[stepCleanupKey]func() error{}
+
 	plan, err := buildFlowPlan(config.Spec)
 	if err != nil {
 		return state.Snapshot{}, err
@@ -199,7 +203,7 @@ func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state
 					continue
 				}
 
-				if snapshot, err = r.recordResultEvent(store, reporter, config, config.RunID, parentFrame.Flow, parentFrame.ID, parentStep, parentPrevious, parentFrame.Bindings, state.EventControlReturned, finalized, lookup); err != nil {
+				if snapshot, err = r.recordResultEvent(store, reporter, config, config.RunID, parentFrame.Flow, parentFrame.ID, parentStep, parentPrevious, parentFrame.Bindings, state.EventControlReturned, finalized, lookup, nil); err != nil {
 					return snapshot, err
 				}
 				continue
@@ -208,7 +212,7 @@ func (r *Runner) execute(ctx context.Context, config Config, resume bool) (state
 			returned := returnedControlResult(frame.Return, produced)
 			finalized := r.finalizeStepResult(config, responses, lookup, parentPrevious, parentFrame.Bindings, parentStep, returned)
 
-			if snapshot, err = r.recordResultEvent(store, reporter, config, config.RunID, parentFrame.Flow, parentFrame.ID, parentStep, parentPrevious, parentFrame.Bindings, state.EventControlReturned, finalized, lookup); err != nil {
+			if snapshot, err = r.recordResultEvent(store, reporter, config, config.RunID, parentFrame.Flow, parentFrame.ID, parentStep, parentPrevious, parentFrame.Bindings, state.EventControlReturned, finalized, lookup, nil); err != nil {
 				return snapshot, err
 			}
 			continue
@@ -245,6 +249,7 @@ func (r *Runner) dispatchStep(
 
 	var action stepAction
 	var result state.StepResult
+	var checkpointCleanup func() error
 	switch step.ExecutorType() {
 	case "call":
 		action, result = r.prepareStepAction(config, runtime, previous, stepIndex, step)
@@ -253,7 +258,7 @@ func (r *Runner) dispatchStep(
 	case "for_each":
 		action, result = r.prepareForEach(config, runtime, plan, responses, lookup, frame.Flow, previous, frame.Bindings, stepIndex, step)
 	default:
-		action, result = r.executeStep(ctx, reporter, config, responses, snapshot, frame.Flow, stepIndex, step, previous, frame.Bindings)
+		action, result, checkpointCleanup = r.executeStep(ctx, reporter, config, responses, snapshot, frame.Flow, frame.ID, stepIndex, step, previous, frame.Bindings)
 	}
 
 	if action.pushFrame != nil {
@@ -263,5 +268,38 @@ func (r *Runner) dispatchStep(
 			Frame: action.pushFrame,
 		})
 	}
-	return r.recordResultEvent(store, reporter, config, config.RunID, frame.Flow, frame.ID, step, previous, frame.Bindings, state.EventStepRecorded, result, lookup)
+	if checkpointCleanup != nil {
+		r.scheduleStepCleanup(frame.ID, stepIndex, checkpointCleanup)
+	}
+	return r.recordResultEvent(store, reporter, config, config.RunID, frame.Flow, frame.ID, step, previous, frame.Bindings, state.EventStepRecorded, result, lookup, func() error {
+		return r.runStepCleanup(frame.ID, result.Index)
+	})
+}
+
+type stepCleanupKey struct {
+	frameID   string
+	stepIndex int
+}
+
+func (r *Runner) scheduleStepCleanup(frameID string, stepIndex int, cleanup func() error) {
+	if cleanup == nil {
+		return
+	}
+	if r.cleanupQueue == nil {
+		r.cleanupQueue = map[stepCleanupKey]func() error{}
+	}
+	r.cleanupQueue[stepCleanupKey{frameID: frameID, stepIndex: stepIndex}] = cleanup
+}
+
+func (r *Runner) runStepCleanup(frameID string, stepIndex int) error {
+	if len(r.cleanupQueue) == 0 {
+		return nil
+	}
+	key := stepCleanupKey{frameID: frameID, stepIndex: stepIndex}
+	cleanup, ok := r.cleanupQueue[key]
+	if !ok {
+		return nil
+	}
+	delete(r.cleanupQueue, key)
+	return cleanup()
 }

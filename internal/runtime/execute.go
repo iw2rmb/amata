@@ -45,22 +45,23 @@ func (r *Runner) executeStep(
 	responses responseResolver,
 	snapshot state.Snapshot,
 	flowName string,
+	frameID string,
 	stepIndex int,
 	step spec.Step,
 	previous *state.StepResult,
 	bindings map[string]any,
-) (stepAction, state.StepResult) {
+) (stepAction, state.StepResult, func() error) {
 	runtime := newStepRuntime(config, previous, snapshot.StepByRef, bindings)
 	action, result := r.prepareStepAction(config, runtime, previous, stepIndex, step)
 	if result.Status != "" || action.pushFrame != nil {
-		return action, finalizeStatus(result)
+		return action, finalizeStatus(result), nil
 	}
 
 	tpmPolicy, failure := resolveCodexTPMPolicy(runtime, config.Spec.Defaults, stepIndex, step)
 	if failure != nil {
 		result.Status = state.StepStatusFailed
 		result.Error = failure
-		return stepAction{}, finalizeStatus(result)
+		return stepAction{}, finalizeStatus(result), nil
 	}
 
 	factory, ok := r.registry.Lookup(result.Type)
@@ -70,7 +71,7 @@ func (r *Runner) executeStep(
 			Code:    "unknown_executor",
 			Message: fmt.Sprintf("executor %q is not registered", result.Type),
 		}
-		return stepAction{}, result
+		return stepAction{}, result, nil
 	}
 
 	stepExecutor := factory()
@@ -80,14 +81,15 @@ func (r *Runner) executeStep(
 			Code:    "invalid_executor",
 			Message: fmt.Sprintf("executor %q returned nil", result.Type),
 		}
-		return stepAction{}, result
+		return stepAction{}, result, nil
 	}
+	checkpointCleanup := checkpointCleanup(stepExecutor, config.RunDir, frameID, stepIndex)
 
 	policy, failure := resolveStallPolicy(runtime, config.Spec.Defaults, stepIndex, step)
 	if failure != nil {
 		result.Status = state.StepStatusFailed
 		result.Error = failure
-		return stepAction{}, finalizeStatus(result)
+		return stepAction{}, finalizeStatus(result), nil
 	}
 
 	codexTPMRetryCount := 0
@@ -103,6 +105,7 @@ attemptLoop:
 		stepCtx := executorapi.StepContext{
 			RunID:          config.RunID,
 			RunDir:         config.RunDir,
+			FrameID:        frameID,
 			SpecPath:       config.SpecPath,
 			Spec:           config.Spec,
 			Workspace:      config.Workspace,
@@ -119,12 +122,12 @@ attemptLoop:
 			result = executeStepAttempt(ctx, stepExecutor, stepCtx, step)
 			finalized := r.finalizeStepResult(config, responses, snapshot.StepByRef, previous, bindings, step, result)
 			if retry, aborted := r.maybeRetryCodexTPM(ctx, stepIndex, step, finalized, tpmPolicy, &codexTPMRetryCount); aborted.Status != "" {
-				return stepAction{}, aborted
+				return stepAction{}, aborted, nil
 			} else if retry {
 				injectCodexTPMRetryPrompt = true
 				continue attemptLoop
 			}
-			return stepAction{}, finalized
+			return stepAction{}, finalized, checkpointCleanup
 		}
 
 		attemptCtx, cancel := context.WithCancel(ctx)
@@ -147,12 +150,12 @@ attemptLoop:
 				cancel()
 				finalized := r.finalizeStepResult(config, responses, snapshot.StepByRef, previous, bindings, step, result)
 				if retry, aborted := r.maybeRetryCodexTPM(ctx, stepIndex, step, finalized, tpmPolicy, &codexTPMRetryCount); aborted.Status != "" {
-					return stepAction{}, aborted
+					return stepAction{}, aborted, nil
 				} else if retry {
 					injectCodexTPMRetryPrompt = true
 					continue attemptLoop
 				}
-				return stepAction{}, finalized
+				return stepAction{}, finalized, checkpointCleanup
 			case <-probeTicker.C:
 				if activityProbe.ObserveChanged() {
 					lastActivityAt = time.Now().UTC()
@@ -182,11 +185,11 @@ attemptLoop:
 							Code:    "step_stalled",
 							Message: fmt.Sprintf("step %d stalled after %s and did not stop within %s after cancellation", stepIndex, policy.After, stallCancellationGraceWait),
 						},
-					})
+					}), nil
 				}
 				switch policy.Action {
 				case "rerun":
-					r.reportStallRerunProgress(reporter, config, snapshot, flowName, stepIndex, step, previous, bindings, policy.After, attempt)
+					r.reportStallRerunProgress(reporter, config, snapshot, flowName, frameID, stepIndex, step, previous, bindings, policy.After, attempt)
 					continue attemptLoop
 				case "error":
 					return stepAction{}, finalizeStatus(state.StepResult{
@@ -198,13 +201,13 @@ attemptLoop:
 							Code:    "step_stalled",
 							Message: fmt.Sprintf("step %d stalled after %s", stepIndex, policy.After),
 						},
-					})
+					}), nil
 				case "call":
 					action, result := r.stallCallAction(config, stepIndex, step, previous, policy.Flow)
 					if result.Status != "" || action.pushFrame == nil {
-						return stepAction{}, finalizeStatus(result)
+						return stepAction{}, finalizeStatus(result), nil
 					}
-					return action, state.StepResult{}
+					return action, state.StepResult{}, nil
 				default:
 					return stepAction{}, finalizeStatus(state.StepResult{
 						Index:  stepIndex,
@@ -215,7 +218,7 @@ attemptLoop:
 							Code:    "invalid_stall",
 							Message: fmt.Sprintf("step %d stall action %q is unsupported", stepIndex, policy.Action),
 						},
-					})
+					}), nil
 				}
 			case <-ctx.Done():
 				timer.Stop()
@@ -238,12 +241,27 @@ attemptLoop:
 							Code:    errCode,
 							Message: errMessage,
 						},
-					})
+					}), nil
 				}
 				finalized := r.finalizeStepResult(config, responses, snapshot.StepByRef, previous, bindings, step, result)
-				return stepAction{}, finalized
+				return stepAction{}, finalized, checkpointCleanup
 			}
 		}
+	}
+}
+
+func checkpointCleanup(stepExecutor executorapi.Executor, runDir string, frameID string, stepIndex int) func() error {
+	cleaner, ok := stepExecutor.(executorapi.CheckpointCleaner)
+	if !ok {
+		return nil
+	}
+	key := executorapi.CheckpointKey{
+		RunDir:    runDir,
+		FrameID:   frameID,
+		StepIndex: stepIndex,
+	}
+	return func() error {
+		return cleaner.CleanupCheckpoint(context.Background(), key)
 	}
 }
 
@@ -559,6 +577,7 @@ func (r *Runner) reportStallRerunProgress(
 	config Config,
 	snapshot state.Snapshot,
 	flowName string,
+	frameID string,
 	stepIndex int,
 	step spec.Step,
 	previous *state.StepResult,
@@ -585,7 +604,7 @@ func (r *Runner) reportStallRerunProgress(
 			Message: fmt.Sprintf("step %d stalled after %s (attempt %d/%s)", stepIndex, afterLabel, attempt, stallRerunAttemptsTotal),
 		},
 	}
-	failedStep := progressResultStep(config, flowName, step, previous, bindings, failedResult, lookup)
+	failedStep := progressResultStep(config, flowName, frameID, step, previous, bindings, failedResult, lookup)
 	failedStep.Descriptor = &progress.DescriptorData{
 		PrimaryText:         fmt.Sprintf("stalled after %s", afterLabel),
 		DetailText:          []string{attemptStatus + " scheduled"},
@@ -594,7 +613,7 @@ func (r *Runner) reportStallRerunProgress(
 	reporter.StepFinished(failedStep)
 
 	rerunExecutionLabel := stepExecutionLabel(snapshot.LastSequence+1, nextAttempt)
-	rerunStep := progressStep(config, flowName, stepIndex, step, rerunExecutionLabel, previous, bindings, lookup)
+	rerunStep := progressStep(config, flowName, frameID, stepIndex, step, rerunExecutionLabel, previous, bindings, lookup)
 	if rerunStep.Descriptor == nil {
 		rerunStep.Descriptor = &progress.DescriptorData{}
 	}

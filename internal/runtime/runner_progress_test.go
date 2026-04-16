@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -14,44 +16,65 @@ import (
 	executorapi "github.com/iw2rmb/amata/internal/executor"
 )
 
+type cleanupAwareFakeExecutor struct {
+	calls             *[]string
+	execute           func(executorapi.StepContext) state.StepResult
+	cleanupCheckpoint func(context.Context, executorapi.CheckpointKey) error
+}
+
+func (e *cleanupAwareFakeExecutor) Execute(_ context.Context, ctx executorapi.StepContext) state.StepResult {
+	*e.calls = append(*e.calls, ctx.Step.ID)
+	if e.execute != nil {
+		return e.execute(ctx)
+	}
+	return state.StepResult{Status: state.StepStatusSucceeded}
+}
+
+func (e *cleanupAwareFakeExecutor) CleanupCheckpoint(ctx context.Context, key executorapi.CheckpointKey) error {
+	if e.cleanupCheckpoint == nil {
+		return nil
+	}
+	return e.cleanupCheckpoint(ctx, key)
+}
+
 func TestRunnerEmitsLiveProgressForNestedSwitchAndCall(t *testing.T) {
 	t.Parallel()
 
 	config := testConfig(t, sampleDoc(map[string]spec.Flow{
-			"main": {
-				Steps: []spec.Step{
-					{
-						ID:   "switch-step",
-						Type: "switch",
-						Fields: map[string]any{
-							"cases": []any{
-								map[string]any{
-									"when": true,
-									"steps": []any{
-										map[string]any{
-											"id":   "branch-step",
-											"type": "fake",
-										},
+		"main": {
+			Steps: []spec.Step{
+				{
+					ID:   "switch-step",
+					Type: "switch",
+					Fields: map[string]any{
+						"cases": []any{
+							map[string]any{
+								"when": true,
+								"steps": []any{
+									map[string]any{
+										"id":   "branch-step",
+										"type": "fake",
 									},
 								},
 							},
 						},
 					},
-					{
-						ID:   "call-step",
-						Type: "call",
-						Fields: map[string]any{
-							"flow": "child",
-						},
+				},
+				{
+					ID:   "call-step",
+					Type: "call",
+					Fields: map[string]any{
+						"flow": "child",
 					},
 				},
 			},
-			"child": {
-				Steps: []spec.Step{
-					{ID: "child-step", Type: "fake"},
-				},
+		},
+		"child": {
+			Steps: []spec.Step{
+				{ID: "child-step", Type: "fake"},
 			},
-		}))
+		},
+	}))
 
 	mustPersist(t, config)
 
@@ -142,6 +165,91 @@ func TestRunnerEmitsLiveProgressForNestedSwitchAndCall(t *testing.T) {
 	}
 	if got, want := completedStepIDs(events[8].Snapshot), []string{"branch-step", "switch-step", "child-step", "call-step"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("completed steps after call finish = %#v, want %#v", got, want)
+	}
+}
+
+func TestRunnerProgressFrameIDAndCheckpointCleanup(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t, sampleDoc(map[string]spec.Flow{
+		"main": {
+			Steps: []spec.Step{
+				{ID: "checkpointed-step", Type: "fake"},
+			},
+		},
+	}))
+	mustPersist(t, config)
+
+	registry := builtinRegistry()
+	calls := []string{}
+	var executeFrameID string
+	var cleanupKey executorapi.CheckpointKey
+	cleanupCallCount := 0
+	cleanupSawRecorded := false
+
+	if err := registry.Register("fake", func() executorapi.Executor {
+		return &cleanupAwareFakeExecutor{
+			calls: &calls,
+			execute: func(ctx executorapi.StepContext) state.StepResult {
+				executeFrameID = ctx.FrameID
+				return state.StepResult{Status: state.StepStatusSucceeded}
+			},
+			cleanupCheckpoint: func(_ context.Context, key executorapi.CheckpointKey) error {
+				cleanupCallCount++
+				cleanupKey = key
+
+				snapshotData, err := os.ReadFile(state.NewStore(config.RunDir).SnapshotPath())
+				if err != nil {
+					return err
+				}
+
+				var snapshot state.Snapshot
+				if err := json.Unmarshal(snapshotData, &snapshot); err != nil {
+					return err
+				}
+				for _, step := range snapshot.Steps {
+					if step.FrameID == key.FrameID && step.Index == key.StepIndex {
+						cleanupSawRecorded = true
+						break
+					}
+				}
+				return nil
+			},
+		}
+	}); err != nil {
+		t.Fatalf("register fake executor: %v", err)
+	}
+
+	snapshot, err := NewRunner(registry).Run(context.Background(), config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if snapshot.Status != state.RunStatusSucceeded {
+		t.Fatalf("snapshot status = %q, want succeeded", snapshot.Status)
+	}
+	if got := len(snapshot.Steps); got != 1 {
+		t.Fatalf("step count = %d, want 1", got)
+	}
+	if executeFrameID == "" {
+		t.Fatalf("executor frame id = %q, want non-empty", executeFrameID)
+	}
+	if got, want := snapshot.Steps[0].FrameID, executeFrameID; got != want {
+		t.Fatalf("step frame id = %q, want %q", got, want)
+	}
+	if got, want := cleanupCallCount, 1; got != want {
+		t.Fatalf("cleanup call count = %d, want %d", got, want)
+	}
+	if got, want := cleanupKey.FrameID, executeFrameID; got != want {
+		t.Fatalf("cleanup frame id = %q, want %q", got, want)
+	}
+	if got, want := cleanupKey.StepIndex, snapshot.Steps[0].Index; got != want {
+		t.Fatalf("cleanup step index = %d, want %d", got, want)
+	}
+	if got, want := cleanupKey.RunDir, config.RunDir; got != want {
+		t.Fatalf("cleanup run dir = %q, want %q", got, want)
+	}
+	if !cleanupSawRecorded {
+		t.Fatalf("cleanup observed no durable step record for frame %q step %d", cleanupKey.FrameID, cleanupKey.StepIndex)
 	}
 }
 
