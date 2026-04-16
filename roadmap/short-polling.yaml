@@ -13,7 +13,7 @@ documentation:
 done: false
 reviews: []
 items:
-  - done: false
+  - done: true
     reviews: []
     label: "1"
     summary: "Add polling.short schema and spec validation wiring so amata validate accepts polling.short and rejects invalid shapes."
