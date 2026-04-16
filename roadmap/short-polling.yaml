@@ -99,3 +99,4 @@ items:
       - "Run go test ./internal/runtime -run 'TestRunner.*Progress|TestRunnerBuiltinsShellCapturesArtifactsAndNormalizesCWD' to confirm runtime progress and adjacent built-ins stay unchanged after builtin registration."
     reasoning: "high"
     cfp: 10
+    commit: 35533c5
