@@ -1,0 +1,81 @@
+---
+policy: "~/.codex/policies/composing-roadmaps.md"
+schema: "~/.codex/policies/roadmap.schema.json"
+title: "Implement polling.short contract"
+scope: "Add polling.short schema validation and runtime executor with deterministic short-polling resume behavior."
+documentation:
+  - "design/short-polling.md"
+  - "internal/runtime/builtins.go"
+  - "internal/spec/step_schemas.go"
+  - "internal/runtime/runner.go"
+  - "internal/runtime/runner_progress.go"
+  - "internal/state/store.go"
+done: false
+reviews: []
+items:
+  - done: false
+    reviews: []
+    label: "1"
+    summary: "Add polling.short schema and spec validation wiring so amata validate accepts polling.short and rejects invalid shapes."
+    classification: "determined"
+    components:
+      - "schemas/polling.short.amata.schema.json"
+      - "internal/spec/step_schemas.go"
+      - "internal/spec/spec_test.go"
+    baseline:
+      - "schemas/shell.amata.schema.json"
+      - "internal/spec/step_schemas.go"
+      - "internal/spec/spec_test.go"
+    delta:
+      - "[additive] built-in step schema catalog excludes polling.short -> built-in step schema catalog includes polling.short"
+      - "[additive] spec validation coverage omits polling.short contract checks -> spec validation coverage includes polling.short acceptance and rejection cases"
+    implementation:
+      - "Create schemas/polling.short.amata.schema.json with additionalProperties: false at each object level and explicit defaults for request.method=POST, request.timeout=30s, confirm.method=GET, confirm.interval=3s, confirm.timeout=20m, and confirm.request_timeout=30s."
+      - "Require done_when and success_when, require both to be string-or-expr values, and keep request.url and confirm.url required fields."
+      - "Register polling.short in internal/spec/step_schemas.go builtinStepSchemaNames and keep the list deterministically sorted."
+      - "Extend internal/spec/spec_test.go with positive polling.short workflow loading and negative cases for missing required fields and unknown keys."
+    verification:
+      - "Run go test ./internal/spec -run 'TestLoadRejectsInvalidBuiltInStepSchemas|TestLoadAcceptsEmbeddedBuiltInStepSchemas' and ensure polling.short cases pass."
+      - "Confirm the same test run still validates existing shell, switch, for_each, git.inspect, and git.commit step schema paths unchanged."
+    reasoning: "medium"
+    cfp: 8
+
+  - done: false
+    reviews: []
+    label: "2"
+    summary: "Implement polling.short executor with deterministic request-confirm behavior, durable checkpoint resume, and strict failure codes."
+    classification: "determined"
+    components:
+      - "internal/executor/pollingshort/pollingshort.go"
+      - "internal/executor/pollingshort/http.go"
+      - "internal/executor/pollingshort/checkpoint.go"
+      - "internal/executor/pollingshort/pollingshort_test.go"
+      - "internal/executor/executor.go"
+      - "internal/runtime/execute.go"
+      - "internal/runtime/runner_progress.go"
+      - "internal/runtime/runner_progress_test.go"
+      - "internal/runtime/builtins.go"
+      - "internal/runtime/runner_test.go"
+    baseline:
+      - "internal/runtime/builtins.go"
+      - "internal/executor/executor.go"
+      - "internal/runtime/execute.go"
+      - "internal/runtime/runner_progress.go"
+      - "internal/executor/shell/shell.go"
+    delta:
+      - "[additive] runtime has no polling.short executor registration -> runtime builtin registry wires polling.short executor factory"
+      - "[additive] executor StepContext does not expose frame identity -> executor StepContext includes durable frame_id for checkpoint keying"
+      - "[additive] runtime lacks generic request-plus-confirm polling executor -> polling.short executes one request then confirm polling with deterministic stop, success, timeout, and resume semantics"
+    implementation:
+      - "Add internal/executor/pollingshort package and implement exactly one request call followed by confirm polling; execute the first confirm attempt immediately after a successful request and apply confirm.interval only between later attempts."
+      - "Resolve confirm.url from runtime context so request response fields can drive confirm endpoint templating, and decode response bodies deterministically: empty or whitespace to null, valid JSON to parsed JSON, otherwise raw string."
+      - "Evaluate done_when and success_when on each confirm result; enforce boolean-only outcomes and return invalid_done_when or invalid_success_when when evaluation fails or resolves to a non-boolean."
+      - "Fail with polling_unsuccessful when done_when is true and success_when is false; fail with confirm_timeout when confirm.timeout wall-clock budget is exhausted; bound each confirm HTTP timeout by remaining confirm timeout budget."
+      - "Persist checkpoint state atomically with tmp plus rename after successful request and after every successful confirm using key scope frame_id and step_index; on startup: no checkpoint runs request, valid non-terminal checkpoint resumes confirm without re-running request, valid terminal checkpoint returns terminal result without extra HTTP, unreadable or invalid checkpoint fails invalid_checkpoint."
+      - "Clean checkpoint files only after durable step_recorded for the same frame_id and step_index; keep runtime-owned failures (step_stalled, invalid_stall, deadline_exceeded, canceled) unchanged."
+      - "Register polling.short in internal/runtime/builtins.go and add focused tests for builtin registration, StepContext frame_id propagation, request/confirm success, timeout, transport failure, status failure, unsuccessful terminal status, checkpoint resume branches, terminal resume without extra HTTP, and malformed checkpoint handling."
+    verification:
+      - "Run go test ./internal/executor/pollingshort ./internal/runtime -run 'TestBuiltinRegistration|TestRunner.*Progress|TestPollingShort.*' and ensure all polling.short and frame_id cases pass."
+      - "Run go test ./internal/runtime -run 'TestRunnerBuiltinsExprAndWhenSkip|TestRunnerBuiltinsShellCapturesArtifactsAndNormalizesCWD' to prove adjacent built-in executor behavior is unchanged."
+    reasoning: "high"
+    cfp: 14
