@@ -127,10 +127,13 @@ download:
   headers: {}                 # optional map
   timeout: 5m                 # optional
   mode: "0644"               # optional, default 0644
+  fail_if_exists: false       # optional, default false
 ```
 
 Rules:
 - Fail on non-2xx response.
+- If `fail_if_exists=true` and target file already exists, fail without writing.
+- If `fail_if_exists=false`, replace existing target atomically.
 - Write file atomically in same parent directory (temp file + flush + rename).
 - Create parent directories when missing.
 - Clean up temp file on error paths.
@@ -140,6 +143,7 @@ Deterministic failure codes:
 - `invalid_download`
 - `download_failed`
 - `download_http_status`
+- `download_file_exists`
 - `download_write_failed`
 
 ## Implementation Notes
