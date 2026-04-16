@@ -69,7 +69,7 @@ items:
     reasoning: "medium"
     cfp: 8
     commit: c864257
-  - done: false
+  - done: true
     reviews: []
     label: "3"
     summary: "Implement polling.short request-confirm executor with deterministic HTTP semantics, checkpoint resume, and builtin registration."
