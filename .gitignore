@@ -4,3 +4,4 @@ dagu_s*
 __pycache__/
 *.pyc
 .claude
+go-optimization-guide-main/
