@@ -37,3 +37,4 @@ These rules were written by the agent after an hours-long session where it faile
 - Make uncertainty explicit. If unsure about behavior or history, say so and describe the next concrete checks instead of giving confident but wrong statements.
 - Keep debug hooks temporary and obvious. Any debug env vars, logs, or helper code added during debugging must be clearly marked and removed when no longer needed.
 - When a design decision is made, update the design itself to assume it; do not add “Decision:” meta text. Keep “Open questions” limited to unresolved items.
+- In code review output, do not report file tracked/untracked/staged status as a finding or warning. Treat git status shape as workflow state, not code correctness.
