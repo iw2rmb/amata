@@ -12,7 +12,7 @@ amata resume <run-id> [--out <auto|jsonl>]
 amata validate <spec.yaml>
 ```
 
-The current implementation includes durable on-disk run state, one shared expression/template runtime, response value and schema handling, eight built-in executors (`shell`, `expr`, `assert`, `codex`, `claude`, `crush`, `git.inspect`, and `git.commit`), and first-version control blocks (`switch`, `call`, and `for_each`) over a deterministically planned resumable flow stack.
+The current implementation includes durable on-disk run state, one shared expression/template runtime, response value and schema handling, ten built-in executors (`shell`, `expr`, `assert`, `data.get`, `codex`, `claude`, `crush`, `git.inspect`, `git.commit`, and `polling.short`), and first-version control blocks (`switch`, `call`, and `for_each`) over a deterministically planned resumable flow stack.
 
 ## Workflow Spec
 
@@ -61,6 +61,7 @@ Current behavior:
 - Additional built-in shorthands expand to their canonical field form:
   - `call: <flow>` -> `type: call` plus `flow: <flow>`
   - `shell: <command>` -> `type: shell` plus `command: <command>`
+  - `data.get: <file>` -> `type: data.get` plus `file: <file>`
   - `switch: <cases>` -> `type: switch` plus `cases: <cases>`
   - `codex: <prompt>` -> `type: codex` plus `prompt: <prompt>`
   - `claude: <prompt>` -> `type: claude` plus `prompt: <prompt>`
@@ -176,8 +177,9 @@ Resume rules:
 - Otherwise `resume` appends `run_resumed` and continues from the first missing step.
 
 Step context rules:
-- Executors receive the normalized workspace, run directory, spec path, current step, and the last succeeded step result.
+- Executors receive the normalized workspace, run directory, frame id, spec path, current step, and the last succeeded step result.
 - Skipped and failed steps are never exposed as the previous step context.
+- Executor-managed checkpoint cleanup runs only after the matching `step_recorded` event is durably appended.
 
 ## Live Progress Stream
 
@@ -210,6 +212,7 @@ Renderer metadata guarantees:
 - `switch` guarantees the case count while running, then either `case <n>` or `no match` in the completed-line summary.
 - `for_each` guarantees the resolved item count in `primary_text` and in the completed-line summary.
 - `shell` guarantees the resolved command in `primary_text` and `exit <code>` in the completed-line summary.
+- `data.get` guarantees the resolved file path in `primary_text`.
 - `assert` guarantees the resolved assertion text in `primary_text`, optional resolved message lines in `detail_text`, and `passed` or `failed` in the completed-line summary.
 - `codex`, `claude`, and `crush` guarantee the resolved model in `primary_text`, optional resolved reasoning alongside it when configured, and resolved prompt text in `detail_text`.
 - `git.inspect` guarantees the resolved `cwd` while running, then a completed-line summary of `clean`, `not repo`, or `<n> files`, with changed file paths in `detail_text` when applicable.
@@ -303,6 +306,27 @@ Behavior:
 - `true` succeeds with `value: true`.
 - `false` fails with code `assertion_failed`.
 - `message`, when present, resolves through the shared runtime and becomes the failure message.
+
+### `data.get`
+
+Supported fields:
+- `type: data.get`
+- `data.get`: shorthand for `file`
+- `file`: required expression-bearing string
+- `format`: optional expression-bearing string (`json`, `yaml`, or `yml`)
+- `query`: optional expression-bearing string (gojq expression, defaults to `.`)
+- `default`: optional fallback value resolved through the shared runtime when the query returns no results
+- `cwd`: optional string
+
+Behavior:
+- `file`, `format`, `query`, and `cwd` resolve through the shared expression/template runtime before execution.
+- Relative `file` paths resolve from `cwd` (or `workspace.root` when `cwd` is omitted).
+- `format` defaults from the file extension (`.json` -> JSON, `.yaml`/`.yml` -> YAML, otherwise YAML).
+- The executor parses the document and runs `query` through `gojq`.
+- The query must produce zero or one result. Multiple results fail with `query_failed`.
+- When the query yields no result and `default` is present, the step succeeds with the resolved `default` value.
+- When the query yields no result and `default` is omitted, the step fails with `query_empty`.
+- Failure codes are deterministic by stage: `invalid_file`, `read_failed`, `invalid_format`, `parse_failed`, `invalid_query`, `query_failed`, and `invalid_default`.
 
 ### `codex`
 
@@ -411,6 +435,42 @@ Behavior:
 - When included paths remain but no stageable paths are left after pathspec sanitization, the step succeeds with `value.committed: false`, `value.commit: null`, and `value.paths: []`.
 - When stageable paths remain but staging them produces no staged diff, the step succeeds with `value.committed: false`, `value.commit: null`, and `value.paths` set to staged repo-relative paths.
 
+### `polling.short`
+
+Supported fields:
+- `type: polling.short`
+- `request.url`: required string or expression
+- `request.method`: optional string or expression (default `POST`)
+- `request.headers`: optional map of string or expression values (default `{}`)
+- `request.body`: optional value
+- `request.timeout`: optional string or expression duration (default `30s`)
+- `confirm.url`: required string or expression
+- `confirm.method`: optional string or expression (default `GET`)
+- `confirm.headers`: optional map of string or expression values (default `{}`)
+- `confirm.interval`: optional string or expression duration (default `3s`)
+- `confirm.timeout`: optional string or expression duration (default `20m`)
+- `confirm.request_timeout`: optional string or expression duration (default `30s`)
+- `done_when`: required expression-bearing value that must resolve to boolean
+- `success_when`: required expression-bearing value that must resolve to boolean
+
+Behavior:
+- The executor runs one `request` call, then polls `confirm` until `done_when` becomes `true`.
+- The first `confirm` attempt runs immediately after a successful `request`; `confirm.interval` applies only between later attempts.
+- `confirm.url` may template from request/confirm state through `ctx.value`, where the current polling value is:
+  - `ctx.value.request.response.status|headers|value`
+  - `ctx.value.confirm.attempts`
+  - `ctx.value.confirm.response.status|headers|value`
+- HTTP response body decoding is deterministic: empty/whitespace body -> `null`; valid JSON -> decoded JSON value; otherwise raw string.
+- `request` and each `confirm` call must return HTTP 2xx; non-2xx responses fail with `request_http_status` or `confirm_http_status`.
+- Confirm timeout is wall-clock from the first successful request and persists across resume. Per-attempt confirm timeout is capped by remaining confirm budget.
+- Checkpoints are persisted after a successful request, after each successful confirm attempt, and after terminal success/failure, keyed by `(run_dir, frame_id, step_index)`.
+- Resume startup behavior is deterministic: missing checkpoint runs request; valid non-terminal checkpoint resumes confirm without rerunning request; valid terminal checkpoint returns terminal result without extra HTTP; invalid or unreadable checkpoint fails with `invalid_checkpoint`.
+- Step value shape is:
+  - `value.request.response.status|headers|value`
+  - `value.confirm.attempts`
+  - `value.confirm.response.status|headers|value`
+- Deterministic failure codes are `invalid_request`, `invalid_confirm`, `request_failed`, `request_http_status`, `confirm_failed`, `confirm_http_status`, `invalid_done_when`, `invalid_success_when`, `polling_unsuccessful`, `confirm_timeout`, and `invalid_checkpoint`.
+
 ## Response Resolution and Schema Validation
 
 Steps may declare:
@@ -469,7 +529,7 @@ stall:
 ```
 
 Current behavior:
-- `stall` is optional and applies to normal executor steps such as `shell`, `codex`, `claude`, `crush`, `git.inspect`, and `git.commit`.
+- `stall` is optional and applies to normal executor steps such as `shell`, `data.get`, `codex`, `claude`, `crush`, `git.inspect`, `git.commit`, and `polling.short`.
 - String form defaults to `after: 15` minutes.
 - Object form defaults to `type: rerun` and `after: 15` minutes when omitted.
 - `after` accepts either a numeric minute value such as `15` or a duration string such as `30s` or `5m`.
