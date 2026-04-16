@@ -136,6 +136,10 @@ Runtime-owned failure codes (outside polling HTTP logic):
 2. `polling.short` executor.
 - Expected result: deterministic polling flow with checkpoint-based resume.
 - Testable outcome: tests cover success, timeout, unsuccessful terminal status, transport/status failures, decode behavior, resume after checkpointed successful request without re-running request, malformed checkpoint behavior, terminal resume without extra HTTP.
+- Test notes:
+  - Verify first `confirm` attempt is immediate after successful `request`; `confirm.interval` is applied only between subsequent attempts.
+  - Verify `done_when` and `success_when` must resolve to booleans and fail with `invalid_done_when` / `invalid_success_when` when resolve/eval fails or result is non-boolean.
+  - Verify resume startup behavior for all four checkpoint branches: no checkpoint, valid non-terminal checkpoint, valid terminal checkpoint, invalid/unreadable checkpoint.
 
 ## Acceptance Criteria
 - `polling.short` is generic and ploy-agnostic.
