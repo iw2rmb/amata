@@ -39,7 +39,7 @@ items:
       - "Confirm the same test run still validates existing shell, switch, for_each, git.inspect, and git.commit step schema paths unchanged."
     reasoning: "medium"
     cfp: 8
-
+    commit: 581a207
   - done: false
     reviews: []
     label: "2"
