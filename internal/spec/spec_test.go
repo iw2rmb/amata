@@ -199,6 +199,44 @@ func TestLoadRejectsInvalidBuiltInStepSchemas(t *testing.T) {
 `,
 			wantFragment: "steps",
 		},
+		{
+			name: "polling short missing done when",
+			steps: `
+      - type: polling.short
+        request:
+          url: https://example.com/request
+        confirm:
+          url: https://example.com/confirm
+        success_when: "true"
+`,
+			wantFragment: "done_when",
+		},
+		{
+			name: "polling short missing request url",
+			steps: `
+      - type: polling.short
+        request: {}
+        confirm:
+          url: https://example.com/confirm
+        done_when: "true"
+        success_when: "true"
+`,
+			wantFragment: "url",
+		},
+		{
+			name: "polling short unknown key",
+			steps: `
+      - type: polling.short
+        request:
+          url: https://example.com/request
+        confirm:
+          url: https://example.com/confirm
+        done_when: "true"
+        success_when: "true"
+        unexpected: true
+`,
+			wantFragment: "unexpected",
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -267,6 +305,16 @@ flows:
           - type: git.inspect
             cwd:
               expr: "ctx.workspace.root"
+      - type: polling.short
+        request:
+          url: https://example.com/request
+        confirm:
+          url:
+            expr: '"https://example.com/status"'
+        done_when:
+          expr: "true"
+        success_when:
+          expr: "true"
   next:
     steps:
       - type: git.commit
@@ -285,8 +333,8 @@ flows:
 		t.Fatalf("load spec: %v", err)
 	}
 
-	if got := len(loaded.Spec.Flows["main"].Steps); got != 3 {
-		t.Fatalf("main step count = %d, want 3", got)
+	if got := len(loaded.Spec.Flows["main"].Steps); got != 4 {
+		t.Fatalf("main step count = %d, want 4", got)
 	}
 }
 

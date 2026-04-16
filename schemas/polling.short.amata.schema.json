@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "type": {
+      "const": "polling.short"
+    },
+    "when": true,
+    "expect": true,
+    "response": {
+      "$ref": "common.response-config.amata.schema.json"
+    },
+    "stall": {
+      "$ref": "common.stall.amata.schema.json"
+    },
+    "request": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "$ref": "common.string-or-expr.amata.schema.json"
+        },
+        "method": {
+          "$ref": "common.string-or-expr.amata.schema.json",
+          "default": "POST"
+        },
+        "headers": {
+          "$ref": "#/$defs/stringOrExprMap",
+          "default": {}
+        },
+        "body": true,
+        "timeout": {
+          "$ref": "common.string-or-expr.amata.schema.json",
+          "default": "30s"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "additionalProperties": false
+    },
+    "confirm": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "$ref": "common.string-or-expr.amata.schema.json"
+        },
+        "method": {
+          "$ref": "common.string-or-expr.amata.schema.json",
+          "default": "GET"
+        },
+        "headers": {
+          "$ref": "#/$defs/stringOrExprMap",
+          "default": {}
+        },
+        "interval": {
+          "$ref": "common.string-or-expr.amata.schema.json",
+          "default": "3s"
+        },
+        "timeout": {
+          "$ref": "common.string-or-expr.amata.schema.json",
+          "default": "20m"
+        },
+        "request_timeout": {
+          "$ref": "common.string-or-expr.amata.schema.json",
+          "default": "30s"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "additionalProperties": false
+    },
+    "done_when": {
+      "$ref": "common.string-or-expr.amata.schema.json"
+    },
+    "success_when": {
+      "$ref": "common.string-or-expr.amata.schema.json"
+    }
+  },
+  "required": [
+    "type",
+    "request",
+    "confirm",
+    "done_when",
+    "success_when"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "stringOrExprMap": {
+      "type": "object",
+      "patternProperties": {
+        "^.*$": {
+          "$ref": "common.string-or-expr.amata.schema.json"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
