@@ -21,7 +21,7 @@ Current amata has no built-in HTTP request/poll executor. Shell+curl works but i
 ## Goals
 - Generic and reusable polling executor.
 - Deterministic success/failure behavior.
-- Safe resume without replaying completed external operations.
+- Safe resume using step checkpoint records.
 
 ## Non-goals
 - Embedding ploy domain logic in amata core.
@@ -41,7 +41,7 @@ polling.short:
     method: POST            # optional, default POST
     headers: {}             # optional map
     body: {}                # optional any
-    timeout: 30s            # optional
+    timeout: 30s            # optional, default 30s
   confirm:
     url: "{{ ctx.value.request.response.value.status_url }}"
     method: GET             # optional, default GET
@@ -55,9 +55,11 @@ polling.short:
 
 Rules:
 - Execute exactly one `request`, then repeat `confirm` until terminal.
+- The first `confirm` attempt runs immediately after successful `request`; `confirm.interval` applies only between subsequent `confirm` attempts.
 - `confirm.url` may reference request response fields via runtime context.
-- `done_when` decides when polling stops.
-- `success_when` decides final step status after `done_when=true`.
+- `request.timeout` defaults to `30s` when omitted.
+- `done_when` decides when polling stops and must resolve to a boolean.
+- `success_when` decides final step status after `done_when=true` and must resolve to a boolean.
 - `done_when=true` and `success_when=false` must fail with `polling_unsuccessful`.
 - If `confirm.timeout` elapses before `done_when=true`, fail with `confirm_timeout`.
 - Confirm loop timeout is wall-clock and must remain consistent across resume.
@@ -88,16 +90,14 @@ Resume/checkpoint invariants:
 - Persist checkpoint after successful `request` and after each successful `confirm`.
 - Checkpoint must be atomic (`tmp + rename`) and scoped by `(frame_id, step_index)`.
 - Checkpoint must include enough data to:
-  - detect whether invocation matches current resolved input (`invocation_key`),
-  - continue confirm polling without replaying `request`,
+  - continue confirm polling without re-running `request` after a checkpointed successful `request`,
   - return terminal result without extra HTTP calls when already terminal,
   - preserve confirm-timeout continuity across resume.
 - Startup behavior:
   - no checkpoint -> execute `request`.
-  - valid matching non-terminal checkpoint -> skip `request`, continue `confirm`.
-  - valid matching terminal checkpoint -> return checkpointed terminal result.
+  - valid non-terminal checkpoint -> skip `request`, continue `confirm`.
+  - valid terminal checkpoint -> return checkpointed terminal result.
   - checkpoint exists but invalid/unreadable -> fail `invalid_checkpoint`.
-  - valid checkpoint but invocation mismatch -> ignore as stale; execute fresh `request`.
 - Checkpoint cleanup is runtime-owned and only after durable `step_recorded` for same `(frame_id, step_index)`.
 
 Deterministic failure codes:
@@ -107,11 +107,17 @@ Deterministic failure codes:
 - `request_http_status`
 - `confirm_failed`
 - `confirm_http_status`
-- `invalid_done_when`
-- `invalid_success_when`
+- `invalid_done_when` (cannot evaluate/resolve `done_when`, or result is not boolean)
+- `invalid_success_when` (cannot evaluate/resolve `success_when`, or result is not boolean)
 - `polling_unsuccessful`
 - `confirm_timeout`
 - `invalid_checkpoint`
+
+Runtime-owned failure codes (outside polling HTTP logic):
+- `step_stalled`
+- `invalid_stall`
+- `deadline_exceeded`
+- `canceled`
 
 ## Implementation Notes
 - Register executor in `../internal/runtime/builtins.go`.
@@ -129,20 +135,20 @@ Deterministic failure codes:
 
 2. `polling.short` executor.
 - Expected result: deterministic polling flow with checkpoint-based resume.
-- Testable outcome: tests cover success, timeout, unsuccessful terminal status, transport/status failures, decode behavior, resume without request replay, stale/malformed checkpoint behavior, terminal resume without extra HTTP.
+- Testable outcome: tests cover success, timeout, unsuccessful terminal status, transport/status failures, decode behavior, resume after checkpointed successful request without re-running request, malformed checkpoint behavior, terminal resume without extra HTTP.
 
 ## Acceptance Criteria
 - `polling.short` is generic and ploy-agnostic.
 - `polling.short` supports `confirm.url` templating from request response.
 - `polling.short` evaluates `done_when`/`success_when` deterministically.
-- `polling.short` resume does not replay `request` when checkpoint matches.
+- `polling.short` resume does not re-run `request` when checkpoint records a successful request.
 - `polling.short` resume returns terminal checkpoint result without extra HTTP calls.
 - `polling.short` confirm timeout is consistent across resume.
 - `amata validate` accepts `polling.short`.
 
 ## Risks
 - Weak `done_when`/`success_when` expressions can make workflows brittle.
-- Poor checkpoint keying can cause stale reuse or unnecessary replay.
+- Poor checkpoint keying can bind to the wrong step record.
 - Provider-specific polling behavior may require per-provider interval tuning.
 
 ## References
