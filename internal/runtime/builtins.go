@@ -10,6 +10,7 @@ import (
 	exprexec "github.com/iw2rmb/amata/internal/executor/expr"
 	gitcommitexec "github.com/iw2rmb/amata/internal/executor/gitcommit"
 	gitinspectexec "github.com/iw2rmb/amata/internal/executor/gitinspect"
+	pollingshortexec "github.com/iw2rmb/amata/internal/executor/pollingshort"
 	shellexec "github.com/iw2rmb/amata/internal/executor/shell"
 )
 
@@ -24,6 +25,7 @@ func builtinRegistry() *Registry {
 	mustRegister(registry, "crush", crushexec.New)
 	mustRegister(registry, "git.inspect", gitinspectexec.New)
 	mustRegister(registry, "git.commit", gitcommitexec.New)
+	mustRegister(registry, "polling.short", pollingshortexec.New)
 	return registry
 }
 
