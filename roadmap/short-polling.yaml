@@ -68,6 +68,7 @@ items:
       - "Run go test ./internal/runtime -run 'TestRunnerBuiltinsExprAndWhenSkip|TestRunnerBuiltinsShellCapturesArtifactsAndNormalizesCWD' to prove adjacent built-in executor behavior is unchanged."
     reasoning: "medium"
     cfp: 8
+    commit: c864257
   - done: false
     reviews: []
     label: "3"
