@@ -495,31 +495,35 @@ func TestRunnerStallRerunDoesNotTriggerWhenStepKeepsEmittingOutput(t *testing.T)
 func TestRunnerCodexTPMRetryOnRateLimit(t *testing.T) {
 	t.Parallel()
 
-	rateLimitFailure := func(requestID string) state.StepResult {
+	rateLimitFailure := func(requestID string, sessionID string) state.StepResult {
+		providerError := map[string]any{
+			"message": "exceeded retry limit, last status: 429 Too Many Requests, request id: " + requestID,
+		}
+		if sessionID != "" {
+			providerError["session_id"] = sessionID
+		}
 		return state.StepResult{
 			Status: state.StepStatusFailed,
 			Error: &state.Failure{
 				Code:    "provider_crashed",
 				Message: "codex failed",
 				Details: map[string]any{
-					"provider_error": map[string]any{
-						"message": "exceeded retry limit, last status: 429 Too Many Requests, request id: " + requestID,
-					},
+					"provider_error": providerError,
 				},
 			},
 		}
 	}
-	configuredRetryPreamble := "> retry preamble\n\n"
 
 	testCases := []struct {
-		name               string
-		defaults           map[string]any
-		results            []state.StepResult
-		wantAttempts       int
-		wantSleepCalls     int
-		wantSuccess        bool
-		wantFailureCode    string
-		wantPromptPrefixes []string
+		name                       string
+		defaults                   map[string]any
+		results                    []state.StepResult
+		wantAttempts               int
+		wantSleepCalls             int
+		wantSuccess                bool
+		wantFailureCode            string
+		wantContinuationSessionIDs []string
+		wantContinuationPrompts    []string
 	}{
 		{
 			name: "retries once when defaults tpm is set and first failure is 429",
@@ -527,38 +531,39 @@ func TestRunnerCodexTPMRetryOnRateLimit(t *testing.T) {
 				"tpm": 60000,
 			},
 			results: []state.StepResult{
-				rateLimitFailure("req_1"),
+				rateLimitFailure("req_1", "sess-1"),
 				{
 					Status: state.StepStatusSucceeded,
 					Value:  "ok",
 				},
 			},
-			wantAttempts:       2,
-			wantSleepCalls:     1,
-			wantSuccess:        true,
-			wantPromptPrefixes: []string{"", ""},
+			wantAttempts:               2,
+			wantSleepCalls:             1,
+			wantSuccess:                true,
+			wantContinuationSessionIDs: []string{"", "sess-1"},
+			wantContinuationPrompts:    []string{"", defaultCodexResumePrompt},
 		},
 		{
 			name: "object form retries twice when retries is 2",
 			defaults: map[string]any{
 				"tpm": map[string]any{
-					"rate":           60000,
-					"retries":        2,
-					"retry_preamble": configuredRetryPreamble,
+					"rate":    60000,
+					"retries": 2,
 				},
 			},
 			results: []state.StepResult{
-				rateLimitFailure("req_obj_1"),
-				rateLimitFailure("req_obj_2"),
+				rateLimitFailure("req_obj_1", "sess-obj-1"),
+				rateLimitFailure("req_obj_2", "sess-obj-2"),
 				{
 					Status: state.StepStatusSucceeded,
 					Value:  "ok",
 				},
 			},
-			wantAttempts:       3,
-			wantSleepCalls:     2,
-			wantSuccess:        true,
-			wantPromptPrefixes: []string{"", configuredRetryPreamble, configuredRetryPreamble},
+			wantAttempts:               3,
+			wantSleepCalls:             2,
+			wantSuccess:                true,
+			wantContinuationSessionIDs: []string{"", "sess-obj-1", "sess-obj-2"},
+			wantContinuationPrompts:    []string{"", defaultCodexResumePrompt, defaultCodexResumePrompt},
 		},
 		{
 			name: "object form with retries zero does not retry",
@@ -569,13 +574,14 @@ func TestRunnerCodexTPMRetryOnRateLimit(t *testing.T) {
 				},
 			},
 			results: []state.StepResult{
-				rateLimitFailure("req_obj_3"),
+				rateLimitFailure("req_obj_3", "sess-obj-3"),
 			},
-			wantAttempts:       1,
-			wantSleepCalls:     0,
-			wantSuccess:        false,
-			wantFailureCode:    "provider_crashed",
-			wantPromptPrefixes: []string{""},
+			wantAttempts:               1,
+			wantSleepCalls:             0,
+			wantSuccess:                false,
+			wantFailureCode:            "provider_crashed",
+			wantContinuationSessionIDs: []string{""},
+			wantContinuationPrompts:    []string{""},
 		},
 		{
 			name: "fails when defaults tpm scalar is invalid",
@@ -588,43 +594,46 @@ func TestRunnerCodexTPMRetryOnRateLimit(t *testing.T) {
 					Value:  "unused",
 				},
 			},
-			wantAttempts:       0,
-			wantSleepCalls:     0,
-			wantSuccess:        false,
-			wantFailureCode:    "invalid_defaults",
-			wantPromptPrefixes: []string{},
+			wantAttempts:               0,
+			wantSleepCalls:             0,
+			wantSuccess:                false,
+			wantFailureCode:            "invalid_defaults",
+			wantContinuationSessionIDs: []string{},
+			wantContinuationPrompts:    []string{},
 		},
 		{
-			name: "object form retries without rate is allowed",
+			name: "object form retries without rate and uses fresh fallback once",
 			defaults: map[string]any{
 				"tpm": map[string]any{
 					"retries": 2,
 				},
 			},
 			results: []state.StepResult{
-				rateLimitFailure("req_no_rate_1"),
-				rateLimitFailure("req_no_rate_2"),
+				rateLimitFailure("req_no_rate_1", ""),
+				rateLimitFailure("req_no_rate_2", "sess-no-rate-2"),
 				{
 					Status: state.StepStatusSucceeded,
 					Value:  "ok",
 				},
 			},
-			wantAttempts:       3,
-			wantSleepCalls:     2,
-			wantSuccess:        true,
-			wantPromptPrefixes: []string{"", "", ""},
+			wantAttempts:               3,
+			wantSleepCalls:             2,
+			wantSuccess:                true,
+			wantContinuationSessionIDs: []string{"", "", "sess-no-rate-2"},
+			wantContinuationPrompts:    []string{"", "", defaultCodexResumePrompt},
 		},
 		{
 			name: "fails when defaults tpm object is empty",
 			defaults: map[string]any{
 				"tpm": map[string]any{},
 			},
-			results:            []state.StepResult{{Status: state.StepStatusSucceeded, Value: "unused"}},
-			wantAttempts:       0,
-			wantSleepCalls:     0,
-			wantSuccess:        false,
-			wantFailureCode:    "invalid_defaults",
-			wantPromptPrefixes: []string{},
+			results:                    []state.StepResult{{Status: state.StepStatusSucceeded, Value: "unused"}},
+			wantAttempts:               0,
+			wantSleepCalls:             0,
+			wantSuccess:                false,
+			wantFailureCode:            "invalid_defaults",
+			wantContinuationSessionIDs: []string{},
+			wantContinuationPrompts:    []string{},
 		},
 		{
 			name: "fails when defaults tpm object retries is invalid",
@@ -634,38 +643,46 @@ func TestRunnerCodexTPMRetryOnRateLimit(t *testing.T) {
 					"retries": -1,
 				},
 			},
-			results:            []state.StepResult{{Status: state.StepStatusSucceeded, Value: "unused"}},
-			wantAttempts:       0,
-			wantSleepCalls:     0,
-			wantSuccess:        false,
-			wantFailureCode:    "invalid_defaults",
-			wantPromptPrefixes: []string{},
+			results:                    []state.StepResult{{Status: state.StepStatusSucceeded, Value: "unused"}},
+			wantAttempts:               0,
+			wantSleepCalls:             0,
+			wantSuccess:                false,
+			wantFailureCode:            "invalid_defaults",
+			wantContinuationSessionIDs: []string{},
+			wantContinuationPrompts:    []string{},
 		},
 		{
-			name: "fails when defaults tpm object retry_preamble is invalid",
+			name: "ignores defaults tpm object retry_preamble",
 			defaults: map[string]any{
 				"tpm": map[string]any{
 					"rate":           60000,
 					"retry_preamble": 123,
 				},
 			},
-			results:            []state.StepResult{{Status: state.StepStatusSucceeded, Value: "unused"}},
-			wantAttempts:       0,
-			wantSleepCalls:     0,
-			wantSuccess:        false,
-			wantFailureCode:    "invalid_defaults",
-			wantPromptPrefixes: []string{},
+			results: []state.StepResult{
+				rateLimitFailure("req_ignore_preamble_1", "sess-ignore-1"),
+				{
+					Status: state.StepStatusSucceeded,
+					Value:  "ok",
+				},
+			},
+			wantAttempts:               2,
+			wantSleepCalls:             1,
+			wantSuccess:                true,
+			wantContinuationSessionIDs: []string{"", "sess-ignore-1"},
+			wantContinuationPrompts:    []string{"", defaultCodexResumePrompt},
 		},
 		{
 			name: "does not retry when defaults tpm is missing",
 			results: []state.StepResult{
-				rateLimitFailure("req_2"),
+				rateLimitFailure("req_2", "sess-2"),
 			},
-			wantAttempts:       1,
-			wantSleepCalls:     0,
-			wantSuccess:        false,
-			wantFailureCode:    "provider_crashed",
-			wantPromptPrefixes: []string{""},
+			wantAttempts:               1,
+			wantSleepCalls:             0,
+			wantSuccess:                false,
+			wantFailureCode:            "provider_crashed",
+			wantContinuationSessionIDs: []string{""},
+			wantContinuationPrompts:    []string{""},
 		},
 		{
 			name: "scalar tpm keeps default retries at one",
@@ -673,14 +690,34 @@ func TestRunnerCodexTPMRetryOnRateLimit(t *testing.T) {
 				"tpm": 60000,
 			},
 			results: []state.StepResult{
-				rateLimitFailure("req_3"),
-				rateLimitFailure("req_4"),
+				rateLimitFailure("req_3", "sess-3"),
+				rateLimitFailure("req_4", "sess-4"),
 			},
-			wantAttempts:       2,
-			wantSleepCalls:     1,
-			wantSuccess:        false,
-			wantFailureCode:    "provider_crashed",
-			wantPromptPrefixes: []string{"", ""},
+			wantAttempts:               2,
+			wantSleepCalls:             1,
+			wantSuccess:                false,
+			wantFailureCode:            "provider_crashed",
+			wantContinuationSessionIDs: []string{"", "sess-3"},
+			wantContinuationPrompts:    []string{"", defaultCodexResumePrompt},
+		},
+		{
+			name: "missing session id uses only one fresh fallback even with higher retries",
+			defaults: map[string]any{
+				"tpm": map[string]any{
+					"retries": 3,
+				},
+			},
+			results: []state.StepResult{
+				rateLimitFailure("req_fresh_1", ""),
+				rateLimitFailure("req_fresh_2", ""),
+				rateLimitFailure("req_fresh_3", ""),
+			},
+			wantAttempts:               2,
+			wantSleepCalls:             1,
+			wantSuccess:                false,
+			wantFailureCode:            "provider_crashed",
+			wantContinuationSessionIDs: []string{"", ""},
+			wantContinuationPrompts:    []string{"", ""},
 		},
 	}
 
@@ -705,7 +742,8 @@ func TestRunnerCodexTPMRetryOnRateLimit(t *testing.T) {
 			mustPersist(t, config)
 
 			attempts := 0
-			promptPrefixes := []string{}
+			continuationSessionIDs := []string{}
+			continuationPrompts := []string{}
 			registry := NewRegistry()
 			if err := registry.Register("codex", func() executorapi.Executor {
 				return &fakeExecutor{
@@ -714,7 +752,8 @@ func TestRunnerCodexTPMRetryOnRateLimit(t *testing.T) {
 						if attempts >= len(tc.results) {
 							t.Fatalf("unexpected attempt %d", attempts+1)
 						}
-						promptPrefixes = append(promptPrefixes, ctx.PromptPrefix)
+						continuationSessionIDs = append(continuationSessionIDs, ctx.ContinuationSessionID)
+						continuationPrompts = append(continuationPrompts, ctx.ContinuationPrompt)
 						result := tc.results[attempts]
 						attempts++
 						return cloneStepResult(result)
@@ -755,8 +794,11 @@ func TestRunnerCodexTPMRetryOnRateLimit(t *testing.T) {
 					t.Fatalf("retry sleep duration = %s, want %s", duration, defaultCodexTPMRetryAfter)
 				}
 			}
-			if !reflect.DeepEqual(promptPrefixes, tc.wantPromptPrefixes) {
-				t.Fatalf("prompt prefixes = %#v, want %#v", promptPrefixes, tc.wantPromptPrefixes)
+			if !reflect.DeepEqual(continuationSessionIDs, tc.wantContinuationSessionIDs) {
+				t.Fatalf("continuation session ids = %#v, want %#v", continuationSessionIDs, tc.wantContinuationSessionIDs)
+			}
+			if !reflect.DeepEqual(continuationPrompts, tc.wantContinuationPrompts) {
+				t.Fatalf("continuation prompts = %#v, want %#v", continuationPrompts, tc.wantContinuationPrompts)
 			}
 		})
 	}

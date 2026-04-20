@@ -48,18 +48,19 @@ func loadRequest(stepCtx executor.StepContext, providerName string, stepDir stri
 	}
 
 	prompt := resolved.Prompt
-	if stepCtx.PromptPrefix != "" {
-		prompt = stepCtx.PromptPrefix + prompt
+	if stepCtx.ContinuationPrompt != "" {
+		prompt = stepCtx.ContinuationPrompt
 	}
 
 	return Request{
-		Prompt:      prompt,
-		Model:       resolved.Model,
-		Reasoning:   resolved.Reasoning,
-		CWD:         resolved.CWD,
-		Env:         resolved.Env,
-		ArtifactDir: stepDir,
-		Structured:  structured,
+		Prompt:                prompt,
+		Model:                 resolved.Model,
+		Reasoning:             resolved.Reasoning,
+		CWD:                   resolved.CWD,
+		Env:                   resolved.Env,
+		ArtifactDir:           stepDir,
+		Structured:            structured,
+		ContinuationSessionID: stepCtx.ContinuationSessionID,
 	}, nil
 }
 

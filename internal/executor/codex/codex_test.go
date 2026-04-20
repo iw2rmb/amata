@@ -86,6 +86,57 @@ func TestProviderPassesSettingsAndParsesStructuredOutput(t *testing.T) {
 	}
 }
 
+func TestProviderUsesResumeCommandForContinuationSession(t *testing.T) {
+	t.Parallel()
+
+	artifactDir := t.TempDir()
+
+	var capturedArgs []string
+	var capturedStdin []byte
+
+	prov := provider{
+		run: func(_ context.Context, args []string, _ string, _ []string, stdin []byte, _, _ io.Writer) error {
+			capturedArgs = args
+			capturedStdin = stdin
+			return os.WriteFile(filepath.Join(artifactDir, "last-message.txt"), []byte("{\"approved\":true}\n"), 0o644)
+		},
+	}
+
+	response, execErr := prov.Execute(context.Background(), agent.Request{
+		Prompt:                "continue",
+		Model:                 "gpt-5.4",
+		CWD:                   "/repo",
+		ArtifactDir:           artifactDir,
+		ContinuationSessionID: "session-abc",
+		Structured: &agent.StructuredOutput{
+			SchemaPath: filepath.Join(artifactDir, "response-schema.json"),
+		},
+	})
+	if execErr != nil {
+		t.Fatalf("execute error = %#v", execErr)
+	}
+
+	if !containsArgPair(capturedArgs, "--model", "gpt-5.4") {
+		t.Fatalf("args = %#v, want --model gpt-5.4", capturedArgs)
+	}
+	if !containsArgPair(capturedArgs, "--output-schema", filepath.Join(artifactDir, "response-schema.json")) {
+		t.Fatalf("args = %#v, want structured schema flag", capturedArgs)
+	}
+	if !containsArgPair(capturedArgs, "-o", filepath.Join(artifactDir, "last-message.txt")) {
+		t.Fatalf("args = %#v, want last message output flag", capturedArgs)
+	}
+	wantResumeSuffix := []string{"resume", "session-abc", "continue"}
+	if len(capturedArgs) < len(wantResumeSuffix) || !slices.Equal(capturedArgs[len(capturedArgs)-len(wantResumeSuffix):], wantResumeSuffix) {
+		t.Fatalf("args suffix = %#v, want %#v", capturedArgs, wantResumeSuffix)
+	}
+	if len(capturedStdin) != 0 {
+		t.Fatalf("stdin = %q, want empty stdin for resume mode", string(capturedStdin))
+	}
+	if response.Prompt != "continue" {
+		t.Fatalf("prompt = %q, want continuation prompt", response.Prompt)
+	}
+}
+
 func TestProviderReportsAgentFailureBeforeTranscriptValidation(t *testing.T) {
 	t.Parallel()
 
@@ -355,6 +406,59 @@ func TestProviderNormalizesProviderErrorIntoStderrAndDetails(t *testing.T) {
 	}
 	if got := errorPayload["code"]; got != "invalid_encrypted_content" {
 		t.Fatalf("stderr error.code = %#v", got)
+	}
+}
+
+func TestProviderAttachesContinuationSessionIDToProviderError(t *testing.T) {
+	t.Parallel()
+
+	artifactDir := t.TempDir()
+	stdoutPath := filepath.Join(artifactDir, "stdout.txt")
+	stderrPath := filepath.Join(artifactDir, "stderr.txt")
+	stdoutFile, err := os.Create(stdoutPath)
+	if err != nil {
+		t.Fatalf("create stdout file: %v", err)
+	}
+	defer stdoutFile.Close()
+	stderrFile, err := os.Create(stderrPath)
+	if err != nil {
+		t.Fatalf("create stderr file: %v", err)
+	}
+	defer stderrFile.Close()
+
+	prov := provider{
+		run: func(_ context.Context, _ []string, _ string, _ []string, _ []byte, stdout, _ io.Writer) error {
+			if _, err := stdout.Write([]byte(`{"type":"thread.started","thread_id":"sess-thread-1"}` + "\n")); err != nil {
+				return err
+			}
+			if _, err := stdout.Write([]byte(`{"type":"error","message":"exceeded retry limit, last status: 429 Too Many Requests, request id: req_123"}` + "\n")); err != nil {
+				return err
+			}
+			return errors.New("exit status 1")
+		},
+	}
+
+	_, execErr := prov.Execute(context.Background(), agent.Request{
+		Prompt:       "test",
+		Model:        "gpt-5.4",
+		CWD:          "/repo",
+		ArtifactDir:  artifactDir,
+		StdoutWriter: stdoutFile,
+		StderrWriter: stderrFile,
+	})
+	if execErr == nil {
+		t.Fatalf("expected execute error")
+	}
+	if execErr.Code != "agent_failed" {
+		t.Fatalf("error code = %q, want agent_failed", execErr.Code)
+	}
+
+	providerError, ok := execErr.Details["provider_error"].(map[string]any)
+	if !ok {
+		t.Fatalf("provider_error = %#v, want map", execErr.Details["provider_error"])
+	}
+	if got := providerError["session_id"]; got != "sess-thread-1" {
+		t.Fatalf("provider_error.session_id = %#v, want sess-thread-1", got)
 	}
 }
 

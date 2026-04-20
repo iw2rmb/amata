@@ -24,6 +24,7 @@ const (
 	stallCallReturnType        = "stall.call"
 	stallRerunAttemptsTotal    = "INF"
 	defaultCodexTPMRetryAfter  = 1 * time.Minute
+	defaultCodexResumePrompt   = "continue"
 )
 
 type stallPolicy struct {
@@ -33,9 +34,13 @@ type stallPolicy struct {
 }
 
 type codexTPMPolicy struct {
-	Enabled       bool
-	MaxRetries    int
-	RetryPreamble string
+	Enabled    bool
+	MaxRetries int
+}
+
+type codexTPMRetryContext struct {
+	ContinuationSessionID string
+	UsedFreshFallback     bool
 }
 
 func (r *Runner) executeStep(
@@ -93,38 +98,36 @@ func (r *Runner) executeStep(
 	}
 
 	codexTPMRetryCount := 0
-	injectCodexTPMRetryPrompt := false
+	retryContext := codexTPMRetryContext{}
 
 attemptLoop:
 	for attempt := 1; ; attempt++ {
-		promptPrefix := ""
-		if injectCodexTPMRetryPrompt {
-			promptPrefix = tpmPolicy.RetryPreamble
-			injectCodexTPMRetryPrompt = false
-		}
 		stepCtx := executorapi.StepContext{
-			RunID:          config.RunID,
-			RunDir:         config.RunDir,
-			FrameID:        frameID,
-			SpecPath:       config.SpecPath,
-			Spec:           config.Spec,
-			Workspace:      config.Workspace,
-			FlowName:       flowName,
-			StepIndex:      stepIndex,
-			Step:           step,
-			Previous:       previous,
-			Runtime:        runtime,
-			ExecutionLabel: stepExecutionLabel(snapshot.LastSequence+1, attempt),
-			PromptPrefix:   promptPrefix,
+			RunID:                 config.RunID,
+			RunDir:                config.RunDir,
+			FrameID:               frameID,
+			SpecPath:              config.SpecPath,
+			Spec:                  config.Spec,
+			Workspace:             config.Workspace,
+			FlowName:              flowName,
+			StepIndex:             stepIndex,
+			Step:                  step,
+			Previous:              previous,
+			Runtime:               runtime,
+			ExecutionLabel:        stepExecutionLabel(snapshot.LastSequence+1, attempt),
+			ContinuationSessionID: retryContext.ContinuationSessionID,
+		}
+		if retryContext.ContinuationSessionID != "" {
+			stepCtx.ContinuationPrompt = defaultCodexResumePrompt
 		}
 
 		if policy == nil {
 			result = executeStepAttempt(ctx, stepExecutor, stepCtx, step)
 			finalized := r.finalizeStepResult(config, responses, snapshot.StepByRef, previous, bindings, step, result)
-			if retry, aborted := r.maybeRetryCodexTPM(ctx, stepIndex, step, finalized, tpmPolicy, &codexTPMRetryCount); aborted.Status != "" {
+			if retry, nextRetryContext, aborted := r.maybeRetryCodexTPM(ctx, stepIndex, step, finalized, tpmPolicy, &codexTPMRetryCount, retryContext); aborted.Status != "" {
 				return stepAction{}, aborted, nil
 			} else if retry {
-				injectCodexTPMRetryPrompt = true
+				retryContext = nextRetryContext
 				continue attemptLoop
 			}
 			return stepAction{}, finalized, checkpointCleanup
@@ -149,10 +152,10 @@ attemptLoop:
 				probeTicker.Stop()
 				cancel()
 				finalized := r.finalizeStepResult(config, responses, snapshot.StepByRef, previous, bindings, step, result)
-				if retry, aborted := r.maybeRetryCodexTPM(ctx, stepIndex, step, finalized, tpmPolicy, &codexTPMRetryCount); aborted.Status != "" {
+				if retry, nextRetryContext, aborted := r.maybeRetryCodexTPM(ctx, stepIndex, step, finalized, tpmPolicy, &codexTPMRetryCount, retryContext); aborted.Status != "" {
 					return stepAction{}, aborted, nil
 				} else if retry {
-					injectCodexTPMRetryPrompt = true
+					retryContext = nextRetryContext
 					continue attemptLoop
 				}
 				return stepAction{}, finalized, checkpointCleanup
@@ -284,7 +287,6 @@ func resolveCodexTPMPolicy(runtime exprruntime.Runtime, defaults map[string]any,
 	}
 
 	retries := 1
-	retryPreamble := ""
 	switch value := resolved.(type) {
 	case map[string]any:
 		rateSpecified := false
@@ -315,16 +317,6 @@ func resolveCodexTPMPolicy(runtime exprruntime.Runtime, defaults map[string]any,
 				Message: fmt.Sprintf("step %d defaults.tpm is invalid: rate or retries is required", stepIndex),
 			}
 		}
-		if retryPreambleRaw, ok := value["retry_preamble"]; ok {
-			parsedRetryPreamble, ok := retryPreambleRaw.(string)
-			if !ok {
-				return codexTPMPolicy{}, &state.Failure{
-					Code:    "invalid_defaults",
-					Message: fmt.Sprintf("step %d defaults.tpm is invalid: retry_preamble must resolve to a string", stepIndex),
-				}
-			}
-			retryPreamble = parsedRetryPreamble
-		}
 	default:
 		if _, ok := parsePositiveNumber(resolved); !ok {
 			return codexTPMPolicy{}, &state.Failure{
@@ -335,9 +327,8 @@ func resolveCodexTPMPolicy(runtime exprruntime.Runtime, defaults map[string]any,
 	}
 
 	return codexTPMPolicy{
-		Enabled:       true,
-		MaxRetries:    retries,
-		RetryPreamble: retryPreamble,
+		Enabled:    true,
+		MaxRetries: retries,
 	}, nil
 }
 
@@ -348,12 +339,23 @@ func (r *Runner) maybeRetryCodexTPM(
 	result state.StepResult,
 	tpmPolicy codexTPMPolicy,
 	retryCount *int,
-) (bool, state.StepResult) {
+	retryContext codexTPMRetryContext,
+) (bool, codexTPMRetryContext, state.StepResult) {
 	if step.ExecutorType() != "codex" || !tpmPolicy.Enabled || retryCount == nil || *retryCount >= tpmPolicy.MaxRetries {
-		return false, state.StepResult{}
+		return false, retryContext, state.StepResult{}
 	}
-	if !isRateLimitStepFailure(result) {
-		return false, state.StepResult{}
+	sessionID, isRateLimit := rateLimitContinuationSessionID(result)
+	if !isRateLimit {
+		return false, retryContext, state.StepResult{}
+	}
+	if sessionID == "" {
+		if retryContext.UsedFreshFallback {
+			return false, retryContext, state.StepResult{}
+		}
+		retryContext.UsedFreshFallback = true
+		retryContext.ContinuationSessionID = ""
+	} else {
+		retryContext.ContinuationSessionID = sessionID
 	}
 
 	waitFn := r.retryWait
@@ -365,7 +367,7 @@ func (r *Runner) maybeRetryCodexTPM(
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			code = "deadline_exceeded"
 		}
-		return false, finalizeStatus(state.StepResult{
+		return false, retryContext, finalizeStatus(state.StepResult{
 			Index:  stepIndex,
 			ID:     step.ID,
 			Type:   step.ExecutorType(),
@@ -378,7 +380,7 @@ func (r *Runner) maybeRetryCodexTPM(
 	}
 
 	*retryCount++
-	return true, state.StepResult{}
+	return true, retryContext, state.StepResult{}
 }
 
 func parsePositiveNumber(value any) (float64, bool) {
@@ -451,10 +453,7 @@ func parseNonNegativeInt(value any) (int, bool) {
 }
 
 func isRateLimitStepFailure(result state.StepResult) bool {
-	if result.Status != state.StepStatusFailed || result.Error == nil || len(result.Error.Details) == 0 {
-		return false
-	}
-	providerError, ok := result.Error.Details["provider_error"].(map[string]any)
+	providerError, ok := providerErrorDetails(result)
 	if !ok {
 		return false
 	}
@@ -466,6 +465,32 @@ func isRateLimitStepFailure(result state.StepResult) bool {
 		}
 	}
 	return false
+}
+
+func rateLimitContinuationSessionID(result state.StepResult) (string, bool) {
+	providerError, ok := providerErrorDetails(result)
+	if !ok || !isRateLimitStepFailure(result) {
+		return "", false
+	}
+	for _, key := range []string{"session_id", "thread_id"} {
+		value, _ := providerError[key].(string)
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value, true
+		}
+	}
+	return "", true
+}
+
+func providerErrorDetails(result state.StepResult) (map[string]any, bool) {
+	if result.Status != state.StepStatusFailed || result.Error == nil || len(result.Error.Details) == 0 {
+		return nil, false
+	}
+	providerError, ok := result.Error.Details["provider_error"].(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	return providerError, true
 }
 
 func isRateLimitText(value string) bool {

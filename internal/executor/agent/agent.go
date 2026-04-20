@@ -21,13 +21,14 @@ type Provider interface {
 }
 
 type Request struct {
-	Prompt      string
-	Model       string
-	Reasoning   string
-	CWD         string
-	Env         map[string]string
-	ArtifactDir string
-	Structured  *StructuredOutput
+	Prompt                string
+	Model                 string
+	Reasoning             string
+	CWD                   string
+	Env                   map[string]string
+	ArtifactDir           string
+	Structured            *StructuredOutput
+	ContinuationSessionID string
 	// StdoutWriter and StderrWriter are wired to pre-created artifact files
 	// before the provider executes. Streaming providers write incrementally;
 	// buffered providers leave these unused and return bytes in Response.Stdout

@@ -1,13 +1,16 @@
 package codex
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/iw2rmb/amata/internal/executor"
 	"github.com/iw2rmb/amata/internal/executor/agent"
@@ -38,6 +41,8 @@ func (provider) Name() string {
 func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Response, *agent.Error) {
 	outputPath := filepath.Join(request.ArtifactDir, "last-message.txt")
 	stdoutObserver := agent.NewProviderErrorObserver(request.StdoutWriter, request.StderrWriter)
+	var observedStdout bytes.Buffer
+	stdoutWriter := io.MultiWriter(stdoutObserver, &observedStdout)
 
 	args := []string{
 		"exec",
@@ -53,18 +58,27 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 	if request.Structured != nil {
 		args = append(args, "--output-schema", request.Structured.SchemaPath)
 	}
-	args = append(args, "-o", outputPath, "-")
+	args = append(args, "-o", outputPath)
 
-	runErr := p.run(ctx, args, request.CWD, agent.CommandEnv(request.Env), []byte(request.Prompt), stdoutObserver, request.StderrWriter)
+	prompt := request.Prompt
+	stdin := []byte(prompt)
+	if request.ContinuationSessionID != "" {
+		args = append(args, "resume", request.ContinuationSessionID, prompt)
+		stdin = nil
+	} else {
+		args = append(args, "-")
+	}
+
+	runErr := p.run(ctx, args, request.CWD, agent.CommandEnv(request.Env), stdin, stdoutWriter, request.StderrWriter)
 	if closeErr := stdoutObserver.Close(); runErr == nil && closeErr != nil {
 		runErr = closeErr
 	}
-	providerError := stdoutObserver.ProviderErrorDetails()
+	providerError := withContinuationSessionID(stdoutObserver.ProviderErrorDetails(), continuationSessionID(observedStdout.Bytes()))
 
 	transcript, readErr := os.ReadFile(outputPath)
 
 	response := agent.Response{
-		Prompt:     request.Prompt,
+		Prompt:     prompt,
 		Transcript: transcript,
 		Metadata: map[string]any{
 			"command": executor.CommandWithBinary("codex", args),
@@ -130,4 +144,61 @@ func attachProviderError(err *agent.Error, providerError map[string]any) *agent.
 	details["provider_error"] = providerError
 	err.Details = details
 	return err
+}
+
+func withContinuationSessionID(providerError map[string]any, sessionID string) map[string]any {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return providerError
+	}
+
+	details := map[string]any{}
+	for key, value := range providerError {
+		details[key] = value
+	}
+	details["session_id"] = sessionID
+	return details
+}
+
+func continuationSessionID(stdout []byte) string {
+	if len(stdout) == 0 {
+		return ""
+	}
+
+	scanner := bufio.NewScanner(bytes.NewReader(stdout))
+	scanner.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+
+	sessionID := ""
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || !strings.HasPrefix(line, "{") {
+			continue
+		}
+		var event map[string]any
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			continue
+		}
+		if id := continuationSessionIDFromMap(event); id != "" {
+			sessionID = id
+		}
+	}
+	return sessionID
+}
+
+func continuationSessionIDFromMap(value map[string]any) string {
+	for _, key := range []string{"session_id", "thread_id"} {
+		if id, ok := value[key].(string); ok && strings.TrimSpace(id) != "" {
+			return strings.TrimSpace(id)
+		}
+	}
+	for _, nestedKey := range []string{"payload", "item"} {
+		nested, ok := value[nestedKey].(map[string]any)
+		if !ok || len(nested) == 0 {
+			continue
+		}
+		if id := continuationSessionIDFromMap(nested); id != "" {
+			return id
+		}
+	}
+	return ""
 }

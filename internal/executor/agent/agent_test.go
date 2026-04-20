@@ -465,7 +465,7 @@ func TestExecutorPersistsProviderAdjustedPrompt(t *testing.T) {
 	testutil.AssertFileContents(t, result.Artifacts.Files["prompt"], "Original prompt\n\nReturn only JSON.")
 }
 
-func TestExecutorPrependsStepContextPromptPrefix(t *testing.T) {
+func TestExecutorOverridesPromptAndPassesContinuationSession(t *testing.T) {
 	t.Parallel()
 
 	step := spec.Step{
@@ -475,14 +475,18 @@ func TestExecutorPrependsStepContextPromptPrefix(t *testing.T) {
 			"prompt": "Original prompt",
 		},
 	}
-	prefix := "> retry header\n\n"
+	overridePrompt := "continue"
+	continuationSessionID := "session-123"
 
 	provider := &fakeProvider{
 		name: "codex",
 		execute: func(_ context.Context, request agent.Request) (agent.Response, *agent.Error) {
-			wantPrompt := prefix + "Original prompt"
+			wantPrompt := overridePrompt
 			if request.Prompt != wantPrompt {
 				t.Fatalf("prompt = %q, want %q", request.Prompt, wantPrompt)
+			}
+			if request.ContinuationSessionID != continuationSessionID {
+				t.Fatalf("continuation session id = %q, want %q", request.ContinuationSessionID, continuationSessionID)
 			}
 			testutil.AssertFileContents(t, filepath.Join(request.ArtifactDir, "prompt.md"), wantPrompt)
 			return agent.Response{
@@ -493,13 +497,14 @@ func TestExecutorPrependsStepContextPromptPrefix(t *testing.T) {
 	}
 
 	sc := newStepContext(t, step, withDocument(documentWithProviderDefaults("codex", "gpt-5.4")))
-	sc.PromptPrefix = prefix
+	sc.ContinuationPrompt = overridePrompt
+	sc.ContinuationSessionID = continuationSessionID
 	result := agent.New(provider).Execute(context.Background(), sc)
 
 	if result.Status != state.StepStatusSucceeded {
 		t.Fatalf("result status = %q, error = %#v", result.Status, result.Error)
 	}
-	testutil.AssertFileContents(t, result.Artifacts.Files["prompt"], prefix+"Original prompt")
+	testutil.AssertFileContents(t, result.Artifacts.Files["prompt"], overridePrompt)
 }
 
 func TestExecutorReturnsInvalidProviderPayloadFailureAndPersistsArtifacts(t *testing.T) {
