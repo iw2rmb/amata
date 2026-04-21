@@ -298,12 +298,29 @@ flows:
 	}
 
 	kinds := make([]progress.EventKind, 0, len(lines))
-	for _, line := range lines {
+	for index, line := range lines {
 		var event progress.Event
 		if err := json.Unmarshal([]byte(line), &event); err != nil {
 			t.Fatalf("decode jsonl event %q: %v", line, err)
 		}
 		kinds = append(kinds, event.Kind)
+
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(line), &payload); err != nil {
+			t.Fatalf("decode raw jsonl event %q: %v", line, err)
+		}
+		snapshot, ok := payload["snapshot"].(map[string]any)
+		if !ok {
+			t.Fatalf("event %d snapshot = %#v, want object", index, payload["snapshot"])
+		}
+		if event.Kind == progress.EventStepStarted || event.Kind == progress.EventStepFinished {
+			if _, exists := snapshot["active"]; exists {
+				t.Fatalf("event %d (%s) snapshot.active = %#v, want omitted", index, event.Kind, snapshot["active"])
+			}
+			if _, exists := snapshot["steps"]; exists {
+				t.Fatalf("event %d (%s) snapshot.steps = %#v, want omitted", index, event.Kind, snapshot["steps"])
+			}
+		}
 	}
 
 	wantKinds := []progress.EventKind{

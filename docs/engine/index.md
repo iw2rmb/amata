@@ -188,7 +188,7 @@ Stream contract:
 - The live stream is best-effort UI data only. `events.ndjson` and `snapshot.json` remain the only durable resume source of truth.
 - `run` emits `run_started`, then paired `step_started` and `step_finished` events for each executed control or executor step, then one terminal `run_finished`.
 - `resume` emits `run_resumed` instead of `run_started`, seeds `snapshot.active` with unfinished parent control steps reconstructed from durable frames, then continues with normal `step_finished`, `step_started`, and terminal `run_finished` events.
-- Every live event carries a full `snapshot` with `run_id`, current run `status`, `active` steps, completed `steps`, and terminal `failure` when present.
+- In-memory live events carry a full `snapshot` with `run_id`, current run `status`, `active` steps, completed `steps`, and terminal `failure` when present.
 - Failed `codex` and `claude` steps may include `step.error.details.provider_error` with normalized provider fields (`message`, `type`, `param`, `code`).
 - Nested `switch`, `call`, and `for_each` execution is represented as stacked active steps in event snapshots. Child finishes arrive before the enclosing control step finish.
 
@@ -197,6 +197,7 @@ CLI stream split:
 - `--out auto` writes live progress rendering to `stderr`.
 - `--out auto` (default) keeps renderer-based `stderr` output (TTY Bubble Tea, non-TTY plain text).
 - `--out jsonl` writes newline-delimited JSON `progress.Event` objects to `stdout` in emission order.
+- `--out jsonl` keeps top-level `step` as the canonical per-step transition payload and omits duplicated `snapshot.active` and `snapshot.steps` on `step_started` and `step_finished` events.
 - `--out jsonl` leaves `stderr` for command errors only.
 - The default CLI renderer uses Bubble Tea only when `stderr` is a TTY. Non-TTY `stderr` falls back to a plain line renderer with the same event order and descriptor data.
 - Both renderers suppress nested control-step scaffolding in the user-facing output. Recursive `call`/`switch`/`for_each` frames nested under another control step are omitted from rendered history, and nested descriptor-less `expr` steps are omitted alongside them.

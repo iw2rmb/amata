@@ -26,7 +26,18 @@ func (c *jsonlController) WriteProgress(event Event) {
 		return
 	}
 
+	event = compactEventForJSONL(event)
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	_ = c.enc.Encode(event)
+}
+
+func compactEventForJSONL(event Event) Event {
+	switch event.Kind {
+	case EventStepStarted, EventStepFinished:
+		event.Snapshot.Active = nil
+		event.Snapshot.Steps = nil
+	}
+	return event
 }
