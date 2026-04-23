@@ -76,9 +76,12 @@ The shared runtime context is exposed at `ctx`:
 - `ctx.workspace.root`
 - `ctx.workspace.state_dir`
 - `ctx.params`
+- `ctx.env`
 - `ctx.prev`
 - `ctx.item`
 - `ctx.index`
+
+`ctx.env` contains environment variables from the current Amata process (including `resume` invocations).
 
 `ctx.prev` contains the last succeeded step result in the current flow frame:
 - `index`

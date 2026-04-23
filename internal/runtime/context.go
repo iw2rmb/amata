@@ -1,7 +1,9 @@
 package runtime
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 
 	exprruntime "github.com/iw2rmb/amata/internal/expr"
 	"github.com/iw2rmb/amata/internal/jsonutil"
@@ -23,6 +25,18 @@ func workspaceContext(config workspace.Config) map[string]any {
 	}
 }
 
+func environmentContext() map[string]any {
+	ctx := map[string]any{}
+	for _, entry := range os.Environ() {
+		key, value, ok := strings.Cut(entry, "=")
+		if !ok || key == "" {
+			continue
+		}
+		ctx[key] = value
+	}
+	return ctx
+}
+
 func newStepRuntime(config Config, previous *state.StepResult, lookup func(*state.StepRef) *state.StepResult, bindings map[string]any) exprruntime.Runtime {
 	return exprruntime.NewRuntime(buildRuntimeContext(config, previous, lookup, bindings))
 }
@@ -32,6 +46,7 @@ func buildRuntimeContext(config Config, previous *state.StepResult, lookup func(
 		"spec":      specContext(config.SpecPath),
 		"workspace": workspaceContext(config.Workspace),
 		"params":    jsonutil.CloneMap(config.Spec.Params),
+		"env":       environmentContext(),
 		"prev":      previousContext(previous, lookup),
 	}
 	for key, value := range bindings {

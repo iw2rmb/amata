@@ -715,3 +715,39 @@ func TestRunnerExposesSpecPathAndDirInRuntimeContext(t *testing.T) {
 		t.Fatalf("helper stdout = %q, want bundle helper", got)
 	}
 }
+
+func TestRunnerExposesEnvironmentVariablesInRuntimeContext(t *testing.T) {
+	t.Setenv("AMATA_CTX_ENV_TEST", "some_value")
+
+	config := testConfig(t, sampleDoc(map[string]spec.Flow{
+		"main": {
+			Steps: []spec.Step{
+				{
+					ID: "env-expr",
+					Fields: map[string]any{
+						"expr": "$.env.AMATA_CTX_ENV_TEST",
+					},
+				},
+				{
+					ID: "env-template",
+					Fields: map[string]any{
+						"command": "printf '%s' '{{ ctx.env.AMATA_CTX_ENV_TEST }}'",
+					},
+				},
+			},
+		},
+	}))
+
+	mustPersist(t, config)
+
+	snapshot, err := NewRunner(nil).Run(context.Background(), config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got := snapshot.Steps[0].Value; got != "some_value" {
+		t.Fatalf("env expr = %#v, want %q", got, "some_value")
+	}
+	if got := strings.TrimSpace(readFile(t, snapshot.Steps[1].Artifacts.Stdout)); got != "some_value" {
+		t.Fatalf("env template stdout = %q, want %q", got, "some_value")
+	}
+}
