@@ -200,7 +200,8 @@ CLI stream split:
 - `--out auto` writes live progress rendering to `stderr`.
 - `--out auto` (default) keeps renderer-based `stderr` output (TTY Bubble Tea, non-TTY plain text).
 - `--out jsonl` writes newline-delimited JSON `progress.Event` objects to `stdout` in emission order.
-- `--out jsonl` keeps top-level `step` as the canonical per-step transition payload and omits duplicated `snapshot.active` and `snapshot.steps` on `step_started` and `step_finished` events.
+- `--out jsonl` keeps top-level `step` as the canonical per-step transition payload and omits duplicated `snapshot.active` and `snapshot.steps` on `step_started`, `step_finished`, and `run_finished` events.
+- `--out jsonl` omits repeated agent prompt text from completed `codex`, `claude`, and `crush` step descriptors; the prompt remains available on the matching `step_started` event and in the step artifact files.
 - `--out jsonl` leaves `stderr` for command errors only.
 - The default CLI renderer uses Bubble Tea only when `stderr` is a TTY. Non-TTY `stderr` falls back to a plain line renderer with the same event order and descriptor data.
 - Both renderers suppress nested control-step scaffolding in the user-facing output. Recursive `call`/`switch`/`for_each` frames nested under another control step are omitted from rendered history, and nested descriptor-less `expr` steps are omitted alongside them.

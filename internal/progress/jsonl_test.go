@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestJSONLControllerCompactsStepEventSnapshotLists(t *testing.T) {
+func TestJSONLControllerCompactsRedundantOutput(t *testing.T) {
 	t.Parallel()
 
 	step := Step{
@@ -18,11 +18,25 @@ func TestJSONLControllerCompactsStepEventSnapshotLists(t *testing.T) {
 		Status:    StepStatusRunning,
 		Artifacts: Artifacts{},
 	}
+	agentStep := Step{
+		Flow:   "main",
+		Index:  1,
+		ID:     "agent-1",
+		Type:   "codex",
+		Status: StepStatusSucceeded,
+		Descriptor: &DescriptorData{
+			PrimaryText:         "model",
+			DetailText:          []string{"large prompt"},
+			FinalSummaryDetails: []string{"model"},
+		},
+		Artifacts: Artifacts{},
+	}
 
 	testCases := []struct {
-		name             string
-		event            Event
-		wantSnapshotKeys []string
+		name                            string
+		event                           Event
+		wantSnapshotKeys                []string
+		wantDescriptorDetailTextOmitted bool
 	}{
 		{
 			name: "step_started omits active and steps",
@@ -53,7 +67,20 @@ func TestJSONLControllerCompactsStepEventSnapshotLists(t *testing.T) {
 			wantSnapshotKeys: []string{"run_id", "status"},
 		},
 		{
-			name: "non-step events keep snapshot lists",
+			name: "run_finished omits completed steps",
+			event: Event{
+				Kind: EventRunFinished,
+				Snapshot: Snapshot{
+					RunID:  "run-1",
+					Status: RunStatusSucceeded,
+					Active: []Step{step},
+					Steps:  []Step{step},
+				},
+			},
+			wantSnapshotKeys: []string{"run_id", "status"},
+		},
+		{
+			name: "run_resumed keeps active steps",
 			event: Event{
 				Kind: EventRunResumed,
 				Snapshot: Snapshot{
@@ -64,6 +91,21 @@ func TestJSONLControllerCompactsStepEventSnapshotLists(t *testing.T) {
 				},
 			},
 			wantSnapshotKeys: []string{"run_id", "status", "active", "steps"},
+		},
+		{
+			name: "finished agent step omits repeated prompt detail",
+			event: Event{
+				Kind: EventStepFinished,
+				Step: &agentStep,
+				Snapshot: Snapshot{
+					RunID:  "run-1",
+					Status: RunStatusRunning,
+					Active: []Step{agentStep},
+					Steps:  []Step{agentStep},
+				},
+			},
+			wantSnapshotKeys:                []string{"run_id", "status"},
+			wantDescriptorDetailTextOmitted: true,
 		},
 	}
 
@@ -92,12 +134,27 @@ func TestJSONLControllerCompactsStepEventSnapshotLists(t *testing.T) {
 					t.Fatalf("snapshot missing key %q: %#v", key, snapshot)
 				}
 			}
-			if testCase.event.Kind == EventStepStarted || testCase.event.Kind == EventStepFinished {
+			if testCase.event.Kind == EventStepStarted || testCase.event.Kind == EventStepFinished || testCase.event.Kind == EventRunFinished {
 				if _, exists := snapshot["active"]; exists {
 					t.Fatalf("snapshot.active = %#v, want omitted", snapshot["active"])
 				}
 				if _, exists := snapshot["steps"]; exists {
 					t.Fatalf("snapshot.steps = %#v, want omitted", snapshot["steps"])
+				}
+			}
+			if testCase.event.Step != nil && testCase.event.Step.Descriptor != nil {
+				stepPayload, ok := payload["step"].(map[string]any)
+				if !ok {
+					t.Fatalf("step payload = %#v, want object", payload["step"])
+				}
+				descriptor, ok := stepPayload["descriptor"].(map[string]any)
+				if !ok {
+					t.Fatalf("descriptor payload = %#v, want object", stepPayload["descriptor"])
+				}
+				if testCase.wantDescriptorDetailTextOmitted {
+					if _, exists := descriptor["detail_text"]; exists {
+						t.Fatalf("descriptor.detail_text = %#v, want omitted", descriptor["detail_text"])
+					}
 				}
 			}
 		})

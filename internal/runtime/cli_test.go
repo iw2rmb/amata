@@ -313,7 +313,7 @@ flows:
 		if !ok {
 			t.Fatalf("event %d snapshot = %#v, want object", index, payload["snapshot"])
 		}
-		if event.Kind == progress.EventStepStarted || event.Kind == progress.EventStepFinished {
+		if event.Kind == progress.EventStepStarted || event.Kind == progress.EventStepFinished || event.Kind == progress.EventRunFinished {
 			if _, exists := snapshot["active"]; exists {
 				t.Fatalf("event %d (%s) snapshot.active = %#v, want omitted", index, event.Kind, snapshot["active"])
 			}
