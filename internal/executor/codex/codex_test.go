@@ -25,11 +25,14 @@ func TestProviderPassesSettingsAndParsesStructuredOutput(t *testing.T) {
 	var capturedStdin []byte
 
 	prov := provider{
-		run: func(_ context.Context, args []string, dir string, env []string, stdin []byte, _, _ io.Writer) error {
+		run: func(_ context.Context, args []string, dir string, env []string, stdin []byte, stdout, _ io.Writer) error {
 			capturedArgs = args
 			capturedDir = dir
 			capturedEnv = env
 			capturedStdin = stdin
+			if _, err := stdout.Write([]byte(`{"session_id":"sess-meta"}` + "\n")); err != nil {
+				return err
+			}
 			return os.WriteFile(filepath.Join(artifactDir, "last-message.txt"), []byte("{\"approved\":true}\n"), 0o644)
 		},
 	}
@@ -83,6 +86,9 @@ func TestProviderPassesSettingsAndParsesStructuredOutput(t *testing.T) {
 	}
 	if response.Prompt != "Implement item" {
 		t.Fatalf("prompt = %q, want original prompt", response.Prompt)
+	}
+	if response.Metadata["continuation_session_id"] != "sess-meta" {
+		t.Fatalf("continuation_session_id = %#v, want sess-meta", response.Metadata["continuation_session_id"])
 	}
 }
 

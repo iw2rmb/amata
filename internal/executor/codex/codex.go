@@ -73,7 +73,8 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 	if closeErr := stdoutObserver.Close(); runErr == nil && closeErr != nil {
 		runErr = closeErr
 	}
-	providerError := withContinuationSessionID(stdoutObserver.ProviderErrorDetails(), continuationSessionID(observedStdout.Bytes()))
+	sessionID := continuationSessionID(observedStdout.Bytes())
+	providerError := withContinuationSessionID(stdoutObserver.ProviderErrorDetails(), sessionID)
 
 	transcript, readErr := os.ReadFile(outputPath)
 
@@ -86,6 +87,9 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 	}
 	if request.Structured != nil {
 		response.Metadata["structuredOutputMode"] = "provider_schema"
+	}
+	if sessionID != "" {
+		response.Metadata["continuation_session_id"] = sessionID
 	}
 
 	if runErr != nil {

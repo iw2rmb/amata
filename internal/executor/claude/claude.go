@@ -43,8 +43,6 @@ type provider struct {
 
 type execRunner struct{}
 
-const providerSchemaRetryInstruction = "\n\nReturn only strict JSON that matches the requested response schema. Do not include prose outside JSON."
-
 func New() executor.Executor {
 	return agent.New(provider{
 		runner:                    execRunner{},
@@ -69,6 +67,9 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 	if request.Reasoning != "" {
 		args = append(args, "--effort", request.Reasoning)
 	}
+	if request.ContinuationSessionID != "" {
+		args = append(args, "--resume", request.ContinuationSessionID)
+	}
 
 	structuredOutputMode := ""
 	if request.Structured != nil {
@@ -81,25 +82,21 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 		}
 	}
 
-	runCommand := func(runArgs []string, runPrompt string) (commandResult, error) {
-		stdoutObserver := agent.NewProviderErrorObserver(request.StdoutWriter, request.StderrWriter)
-		result, runErr := p.runner.Run(ctx, command{
-			args:                   append([]string(nil), runArgs...),
-			dir:                    request.CWD,
-			env:                    agent.CommandEnv(request.Env),
-			stdin:                  []byte(runPrompt),
-			stdoutWriter:           stdoutObserver,
-			stderrWriter:           request.StderrWriter,
-			stopOnStructuredOutput: structuredOutputMode == "provider_schema",
-		})
-		if closeErr := stdoutObserver.Close(); runErr == nil && closeErr != nil {
-			runErr = closeErr
-		}
-		result.providerError = stdoutObserver.ProviderErrorDetails()
-		return result, runErr
+	stdoutObserver := agent.NewProviderErrorObserver(request.StdoutWriter, request.StderrWriter)
+	result, runErr := p.runner.Run(ctx, command{
+		args:                   append([]string(nil), args...),
+		dir:                    request.CWD,
+		env:                    agent.CommandEnv(request.Env),
+		stdin:                  []byte(prompt),
+		stdoutWriter:           stdoutObserver,
+		stderrWriter:           request.StderrWriter,
+		stopOnStructuredOutput: structuredOutputMode == "provider_schema",
+	})
+	if closeErr := stdoutObserver.Close(); runErr == nil && closeErr != nil {
+		runErr = closeErr
 	}
+	result.providerError = stdoutObserver.ProviderErrorDetails()
 
-	result, runErr := runCommand(args, prompt)
 	response := agent.Response{
 		Prompt:     prompt,
 		Transcript: result.stdout,
@@ -109,6 +106,9 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 	}
 	if structuredOutputMode != "" {
 		response.Metadata["structuredOutputMode"] = structuredOutputMode
+	}
+	if result.sessionID != "" {
+		response.Metadata["continuation_session_id"] = result.sessionID
 	}
 
 	if runErr != nil {
@@ -124,48 +124,10 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 			response.HasValue = true
 			return response, nil
 		}
-
-		retryPrompt := request.Prompt + providerSchemaRetryInstruction
-		attempts := 1
-		response.Metadata["structuredOutputRetryOrder"] = "resume_then_fresh"
-
-		if result.sessionID != "" {
-			resumeArgs := append(append([]string(nil), args...), "--resume", result.sessionID)
-			retryResult, retryErr := runCommand(resumeArgs, retryPrompt)
-			attempts++
-			response.Prompt = retryPrompt
-			response.Transcript = retryResult.stdout
-			response.Metadata["command"] = executor.CommandWithBinary("claude", resumeArgs)
-			if retryErr == nil && retryResult.hasStructuredOutput {
-				response.Value = retryResult.structuredOutput
-				response.HasValue = true
-				response.Metadata["structuredOutputAttempts"] = attempts
-				return response, nil
-			}
-		}
-
-		freshResult, freshErr := runCommand(args, retryPrompt)
-		attempts++
-		response.Prompt = retryPrompt
-		response.Transcript = freshResult.stdout
-		response.Metadata["command"] = executor.CommandWithBinary("claude", args)
-		response.Metadata["structuredOutputAttempts"] = attempts
-		if freshErr != nil {
-			return response, attachProviderError(&agent.Error{
-				Code:    "agent_failed",
-				Message: fmt.Sprintf("claude -p failed: %v", freshErr),
-			}, freshResult.providerError)
-		}
-		if !freshResult.hasStructuredOutput {
-			return response, attachProviderError(&agent.Error{
-				Code:    "invalid_provider_output",
-				Message: "claude output is invalid: provider schema response envelope is missing structured_output",
-			}, freshResult.providerError)
-		}
-
-		response.Value = freshResult.structuredOutput
-		response.HasValue = true
-		return response, nil
+		return response, attachProviderError(&agent.Error{
+			Code:    "invalid_provider_output",
+			Message: "claude output is invalid: provider schema response envelope is missing structured_output",
+		}, result.providerError)
 	}
 
 	if structuredOutputMode == "prompt_fallback" {

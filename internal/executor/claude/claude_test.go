@@ -153,30 +153,17 @@ func TestProviderUsesStructuredOutputCapturedByRunner(t *testing.T) {
 	}
 }
 
-func TestProviderRetriesWithResumeBeforeFreshForMissingStructuredOutput(t *testing.T) {
+func TestProviderReportsMissingStructuredOutputWithoutRetry(t *testing.T) {
 	t.Parallel()
 
 	var calls []command
 	provider := provider{
 		runner: fakeRunner(func(_ context.Context, spec command) (commandResult, error) {
 			calls = append(calls, spec)
-			switch len(calls) {
-			case 1:
-				return commandResult{
-					stdout:    []byte(`{"type":"result","stop_reason":"end_turn","session_id":"sess-123","usage":{"input_tokens":1},"result":"not-structured"}`),
-					sessionID: "sess-123",
-				}, nil
-			case 2:
-				return commandResult{
-					stdout:              []byte(`{"type":"result","stop_reason":"end_turn","session_id":"sess-123","usage":{"input_tokens":1},"structured_output":{"approved":true}}`),
-					sessionID:           "sess-123",
-					structuredOutput:    map[string]any{"approved": true},
-					hasStructuredOutput: true,
-				}, nil
-			default:
-				t.Fatalf("unexpected call #%d", len(calls))
-				return commandResult{}, nil
-			}
+			return commandResult{
+				stdout:    []byte(`{"type":"result","stop_reason":"end_turn","session_id":"sess-123","usage":{"input_tokens":1},"result":"not-structured"}`),
+				sessionID: "sess-123",
+			}, nil
 		}),
 		structuredOutputSupported: true,
 	}
@@ -189,64 +176,42 @@ func TestProviderRetriesWithResumeBeforeFreshForMissingStructuredOutput(t *testi
 			JSON: `{"type":"object","properties":{"approved":{"type":"boolean"}},"required":["approved"]}`,
 		},
 	})
-	if execErr != nil {
-		t.Fatalf("execute error = %#v", execErr)
+	if execErr == nil {
+		t.Fatalf("expected execute error")
 	}
-	if len(calls) != 2 {
-		t.Fatalf("calls = %d, want 2", len(calls))
+	if execErr.Code != "invalid_provider_output" {
+		t.Fatalf("error code = %q, want invalid_provider_output", execErr.Code)
 	}
-	if !containsArgPair(calls[1].args, "--resume", "sess-123") {
-		t.Fatalf("resume args = %#v, want --resume sess-123", calls[1].args)
+	if len(calls) != 1 {
+		t.Fatalf("calls = %d, want 1", len(calls))
 	}
-	if !strings.Contains(string(calls[1].stdin), providerSchemaRetryInstruction) {
-		t.Fatalf("resume prompt = %q, want retry instruction", string(calls[1].stdin))
-	}
-	if attempts, ok := response.Metadata["structuredOutputAttempts"].(int); !ok || attempts != 2 {
-		t.Fatalf("structuredOutputAttempts = %#v, want int(2)", response.Metadata["structuredOutputAttempts"])
-	}
-	value, ok := response.Value.(map[string]any)
-	if !ok || value["approved"] != true {
-		t.Fatalf("response value = %#v, want approved=true", response.Value)
+	if response.Metadata["continuation_session_id"] != "sess-123" {
+		t.Fatalf("continuation_session_id = %#v, want sess-123", response.Metadata["continuation_session_id"])
 	}
 }
 
-func TestProviderFallsBackToFreshAfterResumeWhenStructuredOutputStillMissing(t *testing.T) {
+func TestProviderUsesResumeSessionFromRequest(t *testing.T) {
 	t.Parallel()
 
-	var calls []command
+	var captured command
 	provider := provider{
 		runner: fakeRunner(func(_ context.Context, spec command) (commandResult, error) {
-			calls = append(calls, spec)
-			switch len(calls) {
-			case 1:
-				return commandResult{
-					stdout:    []byte(`{"type":"result","stop_reason":"end_turn","session_id":"sess-456","usage":{"input_tokens":1},"result":"not-structured"}`),
-					sessionID: "sess-456",
-				}, nil
-			case 2:
-				return commandResult{
-					stdout:    []byte(`{"type":"result","stop_reason":"end_turn","session_id":"sess-456","usage":{"input_tokens":1},"result":"still-not-structured"}`),
-					sessionID: "sess-456",
-				}, nil
-			case 3:
-				return commandResult{
-					stdout:              []byte(`{"type":"result","stop_reason":"end_turn","session_id":"fresh-1","usage":{"input_tokens":1},"structured_output":{"approved":true}}`),
-					sessionID:           "fresh-1",
-					structuredOutput:    map[string]any{"approved": true},
-					hasStructuredOutput: true,
-				}, nil
-			default:
-				t.Fatalf("unexpected call #%d", len(calls))
-				return commandResult{}, nil
-			}
+			captured = spec
+			return commandResult{
+				stdout:              []byte(`{"type":"result","stop_reason":"end_turn","session_id":"sess-next","usage":{"input_tokens":1},"structured_output":{"approved":true}}`),
+				sessionID:           "sess-next",
+				structuredOutput:    map[string]any{"approved": true},
+				hasStructuredOutput: true,
+			}, nil
 		}),
 		structuredOutputSupported: true,
 	}
 
 	response, execErr := provider.Execute(context.Background(), agent.Request{
-		Prompt: "Review the diff",
-		Model:  "sonnet",
-		CWD:    "/repo",
+		Prompt:                "Fix JSON",
+		Model:                 "sonnet",
+		CWD:                   "/repo",
+		ContinuationSessionID: "sess-prev",
 		Structured: &agent.StructuredOutput{
 			JSON: `{"type":"object","properties":{"approved":{"type":"boolean"}},"required":["approved"]}`,
 		},
@@ -254,21 +219,14 @@ func TestProviderFallsBackToFreshAfterResumeWhenStructuredOutputStillMissing(t *
 	if execErr != nil {
 		t.Fatalf("execute error = %#v", execErr)
 	}
-	if len(calls) != 3 {
-		t.Fatalf("calls = %d, want 3", len(calls))
+	if !containsArgPair(captured.args, "--resume", "sess-prev") {
+		t.Fatalf("args = %#v, want --resume sess-prev", captured.args)
 	}
-	if !containsArgPair(calls[1].args, "--resume", "sess-456") {
-		t.Fatalf("resume args = %#v, want --resume sess-456", calls[1].args)
+	if string(captured.stdin) != "Fix JSON" {
+		t.Fatalf("stdin = %q, want continuation prompt", string(captured.stdin))
 	}
-	if containsArg(calls[2].args, "--resume") {
-		t.Fatalf("fresh args = %#v, want no --resume", calls[2].args)
-	}
-	if attempts, ok := response.Metadata["structuredOutputAttempts"].(int); !ok || attempts != 3 {
-		t.Fatalf("structuredOutputAttempts = %#v, want int(3)", response.Metadata["structuredOutputAttempts"])
-	}
-	value, ok := response.Value.(map[string]any)
-	if !ok || value["approved"] != true {
-		t.Fatalf("response value = %#v, want approved=true", response.Value)
+	if response.Metadata["continuation_session_id"] != "sess-next" {
+		t.Fatalf("continuation_session_id = %#v, want sess-next", response.Metadata["continuation_session_id"])
 	}
 }
 

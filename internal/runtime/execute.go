@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -25,6 +26,9 @@ const (
 	stallRerunAttemptsTotal    = "INF"
 	defaultCodexTPMRetryAfter  = 1 * time.Minute
 	defaultCodexResumePrompt   = "continue"
+	defaultStructuredAttempts  = 3
+	defaultStructuredPrompt    = "Your previous response did not satisfy the required response schema.\nRespond only with a JSON value that matches the required schema.\nDo not include prose, markdown, or commentary."
+	continuationMetadataKey    = "continuation_session_id"
 )
 
 type stallPolicy struct {
@@ -38,9 +42,16 @@ type codexTPMPolicy struct {
 	MaxRetries int
 }
 
-type codexTPMRetryContext struct {
+type retryContext struct {
 	ContinuationSessionID string
-	UsedFreshFallback     bool
+	ContinuationPrompt    string
+	UsedFreshTPMFallback  bool
+}
+
+type structuredRetryPolicy struct {
+	Enabled     bool
+	MaxAttempts int
+	Prompt      string
 }
 
 func (r *Runner) executeStep(
@@ -63,6 +74,12 @@ func (r *Runner) executeStep(
 	}
 
 	tpmPolicy, failure := resolveCodexTPMPolicy(runtime, config.Spec.Defaults, stepIndex, step)
+	if failure != nil {
+		result.Status = state.StepStatusFailed
+		result.Error = failure
+		return stepAction{}, finalizeStatus(result), nil
+	}
+	structuredPolicy, failure := resolveStructuredRetryPolicy(runtime, config.Spec.Defaults, stepIndex, step)
 	if failure != nil {
 		result.Status = state.StepStatusFailed
 		result.Error = failure
@@ -98,7 +115,7 @@ func (r *Runner) executeStep(
 	}
 
 	codexTPMRetryCount := 0
-	retryContext := codexTPMRetryContext{}
+	retryContext := retryContext{}
 
 attemptLoop:
 	for attempt := 1; ; attempt++ {
@@ -116,9 +133,7 @@ attemptLoop:
 			Runtime:               runtime,
 			ExecutionLabel:        stepExecutionLabel(snapshot.LastSequence+1, attempt),
 			ContinuationSessionID: retryContext.ContinuationSessionID,
-		}
-		if retryContext.ContinuationSessionID != "" {
-			stepCtx.ContinuationPrompt = defaultCodexResumePrompt
+			ContinuationPrompt:    retryContext.ContinuationPrompt,
 		}
 
 		if policy == nil {
@@ -127,6 +142,10 @@ attemptLoop:
 			if retry, nextRetryContext, aborted := r.maybeRetryCodexTPM(ctx, stepIndex, step, finalized, tpmPolicy, &codexTPMRetryCount, retryContext); aborted.Status != "" {
 				return stepAction{}, aborted, nil
 			} else if retry {
+				retryContext = nextRetryContext
+				continue attemptLoop
+			}
+			if retry, nextRetryContext := r.maybeRetryStructuredOutput(step, finalized, structuredPolicy, attempt); retry {
 				retryContext = nextRetryContext
 				continue attemptLoop
 			}
@@ -155,6 +174,10 @@ attemptLoop:
 				if retry, nextRetryContext, aborted := r.maybeRetryCodexTPM(ctx, stepIndex, step, finalized, tpmPolicy, &codexTPMRetryCount, retryContext); aborted.Status != "" {
 					return stepAction{}, aborted, nil
 				} else if retry {
+					retryContext = nextRetryContext
+					continue attemptLoop
+				}
+				if retry, nextRetryContext := r.maybeRetryStructuredOutput(step, finalized, structuredPolicy, attempt); retry {
 					retryContext = nextRetryContext
 					continue attemptLoop
 				}
@@ -339,8 +362,8 @@ func (r *Runner) maybeRetryCodexTPM(
 	result state.StepResult,
 	tpmPolicy codexTPMPolicy,
 	retryCount *int,
-	retryContext codexTPMRetryContext,
-) (bool, codexTPMRetryContext, state.StepResult) {
+	retryContext retryContext,
+) (bool, retryContext, state.StepResult) {
 	if step.ExecutorType() != "codex" || !tpmPolicy.Enabled || retryCount == nil || *retryCount >= tpmPolicy.MaxRetries {
 		return false, retryContext, state.StepResult{}
 	}
@@ -349,13 +372,15 @@ func (r *Runner) maybeRetryCodexTPM(
 		return false, retryContext, state.StepResult{}
 	}
 	if sessionID == "" {
-		if retryContext.UsedFreshFallback {
+		if retryContext.UsedFreshTPMFallback {
 			return false, retryContext, state.StepResult{}
 		}
-		retryContext.UsedFreshFallback = true
+		retryContext.UsedFreshTPMFallback = true
 		retryContext.ContinuationSessionID = ""
+		retryContext.ContinuationPrompt = ""
 	} else {
 		retryContext.ContinuationSessionID = sessionID
+		retryContext.ContinuationPrompt = defaultCodexResumePrompt
 	}
 
 	waitFn := r.retryWait
@@ -381,6 +406,86 @@ func (r *Runner) maybeRetryCodexTPM(
 
 	*retryCount++
 	return true, retryContext, state.StepResult{}
+}
+
+func resolveStructuredRetryPolicy(runtime exprruntime.Runtime, defaults map[string]any, stepIndex int, step spec.Step) (structuredRetryPolicy, *state.Failure) {
+	if !isAgentExecutor(step.ExecutorType()) {
+		return structuredRetryPolicy{}, nil
+	}
+
+	policy := structuredRetryPolicy{
+		Enabled:     agentValueSchemaResponse(step),
+		MaxAttempts: defaultStructuredAttempts,
+		Prompt:      defaultStructuredPrompt,
+	}
+
+	raw, ok, err := rawExecutorDefault(defaults, step.ExecutorType(), "structured_retry")
+	if err != nil {
+		return structuredRetryPolicy{}, &state.Failure{
+			Code:    "invalid_defaults",
+			Message: fmt.Sprintf("step %d defaults.executors.%s.structured_retry is invalid: %v", stepIndex, step.ExecutorType(), err),
+		}
+	}
+	if !ok {
+		return policy, nil
+	}
+
+	fields, ok := raw.(map[string]any)
+	if !ok {
+		return structuredRetryPolicy{}, &state.Failure{
+			Code:    "invalid_defaults",
+			Message: fmt.Sprintf("step %d defaults.executors.%s.structured_retry is invalid: must be a map", stepIndex, step.ExecutorType()),
+		}
+	}
+
+	if attemptsRaw, ok := fields["attempts"]; ok {
+		resolved, err := runtime.Resolve(attemptsRaw)
+		if err != nil {
+			return structuredRetryPolicy{}, &state.Failure{
+				Code:    "invalid_defaults",
+				Message: fmt.Sprintf("step %d defaults.executors.%s.structured_retry is invalid: resolve attempts: %v", stepIndex, step.ExecutorType(), err),
+			}
+		}
+		attempts, ok := parsePositiveInt(resolved)
+		if !ok {
+			return structuredRetryPolicy{}, &state.Failure{
+				Code:    "invalid_defaults",
+				Message: fmt.Sprintf("step %d defaults.executors.%s.structured_retry is invalid: attempts must resolve to an integer greater than or equal to 1", stepIndex, step.ExecutorType()),
+			}
+		}
+		policy.MaxAttempts = attempts
+	}
+
+	if promptRaw, ok := fields["prompt"]; ok {
+		prompt, err := runtime.ResolveString(promptRaw)
+		if err != nil {
+			return structuredRetryPolicy{}, &state.Failure{
+				Code:    "invalid_defaults",
+				Message: fmt.Sprintf("step %d defaults.executors.%s.structured_retry is invalid: prompt must resolve to a non-empty string: %v", stepIndex, step.ExecutorType(), err),
+			}
+		}
+		policy.Prompt = prompt
+	}
+
+	return policy, nil
+}
+
+func (r *Runner) maybeRetryStructuredOutput(step spec.Step, result state.StepResult, policy structuredRetryPolicy, attempt int) (bool, retryContext) {
+	if !policy.Enabled || attempt >= policy.MaxAttempts || !isStructuredOutputFailure(result) {
+		return false, retryContext{}
+	}
+
+	return true, retryContext{
+		ContinuationSessionID: structuredRetrySessionID(step.ExecutorType(), result),
+		ContinuationPrompt:    policy.Prompt,
+	}
+}
+
+func isStructuredOutputFailure(result state.StepResult) bool {
+	if result.Status != state.StepStatusFailed || result.Error == nil {
+		return false
+	}
+	return result.Error.Code == "invalid_provider_output" || result.Error.Code == responseCodeSchemaMismatch
 }
 
 func parsePositiveNumber(value any) (float64, bool) {
@@ -412,6 +517,14 @@ func parsePositiveNumber(value any) (float64, bool) {
 		}
 	}
 	return 0, false
+}
+
+func parsePositiveInt(value any) (int, bool) {
+	parsed, ok := parseNonNegativeInt(value)
+	if !ok || parsed < 1 {
+		return 0, false
+	}
+	return parsed, true
 }
 
 func parseNonNegativeInt(value any) (int, bool) {
@@ -450,6 +563,92 @@ func parseNonNegativeInt(value any) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+func rawExecutorDefault(defaults map[string]any, executorType string, key string) (any, bool, error) {
+	rawExecutors, ok := defaults["executors"]
+	if !ok {
+		return nil, false, nil
+	}
+	executors, ok := rawExecutors.(map[string]any)
+	if !ok {
+		return nil, false, fmt.Errorf("defaults.executors must be a map")
+	}
+
+	rawExecutorDefaults, ok := executors[executorType]
+	if !ok {
+		return nil, false, nil
+	}
+	executorDefaults, ok := rawExecutorDefaults.(map[string]any)
+	if !ok {
+		return nil, false, fmt.Errorf("defaults.executors.%s must be a map", executorType)
+	}
+
+	raw, ok := executorDefaults[key]
+	return raw, ok, nil
+}
+
+func isAgentExecutor(executorType string) bool {
+	switch executorType {
+	case "codex", "claude", "crush":
+		return true
+	default:
+		return false
+	}
+}
+
+func agentValueSchemaResponse(step spec.Step) bool {
+	if !isAgentExecutor(step.ExecutorType()) {
+		return false
+	}
+
+	cfg, ok, err := loadResponseConfig(step)
+	if err != nil || !ok || cfg.schema == nil {
+		return false
+	}
+	return cfg.from.kind == "value"
+}
+
+func structuredRetrySessionID(executorType string, result state.StepResult) string {
+	switch executorType {
+	case "codex", "claude":
+	default:
+		return ""
+	}
+
+	if id := continuationSessionIDFromMetadata(result); id != "" {
+		return id
+	}
+	if providerError, ok := providerErrorDetails(result); ok {
+		for _, key := range []string{"session_id", "thread_id"} {
+			value, _ := providerError[key].(string)
+			if strings.TrimSpace(value) != "" {
+				return strings.TrimSpace(value)
+			}
+		}
+	}
+	return ""
+}
+
+func continuationSessionIDFromMetadata(result state.StepResult) string {
+	if len(result.Artifacts.Files) == 0 {
+		return ""
+	}
+	path := result.Artifacts.Files["metadata"]
+	if path == "" {
+		return ""
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(data, &metadata); err != nil {
+		return ""
+	}
+	value, _ := metadata[continuationMetadataKey].(string)
+	return strings.TrimSpace(value)
 }
 
 func isRateLimitStepFailure(result state.StepResult) bool {

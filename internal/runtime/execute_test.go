@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -802,4 +803,286 @@ func TestRunnerCodexTPMRetryOnRateLimit(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRunnerAgentStructuredOutputRecovery(t *testing.T) {
+	t.Parallel()
+
+	responseSchema := map[string]any{
+		"type":                 "object",
+		"required":             []any{"approved"},
+		"additionalProperties": false,
+		"properties": map[string]any{
+			"approved": "boolean",
+		},
+	}
+
+	type attemptSpec struct {
+		result  state.StepResult
+		session string
+		stdout  string
+	}
+
+	structuredFailure := func(code string) state.StepResult {
+		return state.StepResult{
+			Status: state.StepStatusFailed,
+			Error: &state.Failure{
+				Code:    code,
+				Message: "structured output failed",
+			},
+		}
+	}
+	successValue := func(value any) state.StepResult {
+		return state.StepResult{
+			Status: state.StepStatusSucceeded,
+			Value:  value,
+		}
+	}
+
+	testCases := []struct {
+		name                       string
+		executorType               string
+		response                   map[string]any
+		structuredRetry            any
+		attempts                   []attemptSpec
+		wantSuccess                bool
+		wantFailureCode            string
+		wantValue                  any
+		wantExecutorAttempts       int
+		wantContinuationSessionIDs []string
+		wantContinuationPrompts    []string
+	}{
+		{
+			name:         "malformed provider output retries claude with default prompt and session",
+			executorType: "claude",
+			attempts: []attemptSpec{
+				{result: structuredFailure("invalid_provider_output"), session: "sess-claude"},
+				{result: successValue(map[string]any{"approved": true})},
+			},
+			wantSuccess:                true,
+			wantValue:                  map[string]any{"approved": true},
+			wantExecutorAttempts:       2,
+			wantContinuationSessionIDs: []string{"", "sess-claude"},
+			wantContinuationPrompts:    []string{"", defaultStructuredPrompt},
+		},
+		{
+			name:         "schema mismatch retries codex with session",
+			executorType: "codex",
+			attempts: []attemptSpec{
+				{
+					result:  successValue(map[string]any{"approved": "yes", "$thinking": "bad type"}),
+					session: "sess-codex",
+				},
+				{result: successValue(map[string]any{"approved": true, "$thinking": "fixed"})},
+			},
+			wantSuccess:                true,
+			wantValue:                  map[string]any{"approved": true, "$thinking": "fixed"},
+			wantExecutorAttempts:       2,
+			wantContinuationSessionIDs: []string{"", "sess-codex"},
+			wantContinuationPrompts:    []string{"", defaultStructuredPrompt},
+		},
+		{
+			name:         "crush retries fresh with prompt override",
+			executorType: "crush",
+			structuredRetry: map[string]any{
+				"prompt": "Fix only JSON",
+			},
+			attempts: []attemptSpec{
+				{result: structuredFailure("invalid_provider_output"), session: "ignored-session"},
+				{result: successValue(map[string]any{"approved": true})},
+			},
+			wantSuccess:                true,
+			wantValue:                  map[string]any{"approved": true},
+			wantExecutorAttempts:       2,
+			wantContinuationSessionIDs: []string{"", ""},
+			wantContinuationPrompts:    []string{"", "Fix only JSON"},
+		},
+		{
+			name:         "exhausted attempts fails with structured failure code",
+			executorType: "claude",
+			structuredRetry: map[string]any{
+				"attempts": 2,
+			},
+			attempts: []attemptSpec{
+				{result: structuredFailure("invalid_provider_output"), session: "sess-1"},
+				{result: structuredFailure("invalid_provider_output"), session: "sess-2"},
+			},
+			wantFailureCode:            "invalid_provider_output",
+			wantExecutorAttempts:       2,
+			wantContinuationSessionIDs: []string{"", "sess-1"},
+			wantContinuationPrompts:    []string{"", defaultStructuredPrompt},
+		},
+		{
+			name:         "attempts one disables retry",
+			executorType: "claude",
+			structuredRetry: map[string]any{
+				"attempts": 1,
+			},
+			attempts: []attemptSpec{
+				{result: structuredFailure("invalid_provider_output"), session: "sess-disabled"},
+			},
+			wantFailureCode:            "invalid_provider_output",
+			wantExecutorAttempts:       1,
+			wantContinuationSessionIDs: []string{""},
+			wantContinuationPrompts:    []string{""},
+		},
+		{
+			name:         "stdout response validation remains fail fast",
+			executorType: "claude",
+			response: map[string]any{
+				"from":   "stdout",
+				"schema": responseSchema,
+			},
+			attempts: []attemptSpec{
+				{result: successValue(map[string]any{"approved": true}), session: "sess-stdout", stdout: `{"approved":"bad"}`},
+			},
+			wantFailureCode:            responseCodeSchemaMismatch,
+			wantExecutorAttempts:       1,
+			wantContinuationSessionIDs: []string{""},
+			wantContinuationPrompts:    []string{""},
+		},
+		{
+			name:         "invalid structured retry defaults fail before provider execution",
+			executorType: "claude",
+			structuredRetry: map[string]any{
+				"attempts": 0,
+			},
+			attempts:                   []attemptSpec{{result: successValue(map[string]any{"approved": true})}},
+			wantFailureCode:            "invalid_defaults",
+			wantExecutorAttempts:       0,
+			wantContinuationSessionIDs: []string{},
+			wantContinuationPrompts:    []string{},
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			response := tc.response
+			if response == nil {
+				response = map[string]any{"schema": responseSchema}
+			}
+			defaults := map[string]any{}
+			if tc.structuredRetry != nil {
+				defaults = map[string]any{
+					"executors": map[string]any{
+						tc.executorType: map[string]any{
+							"structured_retry": tc.structuredRetry,
+						},
+					},
+				}
+			}
+
+			config := testConfig(t, spec.Document{
+				Version:  spec.Version,
+				Name:     "sample",
+				Entry:    "main",
+				Defaults: defaults,
+				Flows: map[string]spec.Flow{
+					"main": {
+						Steps: []spec.Step{
+							{
+								ID:   "agent-step",
+								Type: tc.executorType,
+								Fields: map[string]any{
+									"response": response,
+								},
+							},
+						},
+					},
+				},
+			})
+			mustPersist(t, config)
+
+			executorAttempts := 0
+			continuationSessionIDs := []string{}
+			continuationPrompts := []string{}
+			registry := NewRegistry()
+			mustRegister(registry, tc.executorType, func() executorapi.Executor {
+				return &fakeExecutor{
+					calls: new([]string),
+					execute: func(ctx executorapi.StepContext) state.StepResult {
+						if executorAttempts >= len(tc.attempts) {
+							t.Fatalf("unexpected attempt %d", executorAttempts+1)
+						}
+						continuationSessionIDs = append(continuationSessionIDs, ctx.ContinuationSessionID)
+						continuationPrompts = append(continuationPrompts, ctx.ContinuationPrompt)
+
+						attempt := tc.attempts[executorAttempts]
+						executorAttempts++
+						result := cloneStepResult(attempt.result)
+						if attempt.session != "" {
+							result.Artifacts.Files["metadata"] = writeProviderMetadataFixture(t, ctx, attempt.session)
+						}
+						if attempt.stdout != "" {
+							result.Artifacts.Stdout = writeAttemptArtifactFixture(t, ctx, "stdout.txt", attempt.stdout)
+						}
+						return result
+					},
+				}
+			})
+
+			snapshot, err := NewRunner(registry).Run(context.Background(), config)
+			if tc.wantSuccess {
+				if err != nil {
+					t.Fatalf("run: %v", err)
+				}
+				if snapshot.Status != state.RunStatusSucceeded {
+					t.Fatalf("snapshot status = %q, want succeeded", snapshot.Status)
+				}
+				if !reflect.DeepEqual(snapshot.Steps[0].Value, tc.wantValue) {
+					t.Fatalf("step value = %#v, want %#v", snapshot.Steps[0].Value, tc.wantValue)
+				}
+			} else {
+				assertRunFailed(t, err, tc.wantFailureCode)
+			}
+
+			if executorAttempts != tc.wantExecutorAttempts {
+				t.Fatalf("executor attempts = %d, want %d", executorAttempts, tc.wantExecutorAttempts)
+			}
+			if len(snapshot.Steps) != 1 {
+				t.Fatalf("recorded steps = %d, want 1 final step", len(snapshot.Steps))
+			}
+			if !reflect.DeepEqual(continuationSessionIDs, tc.wantContinuationSessionIDs) {
+				t.Fatalf("continuation session ids = %#v, want %#v", continuationSessionIDs, tc.wantContinuationSessionIDs)
+			}
+			if !reflect.DeepEqual(continuationPrompts, tc.wantContinuationPrompts) {
+				t.Fatalf("continuation prompts = %#v, want %#v", continuationPrompts, tc.wantContinuationPrompts)
+			}
+		})
+	}
+}
+
+func writeProviderMetadataFixture(t *testing.T, ctx executorapi.StepContext, sessionID string) string {
+	t.Helper()
+
+	return writeAttemptArtifactFixture(t, ctx, "provider-metadata.json", string(mustJSON(t, map[string]any{
+		"continuation_session_id": sessionID,
+	})))
+}
+
+func writeAttemptArtifactFixture(t *testing.T, ctx executorapi.StepContext, name string, contents string) string {
+	t.Helper()
+
+	stepDir := executorapi.StepArtifactDir(ctx.RunDir, ctx.StepIndex, ctx.Step.ID, ctx.ExecutionLabel)
+	path := filepath.Join(stepDir, name)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir attempt artifact dir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+		t.Fatalf("write attempt artifact %s: %v", name, err)
+	}
+	return path
+}
+
+func mustJSON(t *testing.T, value any) []byte {
+	t.Helper()
+
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal json fixture: %v", err)
+	}
+	return data
 }

@@ -44,11 +44,13 @@ Current behavior:
 - `workspace.root` and `workspace.state_dir` are accepted and normalized before execution.
 - `params` are exposed to expressions and templates under `ctx.params`.
 - Repeated `--set key=value` flags override declared `spec.params` entries for the launched run and persist inside the stored normalized spec.
-- `defaults` are parsed and persisted. Agent executors currently interpret `defaults.cwd`, `defaults.env`, and `defaults.executors.codex|claude|crush`. Stall policy defaults are read from `defaults.executors.<step-type>.stall` when a step omits `stall`.
+- `defaults` are parsed and persisted. Agent executors currently interpret `defaults.cwd`, `defaults.env`, and `defaults.executors.codex|claude|crush`. Stall policy defaults are read from `defaults.executors.<step-type>.stall` when a step omits `stall`. Agent structured-output recovery defaults are read from `defaults.executors.codex|claude|crush.structured_retry`.
 - `defaults.tpm` is optional and may be either a positive number or an object with `rate` and optional `retries`.
 - `defaults.tpm.rate` is optional and when set must resolve to a positive number.
 - `defaults.tpm.retries` defaults to `1` and must resolve to a non-negative integer; it represents extra retries after the first attempt.
 - Object form requires at least one of `rate` or `retries`.
+- `defaults.executors.<agent>.structured_retry.attempts` is optional, defaults to `3`, and must resolve to an integer greater than or equal to `1`. It is the total number of provider attempts, including the first attempt.
+- `defaults.executors.<agent>.structured_retry.prompt` is optional and must resolve to a non-empty string. When omitted, the engine uses its built-in schema-recovery prompt.
 - `schemas` provides workflow-local JSON Schema definitions for inline `response.schema` refs.
 - Built-in step definitions are validated at spec load time against embedded JSON Schema files shipped under `schemas/*.amata.schema.json`.
 - Shared step-schema fragments such as stall-policy and string-or-expression shapes are factored into separate embedded schema files under `schemas/`.
@@ -506,6 +508,33 @@ Current behavior:
 - Invalid response schemas fail the step with `invalid_response_schema`.
 - Schema mismatches fail the step with `response_schema_mismatch`.
 - Raw stdout, stderr, and named file paths remain available under `artifacts`.
+
+## Agent Structured Output Recovery
+
+Defaults-only configuration:
+
+```yaml
+defaults:
+  executors:
+    codex:
+      structured_retry:
+        attempts: 3
+        prompt: |
+          Your previous response did not satisfy the required response schema.
+          Respond only with a JSON value that matches the required schema.
+          Do not include prose, markdown, or commentary.
+```
+
+Current behavior:
+- Recovery applies only to `codex`, `claude`, and `crush` steps that declare `response.schema` with `response.from: value` or omit `response.from`.
+- Recovery does not apply to non-agent executors, `response.from: stdout`, `stderr`, line sources, or named artifacts; those response validation failures remain fail-fast.
+- The runner retries provider parse failures (`invalid_provider_output`) and runtime response schema mismatches (`response_schema_mismatch`).
+- `attempts` is the total attempt count. `attempts: 1` disables recovery retry while keeping normal fail-fast validation.
+- Invalid `structured_retry` defaults fail the step before provider execution with `invalid_defaults`.
+- Intermediate malformed attempts are preserved as attempt artifact directories only. Durable state records one final `step_recorded` result after recovery succeeds or attempts are exhausted.
+- Codex rate-limit retry keeps precedence over structured-output recovery. A 429-style Codex failure follows the `defaults.tpm` wait-and-retry path first.
+- Codex and Claude recovery attempts resume the provider session when the previous attempt metadata includes `continuation_session_id`; otherwise they retry with a fresh provider invocation. Crush always retries fresh.
+- Provider metadata is written to `provider-metadata.json` and exposes continuation sessions under `continuation_session_id` when the provider reports one.
 
 ## Step Conditions and Expectations
 
