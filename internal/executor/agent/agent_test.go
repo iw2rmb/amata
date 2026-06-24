@@ -172,6 +172,72 @@ func TestExecutorResolvesDefaultsTemplatesAndPersistsArtifacts(t *testing.T) {
 	})
 }
 
+func TestExecutorHandlesProviderModelRequirement(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		provider   string
+		wantStatus state.StepStatus
+		wantCode   string
+	}{
+		{
+			name:       "codex_allows_missing_model",
+			provider:   "codex",
+			wantStatus: state.StepStatusSucceeded,
+		},
+		{
+			name:       "claude_requires_model",
+			provider:   "claude",
+			wantStatus: state.StepStatusFailed,
+			wantCode:   "invalid_agent",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			step := spec.Step{
+				ID:   "model-default",
+				Type: tt.provider,
+				Fields: map[string]any{
+					"prompt":    "Do work",
+					"reasoning": "high",
+				},
+			}
+			sc := newStepContext(t, step, withDocument(spec.Document{}))
+
+			provider := &fakeProvider{
+				name: tt.provider,
+				execute: func(_ context.Context, request agent.Request) (agent.Response, *agent.Error) {
+					if tt.wantStatus != state.StepStatusSucceeded {
+						t.Fatalf("provider should not be called")
+					}
+					if request.Model != "" {
+						t.Fatalf("model = %q, want empty", request.Model)
+					}
+					if request.Reasoning != "high" {
+						t.Fatalf("reasoning = %q, want high", request.Reasoning)
+					}
+					return agent.Response{
+						Transcript: []byte("done"),
+						Stdout:     []byte("done\n"),
+					}, nil
+				},
+			}
+
+			result := agent.New(provider).Execute(context.Background(), sc)
+			if result.Status != tt.wantStatus {
+				t.Fatalf("result status = %q, error = %#v", result.Status, result.Error)
+			}
+			if tt.wantCode != "" && (result.Error == nil || result.Error.Code != tt.wantCode) {
+				t.Fatalf("result error = %#v, want code=%s", result.Error, tt.wantCode)
+			}
+		})
+	}
+}
+
 func TestExecutorClaudeRequestsStructuredOutputEvenWhenResponseFromIsStdout(t *testing.T) {
 	t.Parallel()
 

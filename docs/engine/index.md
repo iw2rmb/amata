@@ -340,7 +340,7 @@ Supported fields:
 - `type: codex`
 - `codex`: shorthand for `prompt`
 - `prompt`: required expression-bearing string
-- `model`: required string after applying `defaults.executors.codex`
+- `model`: optional string after applying `defaults.executors.codex`; when omitted, Codex CLI chooses its configured default model
 - `reasoning`: optional string
 - `cwd`: optional string
 - `env`: optional map of environment variable names to string values

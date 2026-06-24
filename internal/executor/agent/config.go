@@ -75,7 +75,7 @@ func ResolveStep(stepCtx executor.StepContext, providerName string) (ResolvedSte
 		return ResolvedStep{}, invalidFieldError(stepCtx, "prompt", err)
 	}
 
-	model, err := resolveRequiredString(stepCtx, selectValue(stepCtx.Step.Fields, providerDefaults, nil, "model"))
+	model, err := resolveAgentModel(stepCtx, providerName, selectValue(stepCtx.Step.Fields, providerDefaults, nil, "model"))
 	if err != nil {
 		return ResolvedStep{}, invalidFieldError(stepCtx, "model", err)
 	}
@@ -166,6 +166,13 @@ func resolveOptionalString(stepCtx executor.StepContext, raw any) (string, error
 		return "", nil
 	}
 	return resolveString(stepCtx, raw, true)
+}
+
+func resolveAgentModel(stepCtx executor.StepContext, providerName string, raw any) (string, error) {
+	if providerName == "codex" {
+		return resolveOptionalString(stepCtx, raw)
+	}
+	return resolveRequiredString(stepCtx, raw)
 }
 
 func resolveString(stepCtx executor.StepContext, raw any, allowEmpty bool) (string, error) {

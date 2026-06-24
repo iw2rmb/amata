@@ -49,8 +49,10 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 		"--dangerously-bypass-approvals-and-sandbox",
 		"--color", "never",
 		"-C", request.CWD,
-		"--model", request.Model,
 		"--json",
+	}
+	if request.Model != "" {
+		args = append(args, "--model", request.Model)
 	}
 	if request.Reasoning != "" {
 		args = append(args, "-c", fmt.Sprintf("model_reasoning_effort=%q", request.Reasoning))

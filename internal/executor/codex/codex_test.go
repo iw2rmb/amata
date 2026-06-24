@@ -92,6 +92,37 @@ func TestProviderPassesSettingsAndParsesStructuredOutput(t *testing.T) {
 	}
 }
 
+func TestProviderOmitsModelFlagWhenModelIsEmpty(t *testing.T) {
+	t.Parallel()
+
+	artifactDir := t.TempDir()
+	var capturedArgs []string
+
+	prov := provider{
+		run: func(_ context.Context, args []string, _ string, _ []string, _ []byte, _, _ io.Writer) error {
+			capturedArgs = args
+			return os.WriteFile(filepath.Join(artifactDir, "last-message.txt"), []byte("done\n"), 0o644)
+		},
+	}
+
+	_, execErr := prov.Execute(context.Background(), agent.Request{
+		Prompt:      "Implement item",
+		Reasoning:   "high",
+		CWD:         "/repo",
+		ArtifactDir: artifactDir,
+	})
+	if execErr != nil {
+		t.Fatalf("execute error = %#v", execErr)
+	}
+
+	if slices.Contains(capturedArgs, "--model") {
+		t.Fatalf("args = %#v, want no --model flag", capturedArgs)
+	}
+	if !slices.Contains(capturedArgs, `model_reasoning_effort="high"`) {
+		t.Fatalf("args = %#v, want reasoning setting", capturedArgs)
+	}
+}
+
 func TestProviderUsesResumeCommandForContinuationSession(t *testing.T) {
 	t.Parallel()
 
