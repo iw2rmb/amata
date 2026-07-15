@@ -756,9 +756,10 @@ func waitForInterruptBoundary(t *testing.T, eventsPath string, firstCountPath st
 
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		eventsData, err := os.ReadFile(eventsPath)
-		if err == nil && strings.Count(strings.TrimSpace(string(eventsData)), "\n")+1 >= 2 {
-			if got := strings.TrimSpace(readTextFile(t, firstCountPath)); got == "step-1" {
+		snapshot, err := state.NewStore(filepath.Dir(eventsPath)).LoadSnapshot()
+		if err == nil && persistedSucceededStep(snapshot, "step-1") {
+			firstCountData, err := os.ReadFile(firstCountPath)
+			if err == nil && strings.TrimSpace(string(firstCountData)) == "step-1" {
 				return
 			}
 		}
@@ -766,6 +767,15 @@ func waitForInterruptBoundary(t *testing.T, eventsPath string, firstCountPath st
 	}
 
 	t.Fatalf("timed out waiting for first completed step to persist")
+}
+
+func persistedSucceededStep(snapshot state.Snapshot, id string) bool {
+	for _, step := range snapshot.Steps {
+		if step.ID == id && step.Status == state.StepStatusSucceeded {
+			return true
+		}
+	}
+	return false
 }
 
 func chdirForTest(t *testing.T, dir string) {

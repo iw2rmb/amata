@@ -514,6 +514,11 @@ func TestRunnerCodexTPMRetryOnRateLimit(t *testing.T) {
 			},
 		}
 	}
+	reconnectThenRateLimitFailure := func(requestID string, sessionID string) state.StepResult {
+		result := rateLimitFailure(requestID, sessionID)
+		result.Error.Message = "codex failed after reconnect"
+		return result
+	}
 
 	testCases := []struct {
 		name                       string
@@ -542,6 +547,24 @@ func TestRunnerCodexTPMRetryOnRateLimit(t *testing.T) {
 			wantSleepCalls:             1,
 			wantSuccess:                true,
 			wantContinuationSessionIDs: []string{"", "sess-1"},
+			wantContinuationPrompts:    []string{"", defaultCodexResumePrompt},
+		},
+		{
+			name: "reconnect error followed by terminal 429 triggers retry",
+			defaults: map[string]any{
+				"tpm": 60000,
+			},
+			results: []state.StepResult{
+				reconnectThenRateLimitFailure("req_reconnect_429", "sess-reconnect-429"),
+				{
+					Status: state.StepStatusSucceeded,
+					Value:  "ok",
+				},
+			},
+			wantAttempts:               2,
+			wantSleepCalls:             1,
+			wantSuccess:                true,
+			wantContinuationSessionIDs: []string{"", "sess-reconnect-429"},
 			wantContinuationPrompts:    []string{"", defaultCodexResumePrompt},
 		},
 		{

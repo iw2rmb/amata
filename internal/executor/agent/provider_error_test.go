@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"encoding/json"
 	"reflect"
 	"testing"
@@ -101,6 +102,59 @@ func TestNormalizeProviderErrorLine(t *testing.T) {
 			errorEnvelope, _ := event["error"].(map[string]any)
 			if !reflect.DeepEqual(errorEnvelope, testCase.wantDetails) {
 				t.Fatalf("normalized error = %#v, want %#v", errorEnvelope, testCase.wantDetails)
+			}
+		})
+	}
+}
+
+func TestProviderErrorObserverRetainsLatestProviderErrorDetails(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name        string
+		lines       []string
+		wantDetails map[string]any
+		wantStderr  string
+	}{
+		{
+			name: "terminal rate limit replaces earlier reconnect error",
+			lines: []string{
+				`{"type":"error","message":"Reconnecting..."}`,
+				`{"type":"error","message":"exceeded retry limit, last status: 429 Too Many Requests, request id: req_123"}`,
+			},
+			wantDetails: map[string]any{
+				"message": "exceeded retry limit, last status: 429 Too Many Requests, request id: req_123",
+				"type":    "",
+				"param":   nil,
+				"code":    "",
+			},
+			wantStderr: `{"type":"error","message":"Reconnecting..."}` + "\n" +
+				`{"type":"error","message":"exceeded retry limit, last status: 429 Too Many Requests, request id: req_123"}` + "\n",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+			observer := NewProviderErrorObserver(&stdout, &stderr)
+			for _, line := range testCase.lines {
+				if _, err := observer.Write([]byte(line + "\n")); err != nil {
+					t.Fatalf("write observer line: %v", err)
+				}
+			}
+			if err := observer.Close(); err != nil {
+				t.Fatalf("close observer: %v", err)
+			}
+
+			if got := observer.ProviderErrorDetails(); !reflect.DeepEqual(got, testCase.wantDetails) {
+				t.Fatalf("ProviderErrorDetails() = %#v, want %#v", got, testCase.wantDetails)
+			}
+			if got := stderr.String(); got != testCase.wantStderr {
+				t.Fatalf("stderr = %q, want %q", got, testCase.wantStderr)
 			}
 		})
 	}

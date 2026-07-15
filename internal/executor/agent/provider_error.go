@@ -82,7 +82,7 @@ func (o *ProviderErrorObserver) processLine(line []byte) error {
 	if !matched {
 		return nil
 	}
-	if o.details == nil && len(details) > 0 {
+	if len(details) > 0 {
 		o.details = jsonutil.CloneMap(details)
 	}
 	if o.stderr == nil {
