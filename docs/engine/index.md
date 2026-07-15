@@ -50,7 +50,7 @@ Current behavior:
 - `defaults.tpm.retries` defaults to `1` and must resolve to a non-negative integer; it represents extra retries after the first attempt.
 - Object form requires at least one of `rate` or `retries`.
 - `defaults.executors.<agent>.structured_retry.attempts` is optional, defaults to `3`, and must resolve to an integer greater than or equal to `1`. It is the total number of provider attempts, including the first attempt.
-- `defaults.executors.<agent>.structured_retry.prompt` is optional and must resolve to a non-empty string. When omitted, the engine uses its built-in schema-recovery prompt.
+- `defaults.executors.<agent>.structured_retry.prompt` is optional and must resolve to a non-empty string. When omitted, the engine uses its built-in schema-recovery prompt with the resolved `response.schema` JSON.
 - `schemas` provides workflow-local JSON Schema definitions for inline `response.schema` refs.
 - Built-in step definitions are validated at spec load time against embedded JSON Schema files shipped under `schemas/*.amata.schema.json`.
 - Shared step-schema fragments such as stall-policy and string-or-expression shapes are factored into separate embedded schema files under `schemas/`.
@@ -520,16 +520,25 @@ defaults:
     codex:
       structured_retry:
         attempts: 3
-        prompt: |
-          Your previous response did not satisfy the required response schema.
-          Respond only with a JSON value that matches the required schema.
-          Do not include prose, markdown, or commentary.
+```
+
+When `prompt` is omitted, the built-in retry prompt is:
+
+```text
+Your previous response did not satisfy the required response schema.
+Respond only with a JSON value that matches the required schema.
+Do not include prose, markdown, or commentary.
+
+Required JSON Schema:
+<resolved response.schema JSON>
 ```
 
 Current behavior:
 - Recovery applies only to `codex`, `claude`, and `crush` steps that declare `response.schema` with `response.from: value` or omit `response.from`.
 - Recovery does not apply to non-agent executors, `response.from: stdout`, `stderr`, line sources, or named artifacts; those response validation failures remain fail-fast.
 - The runner retries provider parse failures (`invalid_provider_output`) and runtime response schema mismatches (`response_schema_mismatch`).
+- When `structured_retry.prompt` is omitted, the built-in retry prompt includes the resolved `response.schema` JSON, including workflow-local `#/schemas/...` refs and the Codex provider schema shape.
+- When `structured_retry.prompt` is set, it replaces the built-in schema-bearing retry prompt.
 - `attempts` is the total attempt count. `attempts: 1` disables recovery retry while keeping normal fail-fast validation.
 - Invalid `structured_retry` defaults fail the step before provider execution with `invalid_defaults`.
 - Intermediate malformed attempts are preserved as attempt artifact directories only. Durable state records one final `step_recorded` result after recovery succeeds or attempts are exhausted.

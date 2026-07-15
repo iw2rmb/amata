@@ -15,6 +15,7 @@ import (
 	executorapi "github.com/iw2rmb/amata/internal/executor"
 	exprruntime "github.com/iw2rmb/amata/internal/expr"
 	"github.com/iw2rmb/amata/internal/progress"
+	"github.com/iw2rmb/amata/internal/schema"
 	"github.com/iw2rmb/amata/internal/spec"
 	"github.com/iw2rmb/amata/internal/state"
 )
@@ -49,9 +50,10 @@ type retryContext struct {
 }
 
 type structuredRetryPolicy struct {
-	Enabled     bool
-	MaxAttempts int
-	Prompt      string
+	Enabled        bool
+	MaxAttempts    int
+	Prompt         string
+	PromptOverride bool
 }
 
 func (r *Runner) executeStep(
@@ -145,7 +147,7 @@ attemptLoop:
 				retryContext = nextRetryContext
 				continue attemptLoop
 			}
-			if retry, nextRetryContext := r.maybeRetryStructuredOutput(step, finalized, structuredPolicy, attempt); retry {
+			if retry, nextRetryContext := r.maybeRetryStructuredOutput(config.SpecPath, config.Spec.Schemas, step, finalized, structuredPolicy, attempt); retry {
 				retryContext = nextRetryContext
 				continue attemptLoop
 			}
@@ -177,7 +179,7 @@ attemptLoop:
 					retryContext = nextRetryContext
 					continue attemptLoop
 				}
-				if retry, nextRetryContext := r.maybeRetryStructuredOutput(step, finalized, structuredPolicy, attempt); retry {
+				if retry, nextRetryContext := r.maybeRetryStructuredOutput(config.SpecPath, config.Spec.Schemas, step, finalized, structuredPolicy, attempt); retry {
 					retryContext = nextRetryContext
 					continue attemptLoop
 				}
@@ -416,7 +418,6 @@ func resolveStructuredRetryPolicy(runtime exprruntime.Runtime, defaults map[stri
 	policy := structuredRetryPolicy{
 		Enabled:     agentValueSchemaResponse(step),
 		MaxAttempts: defaultStructuredAttempts,
-		Prompt:      defaultStructuredPrompt,
 	}
 
 	raw, ok, err := rawExecutorDefault(defaults, step.ExecutorType(), "structured_retry")
@@ -465,20 +466,80 @@ func resolveStructuredRetryPolicy(runtime exprruntime.Runtime, defaults map[stri
 			}
 		}
 		policy.Prompt = prompt
+		policy.PromptOverride = true
 	}
 
 	return policy, nil
 }
 
-func (r *Runner) maybeRetryStructuredOutput(step spec.Step, result state.StepResult, policy structuredRetryPolicy, attempt int) (bool, retryContext) {
+func (r *Runner) maybeRetryStructuredOutput(specPath string, workflowSchemas map[string]any, step spec.Step, result state.StepResult, policy structuredRetryPolicy, attempt int) (bool, retryContext) {
 	if !policy.Enabled || attempt >= policy.MaxAttempts || !isStructuredOutputFailure(result) {
 		return false, retryContext{}
 	}
 
+	prompt := policy.Prompt
+	if !policy.PromptOverride {
+		prompt = defaultStructuredRetryPrompt(specPath, workflowSchemas, step)
+	}
+
 	return true, retryContext{
 		ContinuationSessionID: structuredRetrySessionID(step.ExecutorType(), result),
-		ContinuationPrompt:    policy.Prompt,
+		ContinuationPrompt:    prompt,
 	}
+}
+
+func defaultStructuredRetryPrompt(specPath string, workflowSchemas map[string]any, step spec.Step) string {
+	schemaJSON, ok := structuredRetrySchemaJSON(specPath, workflowSchemas, step)
+	if !ok {
+		return defaultStructuredPrompt
+	}
+	return defaultStructuredPrompt + "\n\nRequired JSON Schema:\n" + schemaJSON
+}
+
+func structuredRetrySchemaJSON(specPath string, workflowSchemas map[string]any, step spec.Step) (string, bool) {
+	cfg, ok, err := loadResponseConfig(step)
+	if err != nil || !ok || cfg.schema == nil || cfg.from.kind != "value" {
+		return "", false
+	}
+
+	document, err := structuredRetrySchemaDocument(specPath, workflowSchemas, step, cfg.schema)
+	if err != nil {
+		return "", false
+	}
+	data, err := json.MarshalIndent(document, "", "  ")
+	if err != nil {
+		return "", false
+	}
+	return string(data), true
+}
+
+func structuredRetrySchemaDocument(specPath string, workflowSchemas map[string]any, step spec.Step, rawSchema any) (any, error) {
+	if sourcePath, ok, err := schema.ResolveResponseSchemaPath(rawSchema, specPath); err != nil {
+		return nil, err
+	} else if ok {
+		document, _, err := schema.LoadResponseSchemaFile(sourcePath)
+		if err != nil {
+			return nil, err
+		}
+		return structuredRetryProviderDocument(step, document)
+	}
+
+	document, err := schema.ExpandedDocument(rawSchema, workflowSchemas)
+	if err != nil {
+		return nil, err
+	}
+	return structuredRetryProviderDocument(step, document)
+}
+
+func structuredRetryProviderDocument(step spec.Step, document any) (any, error) {
+	if step.ExecutorType() != "codex" {
+		return document, nil
+	}
+	validated, err := schema.ValidateProviderDocument(document)
+	if err != nil {
+		return nil, err
+	}
+	return schema.EnsureCodexThinkingField(validated), nil
 }
 
 func isStructuredOutputFailure(result state.StepResult) bool {

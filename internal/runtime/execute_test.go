@@ -816,6 +816,60 @@ func TestRunnerAgentStructuredOutputRecovery(t *testing.T) {
 			"approved": "boolean",
 		},
 	}
+	inlineSchemaPrompt := defaultStructuredPrompt + "\n\nRequired JSON Schema:\n" + `{
+  "additionalProperties": false,
+  "properties": {
+    "approved": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "approved"
+  ],
+  "type": "object"
+}`
+	codexSchemaPrompt := defaultStructuredPrompt + "\n\nRequired JSON Schema:\n" + `{
+  "additionalProperties": false,
+  "properties": {
+    "$thinking": {
+      "$comment": "Thinking (reasoning) notes",
+      "type": "string"
+    },
+    "approved": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "approved"
+  ],
+  "type": "object"
+}`
+	referencedSchemaPrompt := defaultStructuredPrompt + "\n\nRequired JSON Schema:\n" + `{
+  "$defs": {
+    "workflow:approval_result": {
+      "additionalProperties": false,
+      "properties": {
+        "approved": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "approved"
+      ],
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "approved": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "approved"
+  ],
+  "type": "object"
+}`
 
 	type attemptSpec struct {
 		result  state.StepResult
@@ -842,6 +896,7 @@ func TestRunnerAgentStructuredOutputRecovery(t *testing.T) {
 	testCases := []struct {
 		name                       string
 		executorType               string
+		schemas                    map[string]any
 		response                   map[string]any
 		structuredRetry            any
 		attempts                   []attemptSpec
@@ -863,7 +918,7 @@ func TestRunnerAgentStructuredOutputRecovery(t *testing.T) {
 			wantValue:                  map[string]any{"approved": true},
 			wantExecutorAttempts:       2,
 			wantContinuationSessionIDs: []string{"", "sess-claude"},
-			wantContinuationPrompts:    []string{"", defaultStructuredPrompt},
+			wantContinuationPrompts:    []string{"", inlineSchemaPrompt},
 		},
 		{
 			name:         "schema mismatch retries codex with session",
@@ -879,7 +934,24 @@ func TestRunnerAgentStructuredOutputRecovery(t *testing.T) {
 			wantValue:                  map[string]any{"approved": true, "$thinking": "fixed"},
 			wantExecutorAttempts:       2,
 			wantContinuationSessionIDs: []string{"", "sess-codex"},
-			wantContinuationPrompts:    []string{"", defaultStructuredPrompt},
+			wantContinuationPrompts:    []string{"", codexSchemaPrompt},
+		},
+		{
+			name:         "schema ref expands in retry prompt",
+			executorType: "claude",
+			schemas: map[string]any{
+				"approval_result": responseSchema,
+			},
+			response: map[string]any{"schema": "#/schemas/approval_result"},
+			attempts: []attemptSpec{
+				{result: structuredFailure("invalid_provider_output"), session: "sess-ref"},
+				{result: successValue(map[string]any{"approved": true})},
+			},
+			wantSuccess:                true,
+			wantValue:                  map[string]any{"approved": true},
+			wantExecutorAttempts:       2,
+			wantContinuationSessionIDs: []string{"", "sess-ref"},
+			wantContinuationPrompts:    []string{"", referencedSchemaPrompt},
 		},
 		{
 			name:         "crush retries fresh with prompt override",
@@ -910,7 +982,7 @@ func TestRunnerAgentStructuredOutputRecovery(t *testing.T) {
 			wantFailureCode:            "invalid_provider_output",
 			wantExecutorAttempts:       2,
 			wantContinuationSessionIDs: []string{"", "sess-1"},
-			wantContinuationPrompts:    []string{"", defaultStructuredPrompt},
+			wantContinuationPrompts:    []string{"", inlineSchemaPrompt},
 		},
 		{
 			name:         "attempts one disables retry",
@@ -980,6 +1052,7 @@ func TestRunnerAgentStructuredOutputRecovery(t *testing.T) {
 				Name:     "sample",
 				Entry:    "main",
 				Defaults: defaults,
+				Schemas:  tc.schemas,
 				Flows: map[string]spec.Flow{
 					"main": {
 						Steps: []spec.Step{
