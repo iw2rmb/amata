@@ -186,7 +186,7 @@ func TestProviderDocumentIgnoresUnusedUnsupportedWorkflowSchemas(t *testing.T) {
 	}
 }
 
-func TestEnsureCodexThinkingFieldAddsPropertyAndRequired(t *testing.T) {
+func TestEnsureCodexThinkingFieldAddsProperty(t *testing.T) {
 	t.Parallel()
 
 	document := map[string]any{
@@ -211,21 +211,6 @@ func TestEnsureCodexThinkingFieldAddsPropertyAndRequired(t *testing.T) {
 	}
 	if thinking["$comment"] != "Thinking (reasoning) notes" {
 		t.Fatalf("$thinking.$comment = %#v", thinking["$comment"])
-	}
-
-	required, ok := augmented["required"].([]any)
-	if !ok {
-		t.Fatalf("required = %#v, want []any", augmented["required"])
-	}
-	found := false
-	for _, item := range required {
-		if text, ok := item.(string); ok && text == "$thinking" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("required = %#v, want $thinking", required)
 	}
 }
 

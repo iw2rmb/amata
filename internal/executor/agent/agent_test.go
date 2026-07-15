@@ -128,10 +128,6 @@ func TestExecutorResolvesDefaultsTemplatesAndPersistsArtifacts(t *testing.T) {
 			if thinking, ok := properties["$thinking"].(map[string]any); !ok || thinking["type"] != "string" {
 				t.Fatalf("schema artifact missing $thinking string property: %s", string(schemaFile))
 			}
-			required, ok := schemaDocument["required"].([]any)
-			if !ok || !containsString(required, "$thinking") {
-				t.Fatalf("schema artifact missing required $thinking: %s", string(schemaFile))
-			}
 
 			return agent.Response{
 				Value:      map[string]any{"approved": true, "summary": "done"},

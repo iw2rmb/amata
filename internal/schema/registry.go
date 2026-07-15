@@ -154,26 +154,6 @@ func EnsureCodexThinkingField(document map[string]any) map[string]any {
 		"$comment": "Thinking (reasoning) notes",
 	}
 	cloned["properties"] = properties
-
-	requiredSet := map[string]struct{}{}
-	required := []any{}
-	if rawRequired, ok := cloned["required"].([]any); ok {
-		for _, entry := range rawRequired {
-			text, ok := entry.(string)
-			if !ok || text == "" {
-				continue
-			}
-			if _, seen := requiredSet[text]; seen {
-				continue
-			}
-			requiredSet[text] = struct{}{}
-			required = append(required, text)
-		}
-	}
-	if _, seen := requiredSet["$thinking"]; !seen {
-		required = append(required, "$thinking")
-	}
-	cloned["required"] = required
 	return cloned
 }
 

@@ -355,6 +355,7 @@ Behavior:
 - When `response.schema` targets `value`, the executor accepts either an inline schema/ref or a path-like string to a `.json` schema file relative to the workflow file.
 - Inline Codex schemas are expanded into a provider-safe object schema artifact before `codex exec --output-schema`.
 - File-backed Codex schemas are normalized into a step-local provider schema artifact before `codex exec --output-schema`.
+- Codex provider schema artifacts add optional `$thinking` string output; authored `required` fields remain unchanged.
 - Raw provider stdout, stderr, the rendered prompt, the final transcript, and provider metadata persist as step artifacts.
 - Provider `type:error` stdout envelopes are normalized into `stderr` JSONL lines as `{"type":"error","error":{"message","type","param","code"}}`.
 - Prompt artifact files are stored under the `prompt` artifact name (markdown content).
