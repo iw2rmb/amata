@@ -186,34 +186,6 @@ func TestProviderDocumentIgnoresUnusedUnsupportedWorkflowSchemas(t *testing.T) {
 	}
 }
 
-func TestEnsureCodexThinkingFieldAddsProperty(t *testing.T) {
-	t.Parallel()
-
-	document := map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"approved": map[string]any{"type": "boolean"},
-		},
-		"required": []any{"approved"},
-	}
-
-	augmented := schema.EnsureCodexThinkingField(document)
-	properties, ok := augmented["properties"].(map[string]any)
-	if !ok {
-		t.Fatalf("properties = %#v, want map", augmented["properties"])
-	}
-	thinking, ok := properties["$thinking"].(map[string]any)
-	if !ok {
-		t.Fatalf("$thinking = %#v, want map", properties["$thinking"])
-	}
-	if thinking["type"] != "string" {
-		t.Fatalf("$thinking.type = %#v, want string", thinking["type"])
-	}
-	if thinking["$comment"] != "Thinking (reasoning) notes" {
-		t.Fatalf("$thinking.$comment = %#v", thinking["$comment"])
-	}
-}
-
 func TestRegistryCompileFailsForMissingWorkflowOwnedRef(t *testing.T) {
 	t.Parallel()
 

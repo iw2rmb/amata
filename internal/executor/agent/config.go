@@ -317,7 +317,7 @@ func buildStructuredSchema(stepCtx executor.StepContext, providerName string, st
 			if err != nil {
 				return nil, "", "", err
 			}
-			document = schema.EnsureCodexThinkingField(validated)
+			document = validated
 			data, err := json.Marshal(document)
 			if err != nil {
 				return nil, "", "", err
@@ -340,7 +340,7 @@ func buildStructuredSchema(stepCtx executor.StepContext, providerName string, st
 		if err != nil {
 			return nil, "", "", err
 		}
-		document = schema.EnsureCodexThinkingField(validated)
+		document = validated
 	}
 
 	data, err := json.Marshal(document)

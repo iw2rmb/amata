@@ -121,12 +121,10 @@ func TestExecutorResolvesDefaultsTemplatesAndPersistsArtifacts(t *testing.T) {
 			if _, ok := defs["workflow:result"]; !ok {
 				t.Fatalf("schema artifact missing workflow:result definition: %s", string(schemaFile))
 			}
-			properties, ok := schemaDocument["properties"].(map[string]any)
-			if !ok {
+			if properties, ok := schemaDocument["properties"].(map[string]any); !ok {
 				t.Fatalf("schema artifact missing properties: %s", string(schemaFile))
-			}
-			if thinking, ok := properties["$thinking"].(map[string]any); !ok || thinking["type"] != "string" {
-				t.Fatalf("schema artifact missing $thinking string property: %s", string(schemaFile))
+			} else if _, ok := properties["$thinking"]; ok {
+				t.Fatalf("schema artifact injected $thinking property: %s", string(schemaFile))
 			}
 
 			return agent.Response{
@@ -325,7 +323,7 @@ func TestExecutorClaudeDefaultsStructuredSchemaWhenResponseSchemaMissing(t *test
 	}
 }
 
-func TestExecutorUsesAugmentedSchemaArtifactForCodexStructuredOutput(t *testing.T) {
+func TestExecutorUsesNormalizedSchemaArtifactForCodexStructuredOutput(t *testing.T) {
 	t.Parallel()
 
 	step := spec.Step{
@@ -360,8 +358,8 @@ func TestExecutorUsesAugmentedSchemaArtifactForCodexStructuredOutput(t *testing.
 			if !strings.Contains(request.Structured.JSON, `"approved"`) {
 				t.Fatalf("schema json = %q, want schema file content", request.Structured.JSON)
 			}
-			if !strings.Contains(request.Structured.JSON, `"$thinking"`) {
-				t.Fatalf("schema json = %q, want codex $thinking field", request.Structured.JSON)
+			if strings.Contains(request.Structured.JSON, `"$thinking"`) {
+				t.Fatalf("schema json = %q, want no injected $thinking field", request.Structured.JSON)
 			}
 			return agent.Response{
 				Value:      map[string]any{"approved": true},

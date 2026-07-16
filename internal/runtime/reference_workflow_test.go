@@ -413,8 +413,6 @@ def codex_output_path(argv):
 
 
 def write_payload(provider, payload):
-    if provider == 'codex' and isinstance(payload, dict) and '$thinking' not in payload:
-        payload = {**payload, '$thinking': 'fixture reasoning notes'}
     if provider == 'codex':
         text = json.dumps(payload, sort_keys=True) + '\n'
         with open(codex_output_path(sys.argv[1:]), 'w', encoding='utf-8') as handle:

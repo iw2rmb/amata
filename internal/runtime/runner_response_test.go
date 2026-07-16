@@ -380,7 +380,7 @@ func TestRunnerResponseSchemaErrors(t *testing.T) {
 	}
 }
 
-func TestRunnerCodexResponseSchemaHandlesThinkingBySource(t *testing.T) {
+func TestRunnerCodexResponseSchemaUsesAuthoredSchemaBySource(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
@@ -388,26 +388,23 @@ func TestRunnerCodexResponseSchemaHandlesThinkingBySource(t *testing.T) {
 		response     map[string]any
 		result       state.StepResult
 		wantSelected string
-		wantThinking bool
 	}{
 		{
-			name: "value source includes thinking",
+			name: "value source keeps authored fields",
 			response: map[string]any{
 				"schema": map[string]any{"$ref": "#/schemas/selected_value"},
 			},
 			result: state.StepResult{
 				Status: state.StepStatusSucceeded,
 				Value: map[string]any{
-					"selected":  "value",
-					"$thinking": "reasoning notes",
+					"selected": "value",
 				},
 				Artifacts: executorapi.EmptyArtifacts(),
 			},
 			wantSelected: "value",
-			wantThinking: true,
 		},
 		{
-			name: "stdout source does not require thinking",
+			name: "stdout source uses stdout value",
 			response: map[string]any{
 				"from":   "stdout",
 				"schema": map[string]any{"$ref": "#/schemas/selected_value"},
@@ -420,7 +417,6 @@ func TestRunnerCodexResponseSchemaHandlesThinkingBySource(t *testing.T) {
 				},
 			},
 			wantSelected: "stdout",
-			wantThinking: false,
 		},
 	}
 
@@ -464,7 +460,7 @@ func TestRunnerCodexResponseSchemaHandlesThinkingBySource(t *testing.T) {
 			mustPersist(t, config)
 
 			testResult := cloneStepResult(tc.result)
-			if tc.name == "stdout source does not require thinking" {
+			if tc.name == "stdout source uses stdout value" {
 				testResult.Artifacts.Stdout = writeArtifactFixture(t, config.RunDir, "stdout.json", `{"selected":"stdout"}`)
 			}
 
@@ -499,9 +495,8 @@ func TestRunnerCodexResponseSchemaHandlesThinkingBySource(t *testing.T) {
 			if got := resolveValue["selected"]; got != tc.wantSelected {
 				t.Fatalf("resolve selected = %#v, want %q", got, tc.wantSelected)
 			}
-			_, hasThinking := resolveValue["$thinking"]
-			if hasThinking != tc.wantThinking {
-				t.Fatalf("resolve thinking present = %v, want %v", hasThinking, tc.wantThinking)
+			if _, hasThinking := resolveValue["$thinking"]; hasThinking {
+				t.Fatalf("resolve value included unexpected $thinking: %#v", resolveValue)
 			}
 			if got, want := calls, []string{"resolve", "after"}; !reflect.DeepEqual(got, want) {
 				t.Fatalf("calls = %#v, want %#v", got, want)

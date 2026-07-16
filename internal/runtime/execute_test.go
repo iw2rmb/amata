@@ -854,10 +854,6 @@ func TestRunnerAgentStructuredOutputRecovery(t *testing.T) {
 	codexSchemaPrompt := defaultStructuredPrompt + "\n\nRequired JSON Schema:\n" + `{
   "additionalProperties": false,
   "properties": {
-    "$thinking": {
-      "$comment": "Thinking (reasoning) notes",
-      "type": "string"
-    },
     "approved": {
       "type": "boolean"
     }
@@ -948,13 +944,13 @@ func TestRunnerAgentStructuredOutputRecovery(t *testing.T) {
 			executorType: "codex",
 			attempts: []attemptSpec{
 				{
-					result:  successValue(map[string]any{"approved": "yes", "$thinking": "bad type"}),
+					result:  successValue(map[string]any{"approved": "yes"}),
 					session: "sess-codex",
 				},
-				{result: successValue(map[string]any{"approved": true, "$thinking": "fixed"})},
+				{result: successValue(map[string]any{"approved": true})},
 			},
 			wantSuccess:                true,
-			wantValue:                  map[string]any{"approved": true, "$thinking": "fixed"},
+			wantValue:                  map[string]any{"approved": true},
 			wantExecutorAttempts:       2,
 			wantContinuationSessionIDs: []string{"", "sess-codex"},
 			wantContinuationPrompts:    []string{"", codexSchemaPrompt},

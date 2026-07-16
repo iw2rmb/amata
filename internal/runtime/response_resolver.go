@@ -114,7 +114,7 @@ func resolveResponseSchema(cfg responseConfig, step spec.Step, specPath string, 
 	if err != nil {
 		return nil, err
 	}
-	return schema.EnsureCodexThinkingField(validated), nil
+	return validated, nil
 }
 
 func isCodexValueResponse(step spec.Step, from responseSource) bool {

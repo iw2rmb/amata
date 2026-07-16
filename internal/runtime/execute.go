@@ -539,7 +539,7 @@ func structuredRetryProviderDocument(step spec.Step, document any) (any, error) 
 	if err != nil {
 		return nil, err
 	}
-	return schema.EnsureCodexThinkingField(validated), nil
+	return validated, nil
 }
 
 func isStructuredOutputFailure(result state.StepResult) bool {

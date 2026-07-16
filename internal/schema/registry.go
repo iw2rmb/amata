@@ -137,26 +137,6 @@ func ValidateProviderDocument(document any) (map[string]any, error) {
 	return jsonutil.CloneMap(objectDocument), nil
 }
 
-func EnsureCodexThinkingField(document map[string]any) map[string]any {
-	if document == nil {
-		return map[string]any{}
-	}
-
-	cloned := jsonutil.CloneMap(document)
-	properties, _ := cloned["properties"].(map[string]any)
-	if properties == nil {
-		properties = map[string]any{}
-	} else {
-		properties = jsonutil.CloneMap(properties)
-	}
-	properties["$thinking"] = map[string]any{
-		"type":     "string",
-		"$comment": "Thinking (reasoning) notes",
-	}
-	cloned["properties"] = properties
-	return cloned
-}
-
 func (r *Registry) Compile(responseSchema any) (*Compiled, error) {
 	normalizedResponse, err := normalizeSchema(responseSchema)
 	if err != nil {
