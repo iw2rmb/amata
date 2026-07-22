@@ -153,7 +153,7 @@ func normalizeProviderErrorLine(line []byte) ([]byte, map[string]any, bool, bool
 
 func extractProviderError(event map[string]any) map[string]any {
 	if value, ok := event["error"].(map[string]any); ok {
-		return value
+		return unwrapProviderError(value)
 	}
 
 	rawMessage, _ := event["message"].(string)
@@ -172,12 +172,33 @@ func extractProviderError(event map[string]any) map[string]any {
 		return nil
 	}
 	if value, ok := decodedMap["error"].(map[string]any); ok {
-		return value
+		return unwrapProviderError(value)
 	}
 	if hasProviderErrorFields(decodedMap) {
-		return decodedMap
+		return unwrapProviderError(decodedMap)
 	}
 	return nil
+}
+
+func unwrapProviderError(providerError map[string]any) map[string]any {
+	metadata, _ := providerError["metadata"].(map[string]any)
+	raw, _ := metadata["raw"].(string)
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return providerError
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+		return providerError
+	}
+	if nested, ok := decoded["error"].(map[string]any); ok && hasProviderErrorFields(nested) {
+		return nested
+	}
+	if hasProviderErrorFields(decoded) {
+		return decoded
+	}
+	return providerError
 }
 
 func hasProviderErrorFields(value map[string]any) bool {

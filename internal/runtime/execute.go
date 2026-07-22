@@ -25,11 +25,12 @@ const (
 	stallCancellationGraceWait = 1 * time.Second
 	stallCallReturnType        = "stall.call"
 	stallRerunAttemptsTotal    = "INF"
-	defaultCodexTPMRetryAfter  = 1 * time.Minute
+	defaultProviderRetryAfter  = 1 * time.Minute
 	defaultCodexResumePrompt   = "continue"
 	defaultStructuredAttempts  = 3
 	defaultStructuredPrompt    = "Your previous response did not satisfy the required response schema.\nRespond only with a JSON value that matches the required schema.\nDo not include prose, markdown, or commentary."
 	continuationMetadataKey    = "continuation_session_id"
+	highDemandProviderMessage  = "we're currently experiencing high demand, which may cause temporary errors."
 )
 
 type stallPolicy struct {
@@ -38,7 +39,7 @@ type stallPolicy struct {
 	Flow   string
 }
 
-type codexTPMPolicy struct {
+type codexProviderRetryPolicy struct {
 	Enabled    bool
 	MaxRetries int
 }
@@ -46,7 +47,7 @@ type codexTPMPolicy struct {
 type retryContext struct {
 	ContinuationSessionID string
 	ContinuationPrompt    string
-	UsedFreshTPMFallback  bool
+	UsedFreshFallback     bool
 }
 
 type structuredRetryPolicy struct {
@@ -75,7 +76,7 @@ func (r *Runner) executeStep(
 		return action, finalizeStatus(result), nil
 	}
 
-	tpmPolicy, failure := resolveCodexTPMPolicy(runtime, config.Spec.Defaults, stepIndex, step)
+	providerRetryPolicy, failure := resolveCodexProviderRetryPolicy(runtime, config.Spec.Defaults, stepIndex, step)
 	if failure != nil {
 		result.Status = state.StepStatusFailed
 		result.Error = failure
@@ -116,7 +117,7 @@ func (r *Runner) executeStep(
 		return stepAction{}, finalizeStatus(result), nil
 	}
 
-	codexTPMRetryCount := 0
+	providerRetryCount := 0
 	retryContext := retryContext{}
 
 attemptLoop:
@@ -141,7 +142,7 @@ attemptLoop:
 		if policy == nil {
 			result = executeStepAttempt(ctx, stepExecutor, stepCtx, step)
 			finalized := r.finalizeStepResult(config, responses, snapshot.StepByRef, previous, bindings, step, result)
-			if retry, nextRetryContext, aborted := r.maybeRetryCodexTPM(ctx, stepIndex, step, finalized, tpmPolicy, &codexTPMRetryCount, retryContext); aborted.Status != "" {
+			if retry, nextRetryContext, aborted := r.maybeRetryCodexProviderFailure(ctx, stepIndex, step, finalized, providerRetryPolicy, &providerRetryCount, retryContext); aborted.Status != "" {
 				return stepAction{}, aborted, nil
 			} else if retry {
 				retryContext = nextRetryContext
@@ -173,7 +174,7 @@ attemptLoop:
 				probeTicker.Stop()
 				cancel()
 				finalized := r.finalizeStepResult(config, responses, snapshot.StepByRef, previous, bindings, step, result)
-				if retry, nextRetryContext, aborted := r.maybeRetryCodexTPM(ctx, stepIndex, step, finalized, tpmPolicy, &codexTPMRetryCount, retryContext); aborted.Status != "" {
+				if retry, nextRetryContext, aborted := r.maybeRetryCodexProviderFailure(ctx, stepIndex, step, finalized, providerRetryPolicy, &providerRetryCount, retryContext); aborted.Status != "" {
 					return stepAction{}, aborted, nil
 				} else if retry {
 					retryContext = nextRetryContext
@@ -293,19 +294,19 @@ func checkpointCleanup(stepExecutor executorapi.Executor, runDir string, frameID
 	}
 }
 
-func resolveCodexTPMPolicy(runtime exprruntime.Runtime, defaults map[string]any, stepIndex int, step spec.Step) (codexTPMPolicy, *state.Failure) {
+func resolveCodexProviderRetryPolicy(runtime exprruntime.Runtime, defaults map[string]any, stepIndex int, step spec.Step) (codexProviderRetryPolicy, *state.Failure) {
 	if step.ExecutorType() != "codex" {
-		return codexTPMPolicy{}, nil
+		return codexProviderRetryPolicy{}, nil
 	}
 
 	raw, ok := defaults["tpm"]
 	if !ok {
-		return codexTPMPolicy{}, nil
+		return codexProviderRetryPolicy{}, nil
 	}
 
 	resolved, err := runtime.Resolve(raw)
 	if err != nil {
-		return codexTPMPolicy{}, &state.Failure{
+		return codexProviderRetryPolicy{}, &state.Failure{
 			Code:    "invalid_defaults",
 			Message: fmt.Sprintf("step %d defaults.tpm is invalid: %v", stepIndex, err),
 		}
@@ -318,7 +319,7 @@ func resolveCodexTPMPolicy(runtime exprruntime.Runtime, defaults map[string]any,
 		if rateRaw, ok := value["rate"]; ok {
 			rateSpecified = true
 			if _, ok := parsePositiveNumber(rateRaw); !ok {
-				return codexTPMPolicy{}, &state.Failure{
+				return codexProviderRetryPolicy{}, &state.Failure{
 					Code:    "invalid_defaults",
 					Message: fmt.Sprintf("step %d defaults.tpm is invalid: rate must resolve to a positive number", stepIndex),
 				}
@@ -329,7 +330,7 @@ func resolveCodexTPMPolicy(runtime exprruntime.Runtime, defaults map[string]any,
 			retriesSpecified = true
 			parsedRetries, ok := parseNonNegativeInt(retriesRaw)
 			if !ok {
-				return codexTPMPolicy{}, &state.Failure{
+				return codexProviderRetryPolicy{}, &state.Failure{
 					Code:    "invalid_defaults",
 					Message: fmt.Sprintf("step %d defaults.tpm is invalid: retries must resolve to a non-negative integer", stepIndex),
 				}
@@ -337,47 +338,47 @@ func resolveCodexTPMPolicy(runtime exprruntime.Runtime, defaults map[string]any,
 			retries = parsedRetries
 		}
 		if !rateSpecified && !retriesSpecified {
-			return codexTPMPolicy{}, &state.Failure{
+			return codexProviderRetryPolicy{}, &state.Failure{
 				Code:    "invalid_defaults",
 				Message: fmt.Sprintf("step %d defaults.tpm is invalid: rate or retries is required", stepIndex),
 			}
 		}
 	default:
 		if _, ok := parsePositiveNumber(resolved); !ok {
-			return codexTPMPolicy{}, &state.Failure{
+			return codexProviderRetryPolicy{}, &state.Failure{
 				Code:    "invalid_defaults",
 				Message: fmt.Sprintf("step %d defaults.tpm is invalid: must resolve to a positive number", stepIndex),
 			}
 		}
 	}
 
-	return codexTPMPolicy{
+	return codexProviderRetryPolicy{
 		Enabled:    true,
 		MaxRetries: retries,
 	}, nil
 }
 
-func (r *Runner) maybeRetryCodexTPM(
+func (r *Runner) maybeRetryCodexProviderFailure(
 	ctx context.Context,
 	stepIndex int,
 	step spec.Step,
 	result state.StepResult,
-	tpmPolicy codexTPMPolicy,
+	policy codexProviderRetryPolicy,
 	retryCount *int,
 	retryContext retryContext,
 ) (bool, retryContext, state.StepResult) {
-	if step.ExecutorType() != "codex" || !tpmPolicy.Enabled || retryCount == nil || *retryCount >= tpmPolicy.MaxRetries {
+	if step.ExecutorType() != "codex" || !policy.Enabled || retryCount == nil || *retryCount >= policy.MaxRetries {
 		return false, retryContext, state.StepResult{}
 	}
-	sessionID, isRateLimit := rateLimitContinuationSessionID(result)
-	if !isRateLimit {
+	sessionID, retryable := providerRetryContinuationSessionID(result)
+	if !retryable {
 		return false, retryContext, state.StepResult{}
 	}
 	if sessionID == "" {
-		if retryContext.UsedFreshTPMFallback {
+		if retryContext.UsedFreshFallback {
 			return false, retryContext, state.StepResult{}
 		}
-		retryContext.UsedFreshTPMFallback = true
+		retryContext.UsedFreshFallback = true
 		retryContext.ContinuationSessionID = ""
 		retryContext.ContinuationPrompt = ""
 	} else {
@@ -389,7 +390,7 @@ func (r *Runner) maybeRetryCodexTPM(
 	if waitFn == nil {
 		waitFn = waitWithContext
 	}
-	if err := waitFn(ctx, defaultCodexTPMRetryAfter); err != nil {
+	if err := waitFn(ctx, defaultProviderRetryAfter); err != nil {
 		code := "canceled"
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			code = "deadline_exceeded"
@@ -401,7 +402,7 @@ func (r *Runner) maybeRetryCodexTPM(
 			Status: state.StepStatusFailed,
 			Error: &state.Failure{
 				Code:    code,
-				Message: fmt.Sprintf("step %d canceled while waiting to retry after rate limit", stepIndex),
+				Message: fmt.Sprintf("step %d canceled while waiting to retry after transient provider failure", stepIndex),
 			},
 		})
 	}
@@ -712,7 +713,7 @@ func continuationSessionIDFromMetadata(result state.StepResult) string {
 	return strings.TrimSpace(value)
 }
 
-func isRateLimitStepFailure(result state.StepResult) bool {
+func isRetryableProviderStepFailure(result state.StepResult) bool {
 	providerError, ok := providerErrorDetails(result)
 	if !ok {
 		return false
@@ -720,16 +721,16 @@ func isRateLimitStepFailure(result state.StepResult) bool {
 
 	for _, key := range []string{"code", "type", "message"} {
 		value, _ := providerError[key].(string)
-		if isRateLimitText(value) {
+		if isRetryableProviderErrorText(value) {
 			return true
 		}
 	}
 	return false
 }
 
-func rateLimitContinuationSessionID(result state.StepResult) (string, bool) {
+func providerRetryContinuationSessionID(result state.StepResult) (string, bool) {
 	providerError, ok := providerErrorDetails(result)
-	if !ok || !isRateLimitStepFailure(result) {
+	if !ok || !isRetryableProviderStepFailure(result) {
 		return "", false
 	}
 	for _, key := range []string{"session_id", "thread_id"} {
@@ -753,7 +754,7 @@ func providerErrorDetails(result state.StepResult) (map[string]any, bool) {
 	return providerError, true
 }
 
-func isRateLimitText(value string) bool {
+func isRetryableProviderErrorText(value string) bool {
 	text := strings.ToLower(strings.TrimSpace(value))
 	if text == "" {
 		return false
@@ -761,7 +762,8 @@ func isRateLimitText(value string) bool {
 	return strings.Contains(text, "429") ||
 		strings.Contains(text, "too many requests") ||
 		strings.Contains(text, "rate_limit") ||
-		strings.Contains(text, "ratelimit")
+		strings.Contains(text, "ratelimit") ||
+		strings.Contains(text, highDemandProviderMessage)
 }
 
 func waitWithContext(ctx context.Context, duration time.Duration) error {

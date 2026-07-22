@@ -45,7 +45,7 @@ Current behavior:
 - `params` are exposed to expressions and templates under `ctx.params`.
 - Repeated `--set key=value` flags override declared `spec.params` entries for the launched run and persist inside the stored normalized spec.
 - `defaults` are parsed and persisted. Agent executors currently interpret `defaults.cwd`, `defaults.env`, and `defaults.executors.codex|claude|crush`. Stall policy defaults are read from `defaults.executors.<step-type>.stall` when a step omits `stall`. Agent structured-output recovery defaults are read from `defaults.executors.codex|claude|crush.structured_retry`.
-- `defaults.tpm` is optional and may be either a positive number or an object with `rate` and optional `retries`.
+- `defaults.tpm` is optional and may be either a positive number or an object with `rate` and optional `retries`; for Codex it controls retries for rate limits and recognized transient-capacity failures.
 - `defaults.tpm.rate` is optional and when set must resolve to a positive number.
 - `defaults.tpm.retries` defaults to `1` and must resolve to a non-negative integer; it represents extra retries after the first attempt.
 - Object form requires at least one of `rate` or `retries`.
@@ -349,9 +349,9 @@ Behavior:
 - `prompt`, `model`, `reasoning`, `cwd`, and `env` resolve through the shared expression/template runtime before execution.
 - `cwd` falls back to `defaults.cwd`, then `workspace.root`.
 - `codex exec --json` is invoked with the rendered prompt on stdin.
-- When `defaults.tpm` is set and a codex attempt fails with provider rate-limit (`429`) details, the runner waits 60 seconds before each retry and retries up to `defaults.tpm.retries` extra attempts.
-- For 429 retries, when a provider continuation session id is available, the runner resumes that codex session with prompt `continue`.
-- If the 429 failure has no continuation session id, the runner allows one fresh retry attempt without session resume.
+- When `defaults.tpm` is set and a codex attempt fails with provider rate-limit (`429`) details or the recognized transient-capacity message `We're currently experiencing high demand, which may cause temporary errors.`, the runner waits 60 seconds before each retry and retries up to `defaults.tpm.retries` extra attempts.
+- These failures share one retry budget. When a provider continuation session id is available, the runner resumes that codex session with prompt `continue`.
+- If the retryable failure has no continuation session id, the runner allows one fresh retry attempt without session resume.
 - When `response.schema` targets `value`, the executor accepts either an inline schema/ref or a path-like string to a `.json` schema file relative to the workflow file.
 - Inline Codex schemas are expanded into a provider-safe object schema artifact before `codex exec --output-schema`.
 - File-backed Codex schemas are normalized into a step-local provider schema artifact before `codex exec --output-schema`.
@@ -542,7 +542,7 @@ Current behavior:
 - `attempts` is the total attempt count. `attempts: 1` disables recovery retry while keeping normal fail-fast validation.
 - Invalid `structured_retry` defaults fail the step before provider execution with `invalid_defaults`.
 - Intermediate malformed attempts are preserved as attempt artifact directories only. Durable state records one final `step_recorded` result after recovery succeeds or attempts are exhausted.
-- Codex rate-limit retry keeps precedence over structured-output recovery. A 429-style Codex failure follows the `defaults.tpm` wait-and-retry path first.
+- Codex transient-provider retry keeps precedence over structured-output recovery. A recognized rate-limit or transient-capacity failure follows the `defaults.tpm` wait-and-retry path first.
 - Codex and Claude recovery attempts resume the provider session when the previous attempt metadata includes `continuation_session_id`; otherwise they retry with a fresh provider invocation. Crush always retries fresh.
 - Provider metadata is written to `provider-metadata.json` and exposes continuation sessions under `continuation_session_id` when the provider reports one.
 

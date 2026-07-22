@@ -493,12 +493,12 @@ func TestRunnerStallRerunDoesNotTriggerWhenStepKeepsEmittingOutput(t *testing.T)
 	}
 }
 
-func TestRunnerCodexTPMRetryOnRateLimit(t *testing.T) {
+func TestRunnerCodexProviderRetry(t *testing.T) {
 	t.Parallel()
 
-	rateLimitFailure := func(requestID string, sessionID string) state.StepResult {
+	providerFailure := func(field string, value string, sessionID string) state.StepResult {
 		providerError := map[string]any{
-			"message": "exceeded retry limit, last status: 429 Too Many Requests, request id: " + requestID,
+			field: value,
 		}
 		if sessionID != "" {
 			providerError["session_id"] = sessionID
@@ -514,11 +514,21 @@ func TestRunnerCodexTPMRetryOnRateLimit(t *testing.T) {
 			},
 		}
 	}
+	rateLimitFailure := func(requestID string, sessionID string) state.StepResult {
+		return providerFailure("message", "exceeded retry limit, last status: 429 Too Many Requests, request id: "+requestID, sessionID)
+	}
+	highDemandFailure := func(field string, sessionID string) state.StepResult {
+		return providerFailure(field, "We're currently experiencing high demand, which may cause temporary errors.", sessionID)
+	}
 	reconnectThenRateLimitFailure := func(requestID string, sessionID string) state.StepResult {
 		result := rateLimitFailure(requestID, sessionID)
 		result.Error.Message = "codex failed after reconnect"
 		return result
 	}
+	unrelatedFailure := providerFailure("message", "provider authentication failed", "sess-unrelated")
+	mixedHighDemandFailure := providerFailure("code", "WE'RE CURRENTLY EXPERIENCING HIGH DEMAND, WHICH MAY CAUSE TEMPORARY ERRORS.", "sess-mixed-high-demand")
+	finalHighDemandFailure := highDemandFailure("type", "sess-high-demand-final")
+	finalHighDemandFailure.Error.Message = "codex high-demand retry exhausted"
 
 	testCases := []struct {
 		name                       string
@@ -528,9 +538,80 @@ func TestRunnerCodexTPMRetryOnRateLimit(t *testing.T) {
 		wantSleepCalls             int
 		wantSuccess                bool
 		wantFailureCode            string
+		wantFailure                *state.Failure
 		wantContinuationSessionIDs []string
 		wantContinuationPrompts    []string
 	}{
+		{
+			name: "high-demand failure resumes captured session",
+			defaults: map[string]any{
+				"tpm": 60000,
+			},
+			results: []state.StepResult{
+				highDemandFailure("message", "sess-high-demand"),
+				{
+					Status: state.StepStatusSucceeded,
+					Value:  "ok",
+				},
+			},
+			wantAttempts:               2,
+			wantSleepCalls:             1,
+			wantSuccess:                true,
+			wantContinuationSessionIDs: []string{"", "sess-high-demand"},
+			wantContinuationPrompts:    []string{"", defaultCodexResumePrompt},
+		},
+		{
+			name: "rate limit and high demand share one retry budget",
+			defaults: map[string]any{
+				"tpm": map[string]any{
+					"retries": 1,
+				},
+			},
+			results: []state.StepResult{
+				rateLimitFailure("req-mixed", "sess-mixed-rate-limit"),
+				mixedHighDemandFailure,
+			},
+			wantAttempts:               2,
+			wantSleepCalls:             1,
+			wantSuccess:                false,
+			wantFailureCode:            "provider_crashed",
+			wantFailure:                mixedHighDemandFailure.Error,
+			wantContinuationSessionIDs: []string{"", "sess-mixed-rate-limit"},
+			wantContinuationPrompts:    []string{"", defaultCodexResumePrompt},
+		},
+		{
+			name: "retry exhaustion preserves final high-demand error",
+			defaults: map[string]any{
+				"tpm": map[string]any{
+					"retries": 1,
+				},
+			},
+			results: []state.StepResult{
+				highDemandFailure("message", "sess-high-demand-first"),
+				finalHighDemandFailure,
+			},
+			wantAttempts:               2,
+			wantSleepCalls:             1,
+			wantSuccess:                false,
+			wantFailureCode:            "provider_crashed",
+			wantFailure:                finalHighDemandFailure.Error,
+			wantContinuationSessionIDs: []string{"", "sess-high-demand-first"},
+			wantContinuationPrompts:    []string{"", defaultCodexResumePrompt},
+		},
+		{
+			name: "unrelated provider error remains non-retryable",
+			defaults: map[string]any{
+				"tpm": 60000,
+			},
+			results:                    []state.StepResult{unrelatedFailure},
+			wantAttempts:               1,
+			wantSleepCalls:             0,
+			wantSuccess:                false,
+			wantFailureCode:            "provider_crashed",
+			wantFailure:                unrelatedFailure.Error,
+			wantContinuationSessionIDs: []string{""},
+			wantContinuationPrompts:    []string{""},
+		},
 		{
 			name: "retries once when defaults tpm is set and first failure is 429",
 			defaults: map[string]any{
@@ -804,7 +885,10 @@ func TestRunnerCodexTPMRetryOnRateLimit(t *testing.T) {
 					t.Fatalf("snapshot status = %q, want succeeded", snapshot.Status)
 				}
 			} else {
-				assertRunFailed(t, err, tc.wantFailureCode)
+				failed := assertRunFailed(t, err, tc.wantFailureCode)
+				if tc.wantFailure != nil && !reflect.DeepEqual(&failed.Failure, tc.wantFailure) {
+					t.Fatalf("failure = %#v, want %#v", failed.Failure, *tc.wantFailure)
+				}
 			}
 
 			if attempts != tc.wantAttempts {
@@ -814,8 +898,8 @@ func TestRunnerCodexTPMRetryOnRateLimit(t *testing.T) {
 				t.Fatalf("sleep calls = %d, want %d", sleepCalls, tc.wantSleepCalls)
 			}
 			for _, duration := range slept {
-				if duration != defaultCodexTPMRetryAfter {
-					t.Fatalf("retry sleep duration = %s, want %s", duration, defaultCodexTPMRetryAfter)
+				if duration != defaultProviderRetryAfter {
+					t.Fatalf("retry sleep duration = %s, want %s", duration, defaultProviderRetryAfter)
 				}
 			}
 			if !reflect.DeepEqual(continuationSessionIDs, tc.wantContinuationSessionIDs) {

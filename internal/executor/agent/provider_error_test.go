@@ -30,6 +30,18 @@ func TestNormalizeProviderErrorLine(t *testing.T) {
 			},
 		},
 		{
+			name:        "proxy envelope with raw provider error",
+			line:        `{"type":"error","message":"{\"error\":{\"message\":\"Provider returned error\",\"code\":400,\"metadata\":{\"raw\":\"{\\\"error\\\":{\\\"message\\\":\\\"The encrypted content could not be verified. Reason: Encrypted content could not be decrypted or parsed.\\\",\\\"type\\\":\\\"invalid_request_error\\\",\\\"param\\\":null,\\\"code\\\":\\\"invalid_encrypted_content\\\"}}\",\"provider_name\":\"Azure\"}}}"}`,
+			wantMatched: true,
+			wantOK:      true,
+			wantDetails: map[string]any{
+				"message": "The encrypted content could not be verified. Reason: Encrypted content could not be decrypted or parsed.",
+				"type":    "invalid_request_error",
+				"param":   nil,
+				"code":    "invalid_encrypted_content",
+			},
+		},
+		{
 			name:        "direct nested error object",
 			line:        `{"type":"error","error":{"message":"bad request","type":"invalid_request_error","param":"prompt","code":"bad_prompt"}}`,
 			wantMatched: true,
