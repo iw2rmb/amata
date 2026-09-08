@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -602,6 +603,65 @@ func TestResolveRunOutcome(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestReadStdoutRetainsStructuredOutputOnTerminalReadError(t *testing.T) {
+	t.Parallel()
+
+	readErr := errors.New("read |0: file already closed")
+	stream := strings.Join([]string{
+		`{"type":"system","subtype":"init","session_id":"session-1"}`,
+		`{"type":"result","session_id":"session-1","structured_output":{"summary":"no-op"}}`,
+	}, "\n") + "\n"
+	reader := io.MultiReader(strings.NewReader(stream), terminalErrorReader{err: readErr})
+	ctx := context.Background()
+	runCtx, cancel := context.WithCancel(ctx)
+
+	result, gotErr := readStdout(reader, nil, true, cancel)
+
+	if !errors.Is(gotErr, readErr) {
+		t.Fatalf("error = %v, want %v", gotErr, readErr)
+	}
+	if !errors.Is(runCtx.Err(), context.Canceled) {
+		t.Fatalf("run context error = %v, want context canceled", runCtx.Err())
+	}
+	if !result.hasStructuredOutput {
+		t.Fatal("hasStructuredOutput = false, want true")
+	}
+	if result.sessionID != "session-1" {
+		t.Fatalf("sessionID = %q, want session-1", result.sessionID)
+	}
+	if string(result.stdout) != stream {
+		t.Fatalf("stdout = %q, want %q", string(result.stdout), stream)
+	}
+	structured, ok := result.structuredOutput.(map[string]any)
+	if !ok || structured["summary"] != "no-op" {
+		t.Fatalf("structuredOutput = %#v, want summary=no-op", result.structuredOutput)
+	}
+
+	resolved, resolveErr := resolveRunOutcome(
+		ctx,
+		runCtx,
+		command{stopOnStructuredOutput: true},
+		result,
+		gotErr,
+		errors.New("read |0: file already closed"),
+		errors.New("signal: killed"),
+	)
+	if resolveErr != nil {
+		t.Fatalf("resolve error = %v, want nil", resolveErr)
+	}
+	if !resolved.hasStructuredOutput {
+		t.Fatal("resolved hasStructuredOutput = false, want true")
+	}
+}
+
+type terminalErrorReader struct {
+	err error
+}
+
+func (r terminalErrorReader) Read([]byte) (int, error) {
+	return 0, r.err
 }
 
 type fakeRunner func(context.Context, command) (commandResult, error)

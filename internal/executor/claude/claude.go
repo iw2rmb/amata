@@ -186,49 +186,8 @@ func (execRunner) Run(ctx context.Context, spec command) (commandResult, error) 
 	}
 	stdoutCh := make(chan stdoutOutcome, 1)
 	go func() {
-		reader := bufio.NewReader(stdoutPipe)
-		var out commandResult
-		var stdoutBuf bytes.Buffer
-		for {
-			chunk, readErr := reader.ReadBytes('\n')
-			if len(chunk) > 0 {
-				stdoutBuf.Write(chunk)
-				if spec.stdoutWriter != nil {
-					if _, err := spec.stdoutWriter.Write(chunk); err != nil {
-						stdoutCh <- stdoutOutcome{err: err}
-						return
-					}
-				}
-
-				trimmed := bytes.TrimSpace(chunk)
-				if len(trimmed) > 0 && trimmed[0] == '{' {
-					var event map[string]any
-					if err := json.Unmarshal(trimmed, &event); err == nil {
-						if typ, _ := event["type"].(string); typ == "result" {
-							if sid, _ := event["session_id"].(string); sid != "" {
-								out.sessionID = sid
-							}
-							if structured, ok := event["structured_output"]; ok && !out.hasStructuredOutput {
-								out.structuredOutput = structured
-								out.hasStructuredOutput = true
-								if spec.stopOnStructuredOutput {
-									cancel()
-								}
-							}
-						}
-					}
-				}
-			}
-			if readErr != nil {
-				if errors.Is(readErr, io.EOF) {
-					break
-				}
-				stdoutCh <- stdoutOutcome{err: readErr}
-				return
-			}
-		}
-		out.stdout = stdoutBuf.Bytes()
-		stdoutCh <- stdoutOutcome{result: out}
+		result, readErr := readStdout(stdoutPipe, spec.stdoutWriter, spec.stopOnStructuredOutput, cancel)
+		stdoutCh <- stdoutOutcome{result: result, err: readErr}
 	}()
 
 	stderrCh := make(chan error, 1)
@@ -247,6 +206,49 @@ func (execRunner) Run(ctx context.Context, spec command) (commandResult, error) 
 
 	result := stdoutOutcomeResult.result
 	return resolveRunOutcome(ctx, runCtx, spec, result, stdoutOutcomeResult.err, stderrErr, waitErr)
+}
+
+func readStdout(reader io.Reader, writer io.Writer, stopOnStructuredOutput bool, cancel context.CancelFunc) (commandResult, error) {
+	bufferedReader := bufio.NewReader(reader)
+	var out commandResult
+	var stdoutBuf bytes.Buffer
+	for {
+		chunk, readErr := bufferedReader.ReadBytes('\n')
+		if len(chunk) > 0 {
+			stdoutBuf.Write(chunk)
+			if writer != nil {
+				if _, err := writer.Write(chunk); err != nil {
+					return commandResult{}, err
+				}
+			}
+
+			trimmed := bytes.TrimSpace(chunk)
+			if len(trimmed) > 0 && trimmed[0] == '{' {
+				var event map[string]any
+				if err := json.Unmarshal(trimmed, &event); err == nil {
+					if typ, _ := event["type"].(string); typ == "result" {
+						if sid, _ := event["session_id"].(string); sid != "" {
+							out.sessionID = sid
+						}
+						if structured, ok := event["structured_output"]; ok && !out.hasStructuredOutput {
+							out.structuredOutput = structured
+							out.hasStructuredOutput = true
+							if stopOnStructuredOutput {
+								cancel()
+							}
+						}
+					}
+				}
+			}
+		}
+		if readErr != nil {
+			out.stdout = stdoutBuf.Bytes()
+			if errors.Is(readErr, io.EOF) {
+				return out, nil
+			}
+			return out, readErr
+		}
+	}
 }
 
 func resolveRunOutcome(
