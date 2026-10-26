@@ -50,9 +50,9 @@ func TestProviderInvokesNessyAndCapturesOutput(t *testing.T) {
 			if tt.model != "" {
 				wantArgs = append(wantArgs, "--model", tt.model)
 			}
-			wantArgs = append(wantArgs, "--", wantPrompt)
+
 			called := false
-			p := provider{run: func(_ context.Context, args []string, dir string, env []string, out, errOut io.Writer) error {
+			p := provider{run: func(_ context.Context, args []string, dir string, env []string, stdin []byte, out, errOut io.Writer) error {
 				called = true
 				sessionFlag := "--session-id"
 				if tt.session != "" {
@@ -62,6 +62,9 @@ func TestProviderInvokesNessyAndCapturesOutput(t *testing.T) {
 					t.Fatalf("session args = %q", args)
 				}
 				wantArgs = append(append(append([]string{}, wantArgs[:4]...), sessionFlag, args[5]), wantArgs[4:]...)
+				if string(stdin) != wantPrompt {
+					t.Fatalf("stdin = %q, want %q", stdin, wantPrompt)
+				}
 				if !reflect.DeepEqual(args, wantArgs) || dir != request.CWD || !slices.Contains(env, "NESSY_TEST=value") {
 					t.Fatalf("invocation: args=%q dir=%q env override present=%t", args, dir, slices.Contains(env, "NESSY_TEST=value"))
 				}
@@ -96,7 +99,7 @@ func TestProviderInvokesNessyAndCapturesOutput(t *testing.T) {
 
 func TestProviderRejectsReasoningBeforeInvocation(t *testing.T) {
 	t.Parallel()
-	p := provider{run: func(context.Context, []string, string, []string, io.Writer, io.Writer) error {
+	p := provider{run: func(context.Context, []string, string, []string, []byte, io.Writer, io.Writer) error {
 		t.Fatal("unsupported reasoning must not invoke Nessy")
 		return nil
 	}}

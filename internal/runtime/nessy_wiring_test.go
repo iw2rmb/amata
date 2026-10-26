@@ -18,8 +18,12 @@ func TestNessyShorthandInvokesProcessWithoutModel(t *testing.T) {
 	binDir := t.TempDir()
 	writeExecutable(t, filepath.Join(binDir, "nessy"), `#!/usr/bin/env python3
 import json, os, sys
+prompt = sys.stdin.read()
+if not prompt:
+    sys.stderr.write('No input provided via stdin\n')
+    sys.exit(1)
 with open(os.environ['NESSY_INVOCATION_LOG'], 'w') as f:
-    json.dump({'args': sys.argv[1:], 'cwd': os.getcwd(), 'env': os.environ['NESSY_TEST'], 'stdin': sys.stdin.read()}, f)
+    json.dump({'args': sys.argv[1:], 'cwd': os.getcwd(), 'env': os.environ['NESSY_TEST'], 'stdin': prompt}, f)
 sys.stdout.write('nessy completed\n')
 sys.stderr.write('nessy diagnostic\n')
 `)
@@ -68,11 +72,11 @@ flows:
 	if err := json.Unmarshal(data, &invocation); err != nil {
 		t.Fatal(err)
 	}
-	if len(invocation.Args) != 8 || invocation.Args[5] == "" {
+	if len(invocation.Args) != 6 || invocation.Args[5] == "" {
 		t.Fatalf("session args = %q", invocation.Args)
 	}
-	wantArgs := []string{"--auth-type", "openai", "--chat-recording", "true", "--session-id", invocation.Args[5], "--", "--fix the 'feature'"}
-	if !reflect.DeepEqual(invocation.Args, wantArgs) || invocation.Env != "from-defaults" || invocation.Stdin != "" {
+	wantArgs := []string{"--auth-type", "openai", "--chat-recording", "true", "--session-id", invocation.Args[5]}
+	if !reflect.DeepEqual(invocation.Args, wantArgs) || invocation.Env != "from-defaults" || invocation.Stdin != "--fix the 'feature'" {
 		t.Fatalf("invocation = %#v", invocation)
 	}
 	wantCWD, err := filepath.EvalSymlinks(repoDir)

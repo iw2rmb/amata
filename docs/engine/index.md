@@ -416,8 +416,8 @@ Supported fields:
 - `env`: optional map of environment variable names to string values
 
 Behavior:
-- `nessy --auth-type openai -- <prompt>` receives the rendered prompt as one positional argument.
-- When `model` is configured, Amata adds `--model <model>` before the prompt. Otherwise, Nessy uses its configured model.
+- `nessy --auth-type openai` receives the rendered prompt through stdin. This preserves leading dashes and multiline text without option parsing.
+- When `model` is configured, Amata adds `--model <model>`. Otherwise, Nessy uses its configured model.
 - `prompt`, `model`, `cwd`, and `env` use the shared expression/template runtime and agent defaults.
 - `reasoning` is not supported. The step schema rejects it; a value supplied through provider defaults fails with `unsupported_option`.
 - When `response.schema` targets `value`, Amata appends JSON instructions to the prompt and parses stdout with the shared structured-output parser.

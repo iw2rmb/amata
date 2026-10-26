@@ -12,7 +12,7 @@ import (
 	"github.com/iw2rmb/amata/internal/executor/agent"
 )
 
-type runnerFunc func(ctx context.Context, args []string, dir string, env []string, stdout, stderr io.Writer) error
+type runnerFunc func(ctx context.Context, args []string, dir string, env []string, stdin []byte, stdout, stderr io.Writer) error
 
 type provider struct {
 	run runnerFunc
@@ -56,7 +56,6 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 	if request.Model != "" {
 		args = append(args, "--model", request.Model)
 	}
-	args = append(args, "--", prompt)
 
 	var transcriptBuf bytes.Buffer
 	stdoutWriter := io.Writer(&transcriptBuf)
@@ -64,7 +63,9 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 		stdoutWriter = io.MultiWriter(&transcriptBuf, request.StdoutWriter)
 	}
 
-	runErr := p.run(ctx, args, request.CWD, agent.CommandEnv(request.Env), stdoutWriter, request.StderrWriter)
+	// Nessy ignores positional text after "--". Stdin also keeps leading
+	// dashes and multiline prompts out of its option parser.
+	runErr := p.run(ctx, args, request.CWD, agent.CommandEnv(request.Env), []byte(prompt), stdoutWriter, request.StderrWriter)
 
 	response := agent.Response{
 		Prompt:     prompt,
@@ -100,10 +101,11 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 	return response, nil
 }
 
-func execRun(ctx context.Context, args []string, dir string, env []string, stdout, stderr io.Writer) error {
+func execRun(ctx context.Context, args []string, dir string, env []string, stdin []byte, stdout, stderr io.Writer) error {
 	cmd := exec.CommandContext(ctx, "nessy", args...)
 	cmd.Dir = dir
 	cmd.Env = env
+	cmd.Stdin = bytes.NewReader(stdin)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	return cmd.Run()
