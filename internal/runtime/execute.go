@@ -652,7 +652,7 @@ func rawExecutorDefault(defaults map[string]any, executorType string, key string
 
 func isAgentExecutor(executorType string) bool {
 	switch executorType {
-	case "codex", "claude", "crush":
+	case "codex", "claude", "crush", "nessy":
 		return true
 	default:
 		return false

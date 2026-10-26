@@ -157,6 +157,38 @@ func TestStepDescriptorShapes(t *testing.T) {
 			wantDetailLines: []string{"Implement the feature."},
 		},
 		{
+			name: "nessy running",
+			step: func(t *testing.T) progress.Step {
+				t.Helper()
+
+				step, err := progress.StepFromContext(stepContext(spec.Document{
+					Defaults: map[string]any{
+						"executors": map[string]any{
+							"nessy": map[string]any{
+								"model": "nessy-model",
+							},
+						},
+					},
+				}, spec.Step{
+					ID:   "agent",
+					Type: "nessy",
+					Fields: map[string]any{
+						"prompt": "Implement the feature.",
+					},
+				}, nil))
+				if err != nil {
+					t.Fatalf("StepFromContext: %v", err)
+				}
+				step.StartedAt = startedAt
+				return step
+			},
+			wantStatus:      progress.StatusSymbolRunning,
+			wantType:        "nessy",
+			wantPrimary:     "nessy-model",
+			wantSummary:     []string{"nessy-model"},
+			wantDetailLines: []string{"Implement the feature."},
+		},
+		{
 			name: "switch finished",
 			step: func(t *testing.T) progress.Step {
 				t.Helper()

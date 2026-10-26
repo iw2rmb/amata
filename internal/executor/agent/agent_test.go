@@ -181,6 +181,11 @@ func TestExecutorHandlesProviderModelRequirement(t *testing.T) {
 			wantStatus: state.StepStatusSucceeded,
 		},
 		{
+			name:       "nessy_allows_missing_model",
+			provider:   "nessy",
+			wantStatus: state.StepStatusSucceeded,
+		},
+		{
 			name:       "claude_requires_model",
 			provider:   "claude",
 			wantStatus: state.StepStatusFailed,

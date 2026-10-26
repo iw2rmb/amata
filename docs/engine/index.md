@@ -12,7 +12,7 @@ amata resume <run-id> [--out <auto|jsonl>]
 amata validate <spec.yaml>
 ```
 
-The current implementation includes durable on-disk run state, one shared expression/template runtime, response value and schema handling, ten built-in executors (`shell`, `expr`, `assert`, `data.get`, `codex`, `claude`, `crush`, `git.inspect`, `git.commit`, and `polling.short`), and first-version control blocks (`switch`, `call`, and `for_each`) over a deterministically planned resumable flow stack.
+The current implementation includes durable on-disk run state, one shared expression/template runtime, response value and schema handling, eleven built-in executors (`shell`, `expr`, `assert`, `data.get`, `codex`, `claude`, `crush`, `nessy`, `git.inspect`, `git.commit`, and `polling.short`), and first-version control blocks (`switch`, `call`, and `for_each`) over a deterministically planned resumable flow stack.
 
 ## Workflow Spec
 
@@ -44,7 +44,7 @@ Current behavior:
 - `workspace.root` and `workspace.state_dir` are accepted and normalized before execution.
 - `params` are exposed to expressions and templates under `ctx.params`.
 - Repeated `--set key=value` flags override declared `spec.params` entries for the launched run and persist inside the stored normalized spec.
-- `defaults` are parsed and persisted. Agent executors currently interpret `defaults.cwd`, `defaults.env`, and `defaults.executors.codex|claude|crush`. Stall policy defaults are read from `defaults.executors.<step-type>.stall` when a step omits `stall`. Agent structured-output recovery defaults are read from `defaults.executors.codex|claude|crush.structured_retry`.
+- `defaults` are parsed and persisted. Agent executors currently interpret `defaults.cwd`, `defaults.env`, and `defaults.executors.codex|claude|crush|nessy`. Stall policy defaults are read from `defaults.executors.<step-type>.stall` when a step omits `stall`. Agent structured-output recovery defaults are read from `defaults.executors.codex|claude|crush|nessy.structured_retry`.
 - `defaults.tpm` is optional and may be either a positive number or an object with `rate` and optional `retries`; for Codex it controls retries for rate limits and recognized transient-capacity failures.
 - `defaults.tpm.rate` is optional and when set must resolve to a positive number.
 - `defaults.tpm.retries` defaults to `1` and must resolve to a non-negative integer; it represents extra retries after the first attempt.
@@ -67,6 +67,7 @@ Current behavior:
   - `codex: <prompt>` -> `type: codex` plus `prompt: <prompt>`
   - `claude: <prompt>` -> `type: claude` plus `prompt: <prompt>`
   - `crush: <prompt>` -> `type: crush` plus `prompt: <prompt>`
+  - `nessy: <prompt>` -> `type: nessy` plus `prompt: <prompt>`
 - `when` resolves through the shared expression runtime and must evaluate to a boolean. `false` skips the step before executor dispatch.
 - `switch` and `for_each` still require an explicit `type`.
 
@@ -203,12 +204,12 @@ CLI stream split:
 - `--out auto` (default) keeps renderer-based `stderr` output (TTY Bubble Tea, non-TTY plain text).
 - `--out jsonl` writes newline-delimited JSON `progress.Event` objects to `stdout` in emission order.
 - `--out jsonl` keeps top-level `step` as the canonical per-step transition payload and omits duplicated `snapshot.active` and `snapshot.steps` on `step_started`, `step_finished`, and `run_finished` events.
-- `--out jsonl` omits repeated agent prompt text from completed `codex`, `claude`, and `crush` step descriptors; the prompt remains available on the matching `step_started` event and in the step artifact files.
+- `--out jsonl` omits repeated agent prompt text from completed `codex`, `claude`, `crush`, and `nessy` step descriptors; the prompt remains available on the matching `step_started` event and in the step artifact files.
 - `--out jsonl` leaves `stderr` for command errors only.
 - The default CLI renderer uses Bubble Tea only when `stderr` is a TTY. Non-TTY `stderr` falls back to a plain line renderer with the same event order and descriptor data.
 - Both renderers suppress nested control-step scaffolding in the user-facing output. Recursive `call`/`switch`/`for_each` frames nested under another control step are omitted from rendered history, and nested descriptor-less `expr` steps are omitted alongside them.
 - For completed `git.commit` steps, the default renderer places `<shortCommit> <message>` on the headline and renders `+<ins> -<del> files: <n>` as the first detail line before per-file stats.
-- For `codex`, `claude`, and `crush` prompt details, the default renderer uses `glamour/v2` markdown rendering, adds one blank line of top padding plus one character of left padding inside the prompt block, caps prompt wrapping at 80 columns, uses dim white body text, and keeps code blocks white.
+- For `codex`, `claude`, `crush`, and `nessy` prompt details, the default renderer uses `glamour/v2` markdown rendering, adds one blank line of top padding plus one character of left padding inside the prompt block, caps prompt wrapping at 80 columns, uses dim white body text, and keeps code blocks white.
 - Running `codex` steps render collapsed Prompt/Thinking/Shell rows by default (`[P]rompt`, `[T]hinking`, `[S]hell`), each sourced from live artifacts/events and expandable in TTY mode via `p`, `t`, and `s`.
 
 Renderer metadata guarantees:
@@ -220,7 +221,7 @@ Renderer metadata guarantees:
 - `shell` guarantees the resolved command in `primary_text` and `exit <code>` in the completed-line summary.
 - `data.get` guarantees the resolved file path in `primary_text`.
 - `assert` guarantees the resolved assertion text in `primary_text`, optional resolved message lines in `detail_text`, and `passed` or `failed` in the completed-line summary.
-- `codex`, `claude`, and `crush` guarantee the resolved model in `primary_text`, optional resolved reasoning alongside it when configured, and resolved prompt text in `detail_text`.
+- `codex`, `claude`, `crush`, and `nessy` put the configured model and supported reasoning in `primary_text`. They put the resolved prompt in `detail_text`.
 - `git.inspect` guarantees the resolved `cwd` while running, then a completed-line summary of `clean`, `not repo`, or `<n> files`, with changed file paths in `detail_text` when applicable.
 - `git.commit` guarantees the resolved commit message in `detail_text` while running. After a commit it guarantees `shortCommit` plus `files <n> +<ins> -<del>` in the completed-line summary, with per-file `+<ins> -<del> path` lines in `detail_text`. When no commit is created it guarantees `no files changed`.
 
@@ -404,6 +405,26 @@ Behavior:
 - `stdout.txt` and `stderr.txt` are streamed to disk during execution so they are readable before the step completes.
 - Without `response.schema`, the step `value` is the raw final transcript text.
 
+### `nessy`
+
+Supported fields:
+- `type: nessy`
+- `nessy`: shorthand for `prompt`
+- `prompt`: required expression-bearing string
+- `model`: optional string after applying `defaults.executors.nessy`
+- `cwd`: optional string
+- `env`: optional map of environment variable names to string values
+
+Behavior:
+- `nessy --auth-type openai -- <prompt>` receives the rendered prompt as one positional argument.
+- When `model` is configured, Amata adds `--model <model>` before the prompt. Otherwise, Nessy uses its configured model.
+- `prompt`, `model`, `cwd`, and `env` use the shared expression/template runtime and agent defaults.
+- `reasoning` is not supported. The step schema rejects it; a value supplied through provider defaults fails with `unsupported_option`.
+- When `response.schema` targets `value`, Amata appends JSON instructions to the prompt and parses stdout with the shared structured-output parser.
+- Structured-output recovery starts a fresh Nessy process with the recovery prompt.
+- Without `response.schema`, the step value is the stdout transcript.
+- Stdout and stderr stream to step artifacts. Amata also saves the rendered prompt, transcript, and provider metadata.
+
 ### `git.inspect`
 
 Supported fields:
@@ -534,7 +555,7 @@ Required JSON Schema:
 ```
 
 Current behavior:
-- Recovery applies only to `codex`, `claude`, and `crush` steps that declare `response.schema` with `response.from: value` or omit `response.from`.
+- Recovery applies only to `codex`, `claude`, `crush`, and `nessy` steps that declare `response.schema` with `response.from: value` or omit `response.from`.
 - Recovery does not apply to non-agent executors, `response.from: stdout`, `stderr`, line sources, or named artifacts; those response validation failures remain fail-fast.
 - The runner retries provider parse failures (`invalid_provider_output`) and runtime response schema mismatches (`response_schema_mismatch`).
 - When `structured_retry.prompt` is omitted, the built-in retry prompt includes the resolved `response.schema` JSON, including workflow-local `#/schemas/...` refs and the Codex provider schema shape.
@@ -573,7 +594,7 @@ stall:
 ```
 
 Current behavior:
-- `stall` is optional and applies to normal executor steps such as `shell`, `data.get`, `codex`, `claude`, `crush`, `git.inspect`, `git.commit`, and `polling.short`.
+- `stall` is optional and applies to normal executor steps such as `shell`, `data.get`, `codex`, `claude`, `crush`, `nessy`, `git.inspect`, `git.commit`, and `polling.short`.
 - String form defaults to `after: 15` minutes.
 - Object form defaults to `type: rerun` and `after: 15` minutes when omitted.
 - `after` accepts either a numeric minute value such as `15` or a duration string such as `30s` or `5m`.

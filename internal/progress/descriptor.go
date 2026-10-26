@@ -292,7 +292,7 @@ func elapsedForStep(step Step, now time.Time) time.Duration {
 
 func isAgentStepType(stepType string) bool {
 	switch stepType {
-	case "codex", "claude", "crush":
+	case "codex", "claude", "crush", "nessy":
 		return true
 	default:
 		return false

@@ -1073,6 +1073,22 @@ func TestRunnerAgentStructuredOutputRecovery(t *testing.T) {
 			wantContinuationPrompts:    []string{"", "Fix only JSON"},
 		},
 		{
+			name:         "nessy retries fresh with prompt override",
+			executorType: "nessy",
+			structuredRetry: map[string]any{
+				"prompt": "Fix only JSON",
+			},
+			attempts: []attemptSpec{
+				{result: structuredFailure("invalid_provider_output"), session: "ignored-session"},
+				{result: successValue(map[string]any{"approved": true})},
+			},
+			wantSuccess:                true,
+			wantValue:                  map[string]any{"approved": true},
+			wantExecutorAttempts:       2,
+			wantContinuationSessionIDs: []string{"", ""},
+			wantContinuationPrompts:    []string{"", "Fix only JSON"},
+		},
+		{
 			name:         "exhausted attempts fails with structured failure code",
 			executorType: "claude",
 			structuredRetry: map[string]any{

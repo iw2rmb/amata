@@ -169,7 +169,7 @@ func resolveOptionalString(stepCtx executor.StepContext, raw any) (string, error
 }
 
 func resolveAgentModel(stepCtx executor.StepContext, providerName string, raw any) (string, error) {
-	if providerName == "codex" {
+	if providerName == "codex" || providerName == "nessy" {
 		return resolveOptionalString(stepCtx, raw)
 	}
 	return resolveRequiredString(stepCtx, raw)

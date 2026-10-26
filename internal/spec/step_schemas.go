@@ -28,6 +28,7 @@ var builtinStepSchemaNames = []string{
 	"for_each",
 	"git.commit",
 	"git.inspect",
+	"nessy",
 	"polling.short",
 	"shell",
 	"switch",
