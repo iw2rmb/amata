@@ -531,6 +531,61 @@ Current behavior:
 - Schema mismatches fail the step with `response_schema_mismatch`.
 - Raw stdout, stderr, and named file paths remain available under `artifacts`.
 
+## Agent Roles
+
+Define an ordered fallback chain under `defaults.agents.roles`:
+
+```yaml
+defaults:
+  agents:
+    roles:
+      coder:
+        - codex:
+            - model: gpt-5.3-codex
+            - model: gpt-6-astra
+        - nessy
+        - claude:
+            model: opus-5
+        - nessy: glm53
+```
+
+Invoke the role like an agent:
+
+```yaml
+- coder: |
+    Implement the migration.
+```
+
+`type: coder` with `prompt` is also supported, including inside `switch`,
+`for_each`, and called flows. Role names cannot shadow built-in step names or
+built-in step fields.
+
+- Entries run in order. An agent can have one settings object, a model string,
+  or an ordered list of settings. A bare agent inherits its executor defaults.
+- Settings use the existing agent fields. Step fields override candidate settings,
+  which override `defaults.executors.<agent>`. Environment maps merge by key.
+- Each candidate keeps the existing provider retry, structured-output recovery,
+  stall, response validation, and expectation behavior. Fallback starts only after
+  that candidate fails, including its retries. `stall: rerun` remains unbounded.
+- Adjacent candidates using the same agent retain repository changes. Codex,
+  Claude, and Nessy resume the preceding session when one is available. Without
+  a session, the next candidate receives the original step prompt. Crush starts
+  fresh because its adapter does not expose continuation.
+- Changing agents resets the repository to its state before this step and starts
+  a fresh session with the original step prompt. Earlier staged, unstaged, and
+  untracked changes remain. Amata state and untracked ignored files are excluded
+  from reset. Chains that change agents require a Git repository at the agent's
+  working directory.
+- The first successful candidate completes the step. Exhausting the chain records
+  the last failure and retains its changes, as an ordinary failed step does.
+  Cancellation stops execution. An attempt that does not stop after cancellation
+  prevents further fallback.
+- Attempt artifacts use distinct directories. Durable state still records one
+  final step result; interrupted-run resume behavior is unchanged.
+
+Nessy invocations enable chat recording and assign an explicit session ID.
+Model fallback uses `nessy --resume <session-id>`; a new invocation uses a new ID.
+
 ## Agent Structured Output Recovery
 
 Defaults-only configuration:

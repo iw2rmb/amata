@@ -3,6 +3,7 @@ package nessy
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"fmt"
 	"io"
 	"os/exec"
@@ -40,7 +41,18 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 		structuredOutputMode = "prompt_fallback"
 	}
 
-	args := []string{"--auth-type", "openai"}
+	sessionID := request.ContinuationSessionID
+	args := []string{"--auth-type", "openai", "--chat-recording", "true"}
+	if sessionID != "" {
+		args = append(args, "--resume", sessionID)
+	} else {
+		var id [16]byte
+		_, _ = rand.Read(id[:])
+		id[6] = (id[6] & 0x0f) | 0x40
+		id[8] = (id[8] & 0x3f) | 0x80
+		sessionID = fmt.Sprintf("%x-%x-%x-%x-%x", id[:4], id[4:6], id[6:8], id[8:10], id[10:])
+		args = append(args, "--session-id", sessionID)
+	}
 	if request.Model != "" {
 		args = append(args, "--model", request.Model)
 	}
@@ -58,7 +70,8 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 		Prompt:     prompt,
 		Transcript: transcriptBuf.Bytes(),
 		Metadata: map[string]any{
-			"command": executor.CommandWithBinary("nessy", args),
+			"command":                 executor.CommandWithBinary("nessy", args),
+			"continuation_session_id": sessionID,
 		},
 	}
 	if structuredOutputMode != "" {

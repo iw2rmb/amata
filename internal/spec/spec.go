@@ -85,6 +85,10 @@ func Decode(data []byte) (Document, error) {
 }
 
 func decodeWithPath(data []byte, specPath string) (Document, error) {
+	data, err := normalizeRoleShorthand(data)
+	if err != nil {
+		return Document{}, err
+	}
 	var document Document
 
 	decoder := yaml.NewDecoder(bytes.NewReader(data))

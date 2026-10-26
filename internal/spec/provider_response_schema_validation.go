@@ -68,6 +68,18 @@ func validateStepProviderResponseSchemas(document Document, specPath string, loc
 }
 
 func validateStepResponseSchemaForProvider(document Document, specPath string, location string, step Step) error {
+	roles, err := ParseAgentRoles(document.Defaults)
+	if err != nil {
+		return err
+	}
+	if candidates := roles.Candidates(step); len(candidates) > 0 {
+		for _, candidate := range candidates {
+			if err := validateStepResponseSchemaForProvider(document, specPath, location, candidate); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	stepType := step.ExecutorType()
 	if stepType != "codex" {
 		return nil

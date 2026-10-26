@@ -2,6 +2,7 @@ package runtime
 
 import (
 	executorapi "github.com/iw2rmb/amata/internal/executor"
+	"github.com/iw2rmb/amata/internal/executor/agent"
 	"github.com/iw2rmb/amata/internal/progress"
 	"github.com/iw2rmb/amata/internal/spec"
 	"github.com/iw2rmb/amata/internal/state"
@@ -93,6 +94,11 @@ func (r *Runner) recordResultEvent(
 }
 
 func progressStep(config Config, flowName string, frameID string, stepIndex int, step spec.Step, executionLabel string, previous *state.StepResult, bindings map[string]any, lookup func(*state.StepRef) *state.StepResult) progress.Step {
+	if roles, err := spec.ParseAgentRoles(config.Spec.Defaults); err == nil {
+		if candidates := roles.Candidates(step); len(candidates) > 0 {
+			step = candidates[0]
+		}
+	}
 	stepCtx := progressStepContext(config, flowName, frameID, stepIndex, step, executionLabel, previous, bindings, lookup)
 	progressStep, err := progress.StepFromContext(stepCtx)
 	if err == nil {
@@ -110,6 +116,19 @@ func progressStep(config Config, flowName string, frameID string, stepIndex int,
 
 func progressResultStep(config Config, flowName string, frameID string, step spec.Step, previous *state.StepResult, bindings map[string]any, result state.StepResult, lookup func(*state.StepRef) *state.StepResult) progress.Step {
 	stepCtx := progressStepContext(config, flowName, frameID, result.Index, step, "", previous, bindings, lookup)
+	if roles, err := spec.ParseAgentRoles(config.Spec.Defaults); err == nil {
+		metadata := providerMetadata(result)
+		for _, candidate := range roles.Candidates(step) {
+			if candidate.Type != result.Type {
+				continue
+			}
+			stepCtx.Step = candidate
+			resolved, failure := agent.ResolveStep(stepCtx, candidate.Type)
+			if failure == nil && resolved.Model == metadata["model"] {
+				break
+			}
+		}
+	}
 	progressStep, err := progress.StepFromResultWithContext(flowName, stepCtx, result)
 	if err == nil {
 		return progressStep

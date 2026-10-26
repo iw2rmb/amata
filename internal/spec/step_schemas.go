@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/iw2rmb/amata/internal/jsonutil"
 	embeddedschemas "github.com/iw2rmb/amata/schemas"
 	jsonschema "github.com/santhosh-tekuri/jsonschema/v6"
 	"gopkg.in/yaml.v3"
@@ -35,11 +36,31 @@ var builtinStepSchemaNames = []string{
 }
 
 func validateBuiltInSteps(document Document) error {
+	roles, err := ParseAgentRoles(document.Defaults)
+	if err != nil {
+		return err
+	}
 	schemas, err := compiledStepSchemas()
 	if err != nil {
 		return err
 	}
 
+	roleNames := make([]string, 0, len(roles))
+	for name := range roles {
+		roleNames = append(roleNames, name)
+	}
+	sort.Strings(roleNames)
+	for _, name := range roleNames {
+		for _, candidate := range roles[name] {
+			candidate.Fields = jsonutil.CloneMap(candidate.Fields)
+			if _, ok := candidate.Fields["prompt"]; !ok {
+				candidate.Fields["prompt"] = "role prompt"
+			}
+			if err := validateStepSchema(schemas, "agent role "+name, candidate); err != nil {
+				return err
+			}
+		}
+	}
 	flowNames := make([]string, 0, len(document.Flows))
 	for name := range document.Flows {
 		flowNames = append(flowNames, name)
@@ -47,7 +68,7 @@ func validateBuiltInSteps(document Document) error {
 	sort.Strings(flowNames)
 
 	for _, flowName := range flowNames {
-		if err := validateTopLevelFlowSteps(schemas, flowName, document.Flows[flowName].Steps); err != nil {
+		if err := validateTopLevelFlowSteps(schemas, roles, flowName, document.Flows[flowName].Steps); err != nil {
 			return err
 		}
 	}
@@ -95,10 +116,10 @@ func compiledStepSchemas() (map[string]*jsonschema.Schema, error) {
 	return stepSchemas, stepSchemasErr
 }
 
-func validateTopLevelFlowSteps(schemas map[string]*jsonschema.Schema, flowName string, steps []Step) error {
+func validateTopLevelFlowSteps(schemas map[string]*jsonschema.Schema, roles AgentRoles, flowName string, steps []Step) error {
 	for stepIndex, step := range steps {
 		location := fmt.Sprintf("flow %q step %d", flowName, stepIndex)
-		if err := validateStepAndNested(schemas, location, step); err != nil {
+		if err := validateStepAndNested(schemas, roles, location, step); err != nil {
 			return err
 		}
 	}
@@ -106,10 +127,10 @@ func validateTopLevelFlowSteps(schemas map[string]*jsonschema.Schema, flowName s
 	return nil
 }
 
-func validateNestedSteps(schemas map[string]*jsonschema.Schema, prefix string, steps []Step) error {
+func validateNestedSteps(schemas map[string]*jsonschema.Schema, roles AgentRoles, prefix string, steps []Step) error {
 	for stepIndex, step := range steps {
 		location := fmt.Sprintf("%s step %d", prefix, stepIndex)
-		if err := validateStepAndNested(schemas, location, step); err != nil {
+		if err := validateStepAndNested(schemas, roles, location, step); err != nil {
 			return err
 		}
 	}
@@ -117,7 +138,15 @@ func validateNestedSteps(schemas map[string]*jsonschema.Schema, prefix string, s
 	return nil
 }
 
-func validateStepAndNested(schemas map[string]*jsonschema.Schema, location string, step Step) error {
+func validateStepAndNested(schemas map[string]*jsonschema.Schema, roles AgentRoles, location string, step Step) error {
+	if candidates := roles.Candidates(step); len(candidates) > 0 {
+		for _, candidate := range candidates {
+			if err := validateStepSchema(schemas, location, candidate); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	if err := validateStepSchema(schemas, location, step); err != nil {
 		return err
 	}
@@ -129,7 +158,7 @@ func validateStepAndNested(schemas map[string]*jsonschema.Schema, location strin
 			return fmt.Errorf("%s: %w", location, err)
 		}
 		for caseIndex, branch := range branches {
-			if err := validateNestedSteps(schemas, fmt.Sprintf("%s case %d", location, caseIndex), branch); err != nil {
+			if err := validateNestedSteps(schemas, roles, fmt.Sprintf("%s case %d", location, caseIndex), branch); err != nil {
 				return err
 			}
 		}
@@ -138,7 +167,7 @@ func validateStepAndNested(schemas map[string]*jsonschema.Schema, location strin
 		if err != nil {
 			return fmt.Errorf("%s: %w", location, err)
 		}
-		if err := validateNestedSteps(schemas, location+" body", bodySteps); err != nil {
+		if err := validateNestedSteps(schemas, roles, location+" body", bodySteps); err != nil {
 			return err
 		}
 	}

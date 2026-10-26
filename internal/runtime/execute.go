@@ -26,7 +26,7 @@ const (
 	stallCallReturnType        = "stall.call"
 	stallRerunAttemptsTotal    = "INF"
 	defaultProviderRetryAfter  = 1 * time.Minute
-	defaultCodexResumePrompt   = "continue"
+	defaultAgentResumePrompt   = "continue"
 	defaultStructuredAttempts  = 3
 	defaultStructuredPrompt    = "Your previous response did not satisfy the required response schema.\nRespond only with a JSON value that matches the required schema.\nDo not include prose, markdown, or commentary."
 	continuationMetadataKey    = "continuation_session_id"
@@ -57,7 +57,7 @@ type structuredRetryPolicy struct {
 	PromptOverride bool
 }
 
-func (r *Runner) executeStep(
+func (r *Runner) executeCandidate(
 	ctx context.Context,
 	reporter *progress.Reporter,
 	config Config,
@@ -69,7 +69,11 @@ func (r *Runner) executeStep(
 	step spec.Step,
 	previous *state.StepResult,
 	bindings map[string]any,
+	continuation *retryContext,
+	attempts *int,
 ) (stepAction, state.StepResult, func() error) {
+	retryContext := *continuation
+	defer func() { *continuation = retryContext }()
 	runtime := newStepRuntime(config, previous, snapshot.StepByRef, bindings)
 	action, result := r.prepareStepAction(config, runtime, previous, stepIndex, step)
 	if result.Status != "" || action.pushFrame != nil {
@@ -118,10 +122,10 @@ func (r *Runner) executeStep(
 	}
 
 	providerRetryCount := 0
-	retryContext := retryContext{}
 
 attemptLoop:
 	for attempt := 1; ; attempt++ {
+		(*attempts)++
 		stepCtx := executorapi.StepContext{
 			RunID:                 config.RunID,
 			RunDir:                config.RunDir,
@@ -134,7 +138,7 @@ attemptLoop:
 			Step:                  step,
 			Previous:              previous,
 			Runtime:               runtime,
-			ExecutionLabel:        stepExecutionLabel(snapshot.LastSequence+1, attempt),
+			ExecutionLabel:        stepExecutionLabel(snapshot.LastSequence+1, *attempts),
 			ContinuationSessionID: retryContext.ContinuationSessionID,
 			ContinuationPrompt:    retryContext.ContinuationPrompt,
 		}
@@ -212,13 +216,14 @@ attemptLoop:
 						Status: state.StepStatusFailed,
 						Error: &state.Failure{
 							Code:    "step_stalled",
+							Details: map[string]any{"attempt_running": true},
 							Message: fmt.Sprintf("step %d stalled after %s and did not stop within %s after cancellation", stepIndex, policy.After, stallCancellationGraceWait),
 						},
 					}), nil
 				}
 				switch policy.Action {
 				case "rerun":
-					r.reportStallRerunProgress(reporter, config, snapshot, flowName, frameID, stepIndex, step, previous, bindings, policy.After, attempt)
+					r.reportStallRerunProgress(reporter, config, snapshot, flowName, frameID, stepIndex, step, previous, bindings, policy.After, *attempts)
 					continue attemptLoop
 				case "error":
 					return stepAction{}, finalizeStatus(state.StepResult{
@@ -383,7 +388,7 @@ func (r *Runner) maybeRetryCodexProviderFailure(
 		retryContext.ContinuationPrompt = ""
 	} else {
 		retryContext.ContinuationSessionID = sessionID
-		retryContext.ContinuationPrompt = defaultCodexResumePrompt
+		retryContext.ContinuationPrompt = defaultAgentResumePrompt
 	}
 
 	waitFn := r.retryWait
@@ -693,24 +698,24 @@ func structuredRetrySessionID(executorType string, result state.StepResult) stri
 }
 
 func continuationSessionIDFromMetadata(result state.StepResult) string {
-	if len(result.Artifacts.Files) == 0 {
-		return ""
-	}
+	value, _ := providerMetadata(result)[continuationMetadataKey].(string)
+	return strings.TrimSpace(value)
+}
+
+func providerMetadata(result state.StepResult) map[string]any {
 	path := result.Artifacts.Files["metadata"]
 	if path == "" {
-		return ""
+		return nil
 	}
-
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return ""
+		return nil
 	}
 	var metadata map[string]any
 	if err := json.Unmarshal(data, &metadata); err != nil {
-		return ""
+		return nil
 	}
-	value, _ := metadata[continuationMetadataKey].(string)
-	return strings.TrimSpace(value)
+	return metadata
 }
 
 func isRetryableProviderStepFailure(result state.StepResult) bool {

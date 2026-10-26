@@ -558,7 +558,7 @@ func TestRunnerCodexProviderRetry(t *testing.T) {
 			wantSleepCalls:             1,
 			wantSuccess:                true,
 			wantContinuationSessionIDs: []string{"", "sess-high-demand"},
-			wantContinuationPrompts:    []string{"", defaultCodexResumePrompt},
+			wantContinuationPrompts:    []string{"", defaultAgentResumePrompt},
 		},
 		{
 			name: "rate limit and high demand share one retry budget",
@@ -577,7 +577,7 @@ func TestRunnerCodexProviderRetry(t *testing.T) {
 			wantFailureCode:            "provider_crashed",
 			wantFailure:                mixedHighDemandFailure.Error,
 			wantContinuationSessionIDs: []string{"", "sess-mixed-rate-limit"},
-			wantContinuationPrompts:    []string{"", defaultCodexResumePrompt},
+			wantContinuationPrompts:    []string{"", defaultAgentResumePrompt},
 		},
 		{
 			name: "retry exhaustion preserves final high-demand error",
@@ -596,7 +596,7 @@ func TestRunnerCodexProviderRetry(t *testing.T) {
 			wantFailureCode:            "provider_crashed",
 			wantFailure:                finalHighDemandFailure.Error,
 			wantContinuationSessionIDs: []string{"", "sess-high-demand-first"},
-			wantContinuationPrompts:    []string{"", defaultCodexResumePrompt},
+			wantContinuationPrompts:    []string{"", defaultAgentResumePrompt},
 		},
 		{
 			name: "unrelated provider error remains non-retryable",
@@ -628,7 +628,7 @@ func TestRunnerCodexProviderRetry(t *testing.T) {
 			wantSleepCalls:             1,
 			wantSuccess:                true,
 			wantContinuationSessionIDs: []string{"", "sess-1"},
-			wantContinuationPrompts:    []string{"", defaultCodexResumePrompt},
+			wantContinuationPrompts:    []string{"", defaultAgentResumePrompt},
 		},
 		{
 			name: "reconnect error followed by terminal 429 triggers retry",
@@ -646,7 +646,7 @@ func TestRunnerCodexProviderRetry(t *testing.T) {
 			wantSleepCalls:             1,
 			wantSuccess:                true,
 			wantContinuationSessionIDs: []string{"", "sess-reconnect-429"},
-			wantContinuationPrompts:    []string{"", defaultCodexResumePrompt},
+			wantContinuationPrompts:    []string{"", defaultAgentResumePrompt},
 		},
 		{
 			name: "object form retries twice when retries is 2",
@@ -668,7 +668,7 @@ func TestRunnerCodexProviderRetry(t *testing.T) {
 			wantSleepCalls:             2,
 			wantSuccess:                true,
 			wantContinuationSessionIDs: []string{"", "sess-obj-1", "sess-obj-2"},
-			wantContinuationPrompts:    []string{"", defaultCodexResumePrompt, defaultCodexResumePrompt},
+			wantContinuationPrompts:    []string{"", defaultAgentResumePrompt, defaultAgentResumePrompt},
 		},
 		{
 			name: "object form with retries zero does not retry",
@@ -725,7 +725,7 @@ func TestRunnerCodexProviderRetry(t *testing.T) {
 			wantSleepCalls:             2,
 			wantSuccess:                true,
 			wantContinuationSessionIDs: []string{"", "", "sess-no-rate-2"},
-			wantContinuationPrompts:    []string{"", "", defaultCodexResumePrompt},
+			wantContinuationPrompts:    []string{"", "", defaultAgentResumePrompt},
 		},
 		{
 			name: "fails when defaults tpm object is empty",
@@ -775,7 +775,7 @@ func TestRunnerCodexProviderRetry(t *testing.T) {
 			wantSleepCalls:             1,
 			wantSuccess:                true,
 			wantContinuationSessionIDs: []string{"", "sess-ignore-1"},
-			wantContinuationPrompts:    []string{"", defaultCodexResumePrompt},
+			wantContinuationPrompts:    []string{"", defaultAgentResumePrompt},
 		},
 		{
 			name: "does not retry when defaults tpm is missing",
@@ -803,7 +803,7 @@ func TestRunnerCodexProviderRetry(t *testing.T) {
 			wantSuccess:                false,
 			wantFailureCode:            "provider_crashed",
 			wantContinuationSessionIDs: []string{"", "sess-3"},
-			wantContinuationPrompts:    []string{"", defaultCodexResumePrompt},
+			wantContinuationPrompts:    []string{"", defaultAgentResumePrompt},
 		},
 		{
 			name: "missing session id uses only one fresh fallback even with higher retries",
