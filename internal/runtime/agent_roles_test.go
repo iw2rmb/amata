@@ -40,6 +40,8 @@ flows:
     steps:
       - id: coding
         coder: fix it
+        reasoning: high
+        unsupported: ignored
       - assert:
           expr: 'ctx.prev.value == "done"'
 `))
@@ -61,6 +63,16 @@ flows:
 			for _, name := range []string{"codex", "nessy", "claude"} {
 				registry.factories[name] = func() executorapi.Executor {
 					return &fakeExecutor{calls: new([]string), execute: func(sc executorapi.StepContext) state.StepResult {
+						if _, ok := sc.Step.Fields["unsupported"]; ok {
+							t.Fatal("unsupported field reached executor")
+						}
+						if name == "nessy" {
+							if _, ok := sc.Step.Fields["reasoning"]; ok {
+								t.Fatal("reasoning reached Nessy")
+							}
+						} else if sc.Step.Fields["reasoning"] != "high" {
+							t.Fatalf("reasoning lost for %s", name)
+						}
 						model, _ := sc.Step.Fields["model"].(string)
 						calls = append(calls, name+":"+model)
 						ordinal := len(calls)

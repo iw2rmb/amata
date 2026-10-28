@@ -139,7 +139,11 @@ func validateNestedSteps(schemas map[string]*jsonschema.Schema, roles AgentRoles
 }
 
 func validateStepAndNested(schemas map[string]*jsonschema.Schema, roles AgentRoles, location string, step Step) error {
-	if candidates := roles.Candidates(step); len(candidates) > 0 {
+	candidates, err := roles.Candidates(step)
+	if err != nil {
+		return err
+	}
+	if len(candidates) > 0 {
 		for _, candidate := range candidates {
 			if err := validateStepSchema(schemas, location, candidate); err != nil {
 				return err

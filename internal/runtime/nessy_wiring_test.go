@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	runtimelib "github.com/iw2rmb/amata/internal/runtime"
@@ -12,6 +13,12 @@ import (
 )
 
 func TestNessyShorthandInvokesProcessWithoutModel(t *testing.T) {
+	for _, invocation := range []string{"direct", "role"} {
+		t.Run(invocation, func(t *testing.T) { testNessyInvocation(t, invocation == "role") })
+	}
+}
+
+func testNessyInvocation(t *testing.T, throughRole bool) {
 	repoDir := t.TempDir()
 	logPath := filepath.Join(repoDir, "invocation.json")
 	t.Setenv("NESSY_INVOCATION_LOG", logPath)
@@ -47,6 +54,10 @@ flows:
       - assert:
           expr: 'ctx.prev.value == "nessy completed\n"'
 `
+	if throughRole {
+		specBody = strings.Replace(specBody, "defaults:\n", "defaults:\n  agents:\n    roles:\n      coder:\n        - nessy:\n            reasoning: {expr: '1 / 0'}\n", 1)
+		specBody = strings.Replace(specBody, "nessy: $.params.task", "coder: $.params.task\n        reasoning: {expr: '1 / 0'}\n        unsupported: {expr: '1 / 0'}", 1)
+	}
 	if err := os.WriteFile(specPath, []byte(specBody), 0o644); err != nil {
 		t.Fatal(err)
 	}

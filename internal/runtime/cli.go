@@ -12,6 +12,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/iw2rmb/amata"
 	"github.com/iw2rmb/amata/internal/progress"
 	"github.com/iw2rmb/amata/internal/spec"
 	"github.com/spf13/cobra"
@@ -70,6 +71,7 @@ func buildCLIOptions(options []CLIOption) cliOptions {
 func newRootCommand(stdout io.Writer, stderr io.Writer, options cliOptions) *cobra.Command {
 	command := &cobra.Command{
 		Use:           "amata",
+		Version:       amata.Version(),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		CompletionOptions: cobra.CompletionOptions{
@@ -83,6 +85,7 @@ func newRootCommand(stdout io.Writer, stderr io.Writer, options cliOptions) *cob
 		},
 	}
 
+	command.SetVersionTemplate("{{.Version}}\n")
 	command.SetOut(writerOrDiscard(stdout))
 	command.SetErr(writerOrDiscard(stderr))
 	command.SetFlagErrorFunc(flagErrorFunc)

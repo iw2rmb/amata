@@ -72,7 +72,11 @@ func validateStepResponseSchemaForProvider(document Document, specPath string, l
 	if err != nil {
 		return err
 	}
-	if candidates := roles.Candidates(step); len(candidates) > 0 {
+	candidates, err := roles.Candidates(step)
+	if err != nil {
+		return err
+	}
+	if len(candidates) > 0 {
 		for _, candidate := range candidates {
 			if err := validateStepResponseSchemaForProvider(document, specPath, location, candidate); err != nil {
 				return err

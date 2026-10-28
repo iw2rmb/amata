@@ -19,7 +19,10 @@ func (r *Runner) executeStep(ctx context.Context, reporter *progress.Reporter, c
 	if err != nil {
 		return stepAction{}, roleFailure(stepIndex, step, "invalid_defaults", err), nil
 	}
-	candidates := roles.Candidates(step)
+	candidates, err := roles.Candidates(step)
+	if err != nil {
+		return stepAction{}, roleFailure(stepIndex, step, "invalid_defaults", err), nil
+	}
 	if len(candidates) == 0 {
 		return r.executeCandidate(ctx, reporter, config, responses, snapshot, flowName, frameID, stepIndex, step, previous, bindings, &continuation, &attempts)
 	}

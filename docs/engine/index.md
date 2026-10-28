@@ -4,13 +4,17 @@ This document describes the shipped `amata` engine behavior in this repository.
 
 ## Summary
 
-`amata` is a local CLI runner with two commands:
+`amata` provides these commands and version output:
 
 ```text
 amata run <spec.yaml> [--workspace <dir>] [--set key=value ...] [--run-id <id>] [--out <auto|jsonl>]
 amata resume <run-id> [--out <auto|jsonl>]
 amata validate <spec.yaml>
+amata --version
 ```
+
+`--version` prints the version embedded from `VERSION` (for example, `v0.4.5`)
+and exits without loading a workflow.
 
 The current implementation includes durable on-disk run state, one shared expression/template runtime, response value and schema handling, eleven built-in executors (`shell`, `expr`, `assert`, `data.get`, `codex`, `claude`, `crush`, `nessy`, `git.inspect`, `git.commit`, and `polling.short`), and first-version control blocks (`switch`, `call`, and `for_each`) over a deterministically planned resumable flow stack.
 
@@ -562,8 +566,13 @@ built-in step fields.
 
 - Entries run in order. An agent can have one settings object, a model string,
   or an ordered list of settings. A bare agent inherits its executor defaults.
-- Settings use the existing agent fields. Step fields override candidate settings,
-  which override `defaults.executors.<agent>`. Environment maps merge by key.
+- Step fields override candidate settings, which override
+  `defaults.executors.<agent>`. Environment maps merge by key.
+- For role invocations, candidate settings and step fields not allowed by the
+  selected executor schema are ignored during validation and execution. For
+  example, a shared `reasoning: high` reaches Codex and Claude, but is omitted
+  for Nessy and Crush. Supported fields still require valid values. Direct
+  executor steps remain strict about unsupported fields.
 - Each candidate keeps the existing provider retry, structured-output recovery,
   stall, response validation, and expectation behavior. Fallback starts only after
   that candidate fails, including its retries. `stall: rerun` remains unbounded.

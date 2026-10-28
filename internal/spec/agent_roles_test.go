@@ -41,7 +41,10 @@ func TestAgentRoleFormsPreserveOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	candidates := roles.Candidates(step)
+	candidates, err := roles.Candidates(step)
+	if err != nil {
+		t.Fatal(err)
+	}
 	wantTypes := []string{"codex", "codex", "nessy", "claude", "nessy"}
 	wantModels := []any{"gpt-5.3-codex", "gpt-6-astra", nil, "opus-5", "glm53"}
 	if len(candidates) != len(wantTypes) {
@@ -72,7 +75,8 @@ func TestAgentRolesInNestedSteps(t *testing.T) {
           - switch:
               - when: true
                 steps:
-                  - coder: fix it`, 1)
+                  - coder: fix it
+                    reasoning: high`, 1)
 	doc, err := Decode([]byte(body))
 	if err != nil {
 		t.Fatal(err)
@@ -96,7 +100,7 @@ func TestAgentRoleValidation(t *testing.T) {
 		{"empty chain", "        - codex:\n            - model: gpt-5.3-codex\n            - model: gpt-6-astra\n        - nessy\n        - claude:\n            model: opus-5\n        - nessy: glm53", "        []", "non-empty array"},
 		{"reserved name", "coder:", "shell:", "conflicts"},
 		{"unknown agent", "- nessy: glm53", "- unknown: glm53", "unknown agent"},
-		{"invalid candidate", "model: opus-5", "unknown_setting: value", "unknown_setting"},
+		{"invalid supported field", "model: opus-5", "model: 42", "model"},
 		{"ambiguous shorthand", "- coder: fix it", "- coder: fix it\n        prompt: another", "ambiguous"},
 		{"unknown role", "- coder: fix it", "- unknown: fix it", "does not declare"},
 	}
@@ -107,5 +111,51 @@ func TestAgentRoleValidation(t *testing.T) {
 				t.Fatalf("error = %v, want %q", err, tc.want)
 			}
 		})
+	}
+}
+
+// A shared field reaches only candidates whose executor schema accepts it.
+func TestAgentRoleIgnoresUnsupportedFieldsPerCandidate(t *testing.T) {
+	body := strings.Replace(roleSpec, "        - nessy\n", "        - nessy:\n            reasoning: high\n            unknown_setting: candidate-value\n", 1)
+	body = strings.Replace(body, "      - coder: fix it", "      - coder: fix it\n        reasoning: high\n        unknown_setting: step-value", 1)
+	doc, err := Decode([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	roles, err := ParseAgentRoles(doc.Defaults)
+	if err != nil {
+		t.Fatal(err)
+	}
+	step := doc.Flows["main"].Steps[0]
+	candidates, err := roles.Candidates(step)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, candidate := range candidates {
+		if candidate.Fields["prompt"] != "fix it" {
+			t.Fatalf("lost prompt: %#v", candidate)
+		}
+		if _, ok := candidate.Fields["unknown_setting"]; ok {
+			t.Fatalf("unknown field reached %s", candidate.Type)
+		}
+		reasoning, hasReasoning := candidate.Fields["reasoning"]
+		if candidate.Type == "nessy" {
+			if hasReasoning {
+				t.Fatalf("reasoning reached nessy: %#v", candidate)
+			}
+		} else if reasoning != "high" {
+			t.Fatalf("reasoning lost for %s", candidate.Type)
+		}
+	}
+	if step.Fields["reasoning"] != "high" || step.Fields["unknown_setting"] != "step-value" {
+		t.Fatal("role invocation was mutated")
+	}
+}
+
+// Direct executors remain strict even when the document also declares roles.
+func TestDirectExecutorStillRejectsUnsupportedFields(t *testing.T) {
+	body := strings.Replace(roleSpec, "      - coder: fix it", "      - nessy: fix it\n        reasoning: high", 1)
+	if _, err := Decode([]byte(body)); err == nil || !strings.Contains(err.Error(), "reasoning") {
+		t.Fatalf("error = %v, want unsupported reasoning", err)
 	}
 }

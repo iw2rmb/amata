@@ -97,6 +97,7 @@ func ParseAgentRoles(defaults map[string]any) (AgentRoles, error) {
 				if _, ok := fields["id"]; ok {
 					return nil, fmt.Errorf("agent role %q settings cannot override id", name)
 				}
+				filterRoleFields(fields, schemaDocs[agentName])
 				roles[name] = append(roles[name], Step{Type: agentName, Fields: fields})
 			}
 		}
@@ -104,8 +105,15 @@ func ParseAgentRoles(defaults map[string]any) (AgentRoles, error) {
 	return roles, nil
 }
 
-func (roles AgentRoles) Candidates(step Step) []Step {
+func (roles AgentRoles) Candidates(step Step) ([]Step, error) {
 	variants := roles[step.ExecutorType()]
+	if len(variants) == 0 {
+		return nil, nil
+	}
+	schemaDocs, err := embeddedSchemaDocuments()
+	if err != nil {
+		return nil, err
+	}
 	result := make([]Step, 0, len(variants))
 	for _, variant := range variants {
 		fields := jsonutil.CloneMap(variant.Fields)
@@ -122,9 +130,24 @@ func (roles AgentRoles) Candidates(step Step) []Step {
 			}
 			fields[key] = jsonutil.CloneValue(value)
 		}
+		filterRoleFields(fields, schemaDocs[variant.Type])
 		result = append(result, Step{ID: step.ID, Type: variant.Type, Fields: fields})
 	}
-	return result
+	return result, nil
+}
+
+// Shared role fields must be filtered before validation and dispatch so each
+// candidate receives only the options owned by its executor schema.
+func filterRoleFields(fields map[string]any, schemaDoc map[string]any) {
+	if schemaDoc["additionalProperties"] != false {
+		return
+	}
+	properties, _ := schemaDoc["properties"].(map[string]any)
+	for name := range fields {
+		if _, allowed := properties[name]; !allowed {
+			delete(fields, name)
+		}
+	}
 }
 
 // Role shorthand depends on document defaults, so normalize it before the

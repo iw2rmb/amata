@@ -95,7 +95,7 @@ func (r *Runner) recordResultEvent(
 
 func progressStep(config Config, flowName string, frameID string, stepIndex int, step spec.Step, executionLabel string, previous *state.StepResult, bindings map[string]any, lookup func(*state.StepRef) *state.StepResult) progress.Step {
 	if roles, err := spec.ParseAgentRoles(config.Spec.Defaults); err == nil {
-		if candidates := roles.Candidates(step); len(candidates) > 0 {
+		if candidates, err := roles.Candidates(step); err == nil && len(candidates) > 0 {
 			step = candidates[0]
 		}
 	}
@@ -118,7 +118,8 @@ func progressResultStep(config Config, flowName string, frameID string, step spe
 	stepCtx := progressStepContext(config, flowName, frameID, result.Index, step, "", previous, bindings, lookup)
 	if roles, err := spec.ParseAgentRoles(config.Spec.Defaults); err == nil {
 		metadata := providerMetadata(result)
-		for _, candidate := range roles.Candidates(step) {
+		candidates, _ := roles.Candidates(step)
+		for _, candidate := range candidates {
 			if candidate.Type != result.Type {
 				continue
 			}
