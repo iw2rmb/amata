@@ -42,7 +42,7 @@ func (p provider) Execute(ctx context.Context, request agent.Request) (agent.Res
 	}
 
 	sessionID := request.ContinuationSessionID
-	args := []string{"--auth-type", "openai", "--chat-recording", "true"}
+	args := []string{"--auth-type", "openai", "--chat-recording", "true", "--approval-mode", "auto-edit"}
 	if sessionID != "" {
 		args = append(args, "--resume", sessionID)
 	} else {

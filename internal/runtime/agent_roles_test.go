@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,8 +17,8 @@ import (
 	"github.com/iw2rmb/amata/internal/state"
 )
 
-// Candidate retries finish before model continuation; changing agents resets only this step's edits.
-func TestRoleFallbackRetriesContinuesAndResets(t *testing.T) {
+// Candidate retries finish before fallback; every candidate retains preceding edits.
+func TestRoleFallbackRetriesContinuesAndPreservesEdits(t *testing.T) {
 	for _, succeeds := range []bool{true, false} {
 		t.Run(fmt.Sprintf("last_candidate_succeeds_%t", succeeds), func(t *testing.T) {
 			document, err := spec.Decode([]byte(`version: amata/v1
@@ -78,8 +79,11 @@ flows:
 						ordinal := len(calls)
 						wantContent := "earlier step"
 						wantSession, wantPrompt := "", ""
+						if ordinal > 1 {
+							wantContent = calls[ordinal-2][:strings.IndexByte(calls[ordinal-2], ':')] + " partial"
+						}
 						if ordinal > 1 && ordinal <= 6 {
-							wantContent, wantSession, wantPrompt = "codex partial", "codex-session", "continue"
+							wantSession, wantPrompt = "codex-session", "continue"
 						}
 						if got := readFile(t, source); got != wantContent {
 							t.Fatalf("call %d content = %q, want %q", ordinal, got, wantContent)
@@ -198,7 +202,7 @@ flows:
 	}
 }
 
-// A skipped role never snapshots the repository or starts an agent.
+// A skipped role never starts an agent.
 func TestSkippedRoleDoesNotRequireRepository(t *testing.T) {
 	config := testConfig(t, spec.Document{Version: spec.Version, Name: "skip", Entry: "main", Defaults: map[string]any{"agents": map[string]any{"roles": map[string]any{"coder": []any{"codex", "nessy"}}}}, Flows: map[string]spec.Flow{"main": {Steps: []spec.Step{{Type: "coder", Fields: map[string]any{"prompt": "fix", "when": false}}}}}})
 	mustPersist(t, config)

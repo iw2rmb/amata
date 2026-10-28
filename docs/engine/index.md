@@ -51,7 +51,7 @@ Current behavior:
 - `defaults` are parsed and persisted. Agent executors currently interpret `defaults.cwd`, `defaults.env`, and `defaults.executors.codex|claude|crush|nessy`. Stall policy defaults are read from `defaults.executors.<step-type>.stall` when a step omits `stall`. Agent structured-output recovery defaults are read from `defaults.executors.codex|claude|crush|nessy.structured_retry`.
 - `defaults.tpm` is optional and may be either a positive number or an object with `rate` and optional `retries`; for Codex it controls retries for rate limits and recognized transient-capacity failures.
 - `defaults.tpm.rate` is optional and when set must resolve to a positive number.
-- `defaults.tpm.retries` defaults to `1` and must resolve to a non-negative integer; it represents extra retries after the first attempt.
+- `defaults.tpm.retries` must resolve to a non-negative integer and represents extra retries after the first attempt. Without an explicit value, rate-limit failures have one retry when `defaults.tpm` is set, and high-demand failures have three retries even when `defaults.tpm` is absent.
 - Object form requires at least one of `rate` or `retries`.
 - `defaults.executors.<agent>.structured_retry.attempts` is optional, defaults to `3`, and must resolve to an integer greater than or equal to `1`. It is the total number of provider attempts, including the first attempt.
 - `defaults.executors.<agent>.structured_retry.prompt` is optional and must resolve to a non-empty string. When omitted, the engine uses its built-in schema-recovery prompt with the resolved `response.schema` JSON.
@@ -354,7 +354,7 @@ Behavior:
 - `prompt`, `model`, `reasoning`, `cwd`, and `env` resolve through the shared expression/template runtime before execution.
 - `cwd` falls back to `defaults.cwd`, then `workspace.root`.
 - `codex exec --json` is invoked with the rendered prompt on stdin.
-- When `defaults.tpm` is set and a codex attempt fails with provider rate-limit (`429`) details or the recognized transient-capacity message `We're currently experiencing high demand, which may cause temporary errors.`, the runner waits 60 seconds before each retry and retries up to `defaults.tpm.retries` extra attempts.
+- Codex rate-limit (`429`) failures retry when `defaults.tpm` is set. The recognized high-demand message `We're currently experiencing high demand, which may cause temporary errors.` retries by default, including the typographic apostrophe variant. The runner waits 60 seconds before each retry. An explicit `defaults.tpm.retries` sets the limit for both failures; otherwise high-demand failures allow three retries and rate-limit failures allow one.
 - These failures share one retry budget. When a provider continuation session id is available, the runner resumes that codex session with prompt `continue`.
 - If the retryable failure has no continuation session id, the runner allows one fresh retry attempt without session resume.
 - When `response.schema` targets `value`, the executor accepts either an inline schema/ref or a path-like string to a `.json` schema file relative to the workflow file.
@@ -420,7 +420,7 @@ Supported fields:
 - `env`: optional map of environment variable names to string values
 
 Behavior:
-- `nessy --auth-type openai` receives the rendered prompt through stdin. This preserves leading dashes and multiline text without option parsing.
+- `nessy --auth-type openai --approval-mode auto-edit` receives the rendered prompt through stdin. This preserves leading dashes and multiline text without option parsing.
 - When `model` is configured, Amata adds `--model <model>`. Otherwise, Nessy uses its configured model.
 - `prompt`, `model`, `cwd`, and `env` use the shared expression/template runtime and agent defaults.
 - `reasoning` is not supported. The step schema rejects it; a value supplied through provider defaults fails with `unsupported_option`.
@@ -580,11 +580,9 @@ built-in step fields.
   Claude, and Nessy resume the preceding session when one is available. Without
   a session, the next candidate receives the original step prompt. Crush starts
   fresh because its adapter does not expose continuation.
-- Changing agents resets the repository to its state before this step and starts
-  a fresh session with the original step prompt. Earlier staged, unstaged, and
-  untracked changes remain. Amata state and untracked ignored files are excluded
-  from reset. Chains that change agents require a Git repository at the agent's
-  working directory.
+- Changing agents retains all repository changes from preceding attempts and
+  starts a fresh session with the original step prompt. Agent fallback does not
+  require a Git repository.
 - The first successful candidate completes the step. Exhausting the chain records
   the last failure and retains its changes, as an ordinary failed step does.
   Cancellation stops execution. An attempt that does not stop after cancellation

@@ -26,6 +26,7 @@ const (
 	stallCallReturnType        = "stall.call"
 	stallRerunAttemptsTotal    = "INF"
 	defaultProviderRetryAfter  = 1 * time.Minute
+	defaultHighDemandRetries   = 3
 	defaultAgentResumePrompt   = "continue"
 	defaultStructuredAttempts  = 3
 	defaultStructuredPrompt    = "Your previous response did not satisfy the required response schema.\nRespond only with a JSON value that matches the required schema.\nDo not include prose, markdown, or commentary."
@@ -40,8 +41,8 @@ type stallPolicy struct {
 }
 
 type codexProviderRetryPolicy struct {
-	Enabled    bool
-	MaxRetries int
+	MaxRetries        int
+	HighDemandRetries int
 }
 
 type retryContext struct {
@@ -304,9 +305,10 @@ func resolveCodexProviderRetryPolicy(runtime exprruntime.Runtime, defaults map[s
 		return codexProviderRetryPolicy{}, nil
 	}
 
+	policy := codexProviderRetryPolicy{HighDemandRetries: defaultHighDemandRetries}
 	raw, ok := defaults["tpm"]
 	if !ok {
-		return codexProviderRetryPolicy{}, nil
+		return policy, nil
 	}
 
 	resolved, err := runtime.Resolve(raw)
@@ -341,6 +343,7 @@ func resolveCodexProviderRetryPolicy(runtime exprruntime.Runtime, defaults map[s
 				}
 			}
 			retries = parsedRetries
+			policy.HighDemandRetries = parsedRetries
 		}
 		if !rateSpecified && !retriesSpecified {
 			return codexProviderRetryPolicy{}, &state.Failure{
@@ -357,10 +360,19 @@ func resolveCodexProviderRetryPolicy(runtime exprruntime.Runtime, defaults map[s
 		}
 	}
 
-	return codexProviderRetryPolicy{
-		Enabled:    true,
-		MaxRetries: retries,
-	}, nil
+	policy.MaxRetries = retries
+	return policy, nil
+}
+
+func (p codexProviderRetryPolicy) retryLimit(result state.StepResult) int {
+	providerError, _ := providerErrorDetails(result)
+	for _, key := range []string{"code", "type", "message"} {
+		value, _ := providerError[key].(string)
+		if isHighDemandProviderErrorText(value) {
+			return p.HighDemandRetries
+		}
+	}
+	return p.MaxRetries
 }
 
 func (r *Runner) maybeRetryCodexProviderFailure(
@@ -372,7 +384,7 @@ func (r *Runner) maybeRetryCodexProviderFailure(
 	retryCount *int,
 	retryContext retryContext,
 ) (bool, retryContext, state.StepResult) {
-	if step.ExecutorType() != "codex" || !policy.Enabled || retryCount == nil || *retryCount >= policy.MaxRetries {
+	if step.ExecutorType() != "codex" || retryCount == nil || *retryCount >= policy.retryLimit(result) {
 		return false, retryContext, state.StepResult{}
 	}
 	sessionID, retryable := providerRetryContinuationSessionID(result)
@@ -768,7 +780,12 @@ func isRetryableProviderErrorText(value string) bool {
 		strings.Contains(text, "too many requests") ||
 		strings.Contains(text, "rate_limit") ||
 		strings.Contains(text, "ratelimit") ||
-		strings.Contains(text, highDemandProviderMessage)
+		isHighDemandProviderErrorText(text)
+}
+
+func isHighDemandProviderErrorText(value string) bool {
+	text := strings.ToLower(strings.ReplaceAll(value, "’", "'"))
+	return strings.Contains(text, highDemandProviderMessage)
 }
 
 func waitWithContext(ctx context.Context, duration time.Duration) error {

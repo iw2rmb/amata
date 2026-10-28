@@ -543,6 +543,39 @@ func TestRunnerCodexProviderRetry(t *testing.T) {
 		wantContinuationPrompts    []string
 	}{
 		{
+			name: "high demand defaults to three retries without tpm",
+			results: []state.StepResult{
+				providerFailure("message", "We’re currently experiencing high demand, which may cause temporary errors.", "sess-demand"),
+				highDemandFailure("message", "sess-demand"),
+				highDemandFailure("message", "sess-demand"),
+				finalHighDemandFailure,
+			},
+			wantAttempts: 4, wantSleepCalls: 3, wantFailureCode: "provider_crashed",
+			wantFailure:                finalHighDemandFailure.Error,
+			wantContinuationSessionIDs: []string{"", "sess-demand", "sess-demand", "sess-demand"},
+			wantContinuationPrompts:    []string{"", defaultAgentResumePrompt, defaultAgentResumePrompt, defaultAgentResumePrompt},
+		},
+		{
+			name:     "high demand keeps three retries with scalar tpm",
+			defaults: map[string]any{"tpm": 60000},
+			results: []state.StepResult{
+				highDemandFailure("message", "sess-demand"),
+				highDemandFailure("message", "sess-demand"),
+				highDemandFailure("message", "sess-demand"),
+				{Status: state.StepStatusSucceeded, Value: "ok"},
+			},
+			wantAttempts: 4, wantSleepCalls: 3, wantSuccess: true,
+			wantContinuationSessionIDs: []string{"", "sess-demand", "sess-demand", "sess-demand"},
+			wantContinuationPrompts:    []string{"", defaultAgentResumePrompt, defaultAgentResumePrompt, defaultAgentResumePrompt},
+		},
+		{
+			name:         "high demand honors explicit zero retries",
+			defaults:     map[string]any{"tpm": map[string]any{"retries": 0}},
+			results:      []state.StepResult{finalHighDemandFailure},
+			wantAttempts: 1, wantFailureCode: "provider_crashed", wantFailure: finalHighDemandFailure.Error,
+			wantContinuationSessionIDs: []string{""}, wantContinuationPrompts: []string{""},
+		},
+		{
 			name: "high-demand failure resumes captured session",
 			defaults: map[string]any{
 				"tpm": 60000,

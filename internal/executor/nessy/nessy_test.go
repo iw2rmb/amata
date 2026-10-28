@@ -46,7 +46,7 @@ func TestProviderInvokesNessyAndCapturesOutput(t *testing.T) {
 				request.Structured = &agent.StructuredOutput{JSON: `{"type":"object","properties":{"approved":{"type":"boolean"}}}`}
 				wantPrompt = agent.StructuredPrompt(wantPrompt, request.Structured.JSON)
 			}
-			wantArgs := []string{"--auth-type", "openai", "--chat-recording", "true"}
+			wantArgs := []string{"--auth-type", "openai", "--chat-recording", "true", "--approval-mode", "auto-edit"}
 			if tt.model != "" {
 				wantArgs = append(wantArgs, "--model", tt.model)
 			}
@@ -58,10 +58,10 @@ func TestProviderInvokesNessyAndCapturesOutput(t *testing.T) {
 				if tt.session != "" {
 					sessionFlag = "--resume"
 				}
-				if len(args) < 6 || args[4] != sessionFlag || args[5] == "" || (tt.session != "" && args[5] != tt.session) {
+				if len(args) < 8 || args[6] != sessionFlag || args[7] == "" || (tt.session != "" && args[7] != tt.session) {
 					t.Fatalf("session args = %q", args)
 				}
-				wantArgs = append(append(append([]string{}, wantArgs[:4]...), sessionFlag, args[5]), wantArgs[4:]...)
+				wantArgs = append(append(append([]string{}, wantArgs[:6]...), sessionFlag, args[7]), wantArgs[6:]...)
 				if string(stdin) != wantPrompt {
 					t.Fatalf("stdin = %q, want %q", stdin, wantPrompt)
 				}

@@ -83,10 +83,10 @@ flows:
 	if err := json.Unmarshal(data, &invocation); err != nil {
 		t.Fatal(err)
 	}
-	if len(invocation.Args) != 6 || invocation.Args[5] == "" {
+	if len(invocation.Args) != 8 || invocation.Args[7] == "" {
 		t.Fatalf("session args = %q", invocation.Args)
 	}
-	wantArgs := []string{"--auth-type", "openai", "--chat-recording", "true", "--session-id", invocation.Args[5]}
+	wantArgs := []string{"--auth-type", "openai", "--chat-recording", "true", "--approval-mode", "auto-edit", "--session-id", invocation.Args[7]}
 	if !reflect.DeepEqual(invocation.Args, wantArgs) || invocation.Env != "from-defaults" || invocation.Stdin != "--fix the 'feature'" {
 		t.Fatalf("invocation = %#v", invocation)
 	}

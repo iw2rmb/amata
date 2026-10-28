@@ -4,9 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	executorapi "github.com/iw2rmb/amata/internal/executor"
-	"github.com/iw2rmb/amata/internal/executor/agent"
-	"github.com/iw2rmb/amata/internal/gitadapter"
 	"github.com/iw2rmb/amata/internal/progress"
 	"github.com/iw2rmb/amata/internal/spec"
 	"github.com/iw2rmb/amata/internal/state"
@@ -31,27 +28,8 @@ func (r *Runner) executeStep(ctx context.Context, reporter *progress.Reporter, c
 	if result.Status != "" {
 		return action, result, nil
 	}
-	var baseline *gitadapter.RepositoryBaseline
-	defer func() {
-		if baseline != nil {
-			baseline.Close()
-		}
-	}()
-	needsReset := false
-	for i := 1; i < len(candidates); i++ {
-		needsReset = needsReset || candidates[i].Type != candidates[i-1].Type
-	}
 	var cleanup func() error
 	for i, candidate := range candidates {
-		if needsReset && baseline == nil {
-			resolved, failure := agent.ResolveStep(executorapi.StepContext{Spec: config.Spec, SpecPath: config.SpecPath, Workspace: config.Workspace, Step: candidate, StepIndex: stepIndex, Runtime: runtime}, candidate.Type)
-			if failure == nil {
-				baseline, err = gitadapter.CaptureBaseline(ctx, resolved.CWD, config.Workspace.StateDir)
-				if err != nil {
-					return stepAction{}, roleFailure(stepIndex, step, "repository_snapshot_failed", err), nil
-				}
-			}
-		}
 		if i > 0 {
 			previousSession := continuation.ContinuationSessionID
 			continuation = retryContext{}
@@ -62,10 +40,6 @@ func (r *Runner) executeStep(ctx context.Context, reporter *progress.Reporter, c
 				}
 				if sessionID != "" {
 					continuation = retryContext{ContinuationSessionID: sessionID, ContinuationPrompt: defaultAgentResumePrompt}
-				}
-			} else if baseline != nil {
-				if err := baseline.Restore(ctx); err != nil {
-					return stepAction{}, roleFailure(stepIndex, step, "repository_reset_failed", err), nil
 				}
 			}
 			reporter.StepFinished(progressResultStep(config, flowName, frameID, candidates[i-1], previous, bindings, result, snapshot.StepByRef))
