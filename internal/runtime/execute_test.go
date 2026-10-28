@@ -576,6 +576,27 @@ func TestRunnerCodexProviderRetry(t *testing.T) {
 			wantContinuationSessionIDs: []string{""}, wantContinuationPrompts: []string{""},
 		},
 		{
+			name: "high demand without session exhausts three default retries",
+			results: []state.StepResult{
+				highDemandFailure("message", ""), highDemandFailure("message", ""),
+				highDemandFailure("message", ""), highDemandFailure("message", ""),
+			},
+			wantAttempts: 4, wantSleepCalls: 3, wantFailureCode: "provider_crashed",
+			wantContinuationSessionIDs: []string{"", "", "", ""},
+			wantContinuationPrompts:    []string{"", "", "", ""},
+		},
+		{
+			name:     "high demand without session honors explicit retry limit",
+			defaults: map[string]any{"tpm": map[string]any{"retries": 2}},
+			results: []state.StepResult{
+				highDemandFailure("message", ""), highDemandFailure("message", ""),
+				{Status: state.StepStatusSucceeded, Value: "ok"},
+			},
+			wantAttempts: 3, wantSleepCalls: 2, wantSuccess: true,
+			wantContinuationSessionIDs: []string{"", "", ""},
+			wantContinuationPrompts:    []string{"", "", ""},
+		},
+		{
 			name: "high-demand failure resumes captured session",
 			defaults: map[string]any{
 				"tpm": 60000,

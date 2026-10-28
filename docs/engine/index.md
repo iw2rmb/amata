@@ -356,7 +356,7 @@ Behavior:
 - `codex exec --json` is invoked with the rendered prompt on stdin.
 - Codex rate-limit (`429`) failures retry when `defaults.tpm` is set. The recognized high-demand message `We're currently experiencing high demand, which may cause temporary errors.` retries by default, including the typographic apostrophe variant. The runner waits 60 seconds before each retry. An explicit `defaults.tpm.retries` sets the limit for both failures; otherwise high-demand failures allow three retries and rate-limit failures allow one.
 - These failures share one retry budget. When a provider continuation session id is available, the runner resumes that codex session with prompt `continue`.
-- If the retryable failure has no continuation session id, the runner allows one fresh retry attempt without session resume.
+- Without a continuation session id, high-demand failures use fresh attempts up to the retry limit. Rate-limit failures allow only one fresh retry attempt.
 - When `response.schema` targets `value`, the executor accepts either an inline schema/ref or a path-like string to a `.json` schema file relative to the workflow file.
 - Inline Codex schemas are expanded into a provider-safe object schema artifact before `codex exec --output-schema`.
 - File-backed Codex schemas are normalized into a step-local provider schema artifact before `codex exec --output-schema`.

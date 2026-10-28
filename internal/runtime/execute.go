@@ -365,14 +365,21 @@ func resolveCodexProviderRetryPolicy(runtime exprruntime.Runtime, defaults map[s
 }
 
 func (p codexProviderRetryPolicy) retryLimit(result state.StepResult) int {
+	if isHighDemandProviderStepFailure(result) {
+		return p.HighDemandRetries
+	}
+	return p.MaxRetries
+}
+
+func isHighDemandProviderStepFailure(result state.StepResult) bool {
 	providerError, _ := providerErrorDetails(result)
 	for _, key := range []string{"code", "type", "message"} {
 		value, _ := providerError[key].(string)
 		if isHighDemandProviderErrorText(value) {
-			return p.HighDemandRetries
+			return true
 		}
 	}
-	return p.MaxRetries
+	return false
 }
 
 func (r *Runner) maybeRetryCodexProviderFailure(
@@ -392,7 +399,7 @@ func (r *Runner) maybeRetryCodexProviderFailure(
 		return false, retryContext, state.StepResult{}
 	}
 	if sessionID == "" {
-		if retryContext.UsedFreshFallback {
+		if retryContext.UsedFreshFallback && !isHighDemandProviderStepFailure(result) {
 			return false, retryContext, state.StepResult{}
 		}
 		retryContext.UsedFreshFallback = true
